@@ -54,6 +54,7 @@ int debug_trigger = 0; // wait until all particles have been put in the sim befo
 #define DIRECT_FT // defined to compute the fourier transform "directly"
 //#define TFILE // defined to write  a trajectory
 
+extern double water_KV;
 extern double kc;
 extern double kg;
 extern double KA;
@@ -121,6 +122,7 @@ int main( int argc, char **argv )
 	int collect_hk = block.collect_hk;	
 	int doPlanarTopology = block.planar_topology; // true means the system is planar.	
 	int doMonge = block.monge;
+	water_KV = block.kv;
 	kc = block.kc;
 	kg = block.kg;
 	KA = block.KA;
@@ -146,8 +148,6 @@ int main( int argc, char **argv )
 
 	printf("eta_SI: %le eta: %le (kcal/angstrom/seconds)\n", eta_SI, eta );
 //1.3e-13;
-	double dt = 1e-3*(2*sqrt(65/M_PI))*(2*sqrt(65/M_PI))/(4*lipid_DC);//block.time_step;
-	printf("timestep: %le (s)\n",dt);
 
 	fitCoupling = block.fitCoupling;
 
@@ -271,12 +271,23 @@ int main( int argc, char **argv )
 		useSurface->readLipidComposition(inputFile);
 		if( inputFile) fclose(inputFile);
 		useSurface->setg0(sRec->r);
-	
+		
+		double Vi,Vo;
+		double alphas[3]={1,1,1};
+		useSurface->new_volume( &Vi, &Vo, sRec->r, alphas, NULL ); // to test gradient. 
+		sRec->V0_i = Vi;
+		sRec->V0_o = Vo;
+		
+
 		double area0;
 		double cur_area;
 		useSurface->area(r, -1, &cur_area, &area0 );
 		printf("Surface %d area: %le area0: %le\n", sRec->id, cur_area, area0 );
+		
+		sRec->area0 = area0;
 	}
+
+	global_block = &block; //yikes
 
 	if( block.fitRho )
 		theSimulation->setupDensity( block.fitRho );
@@ -296,7 +307,7 @@ int main( int argc, char **argv )
 	if(do_rd)
 	{
 		theSimulation->rd = (RD *)malloc( sizeof(RD) );
-		theSimulation->rd->init(theSimulation, dt, &block );
+		theSimulation->rd->init(theSimulation, block.time_step, &block );
 		if(debug)
 			printf("debug RD 1st ncomplexes: %d\n", theSimulation->ncomplex);
 
@@ -329,10 +340,6 @@ int main( int argc, char **argv )
 
 	int n = 16;
 	
-	double Vtot = 0;
-	double Vtot2 = 0;
-	double NV = 0;
-	double area0=0;
 
 	if( block.sphere )
 	{
@@ -441,7 +448,7 @@ int main( int argc, char **argv )
 		double cur_area,area0;
 		useSurface->area(sRec->r, -1, &cur_area, &area0 );
 	
-		double MSCALE = 1;//500;
+		double MSCALE = 5;//500;
 		double mass_per_lipid = MSCALE * 1000 * 760.09 / 6.022e23 / 1000; // POPC kg, wikipedia
 		double area_per_lipid = 65.35; // A^2, POPC, interpolated from Kucerka 2011 BBA 2761
 		// factor of two for leaflets.
@@ -556,28 +563,30 @@ int main( int argc, char **argv )
 		sRec->Qdot0 = NULL;
 		sRec->Qdot0_trial = NULL;		
 
+		int nq_alloc = sRec->NQ+1;
 		if( sRec->do_gen_q )
 		{
-			sRec->n_real_q = sRec->NQ;
-			sRec->pp = (double *)malloc( sizeof(double) * sRec->NQ ); 
-			memset( sRec->pp, 0, sizeof(double) * sRec->NQ );
-			sRec->next_pp = (double *)malloc( sizeof(double) * sRec->NQ );
-			memset( sRec->next_pp, 0, sizeof(double) * sRec->NQ );
-			sRec->del_pp = (double *)malloc( sizeof(double) * sRec->NQ );
-			sRec->QV = (double *)malloc( sizeof(double) * sRec->NQ );
-			sRec->Qdot = (double *)malloc( sizeof(double) * sRec->NQ );
-			sRec->Qdot0 = (double *)malloc( sizeof(double) * sRec->NQ );
-			sRec->Qdot0_trial = (double *)malloc( sizeof(double) * sRec->NQ );
-			sRec->nav_Q = (double *)malloc( sizeof(double) * sRec->NQ );
-			sRec->av_Q = (double *)malloc( sizeof(double) * sRec->NQ );
-			sRec->av_Q2 = (double *)malloc( sizeof(double) * sRec->NQ );
-			sRec->av_Q_T = (double *)malloc( sizeof(double) * sRec->NQ );
-			sRec->nav_Q_T = (double *)malloc( sizeof(double) * sRec->NQ );
-			memset( sRec->nav_Q, 0, sizeof(double) * sRec->NQ );
-			memset( sRec->av_Q, 0, sizeof(double) * sRec->NQ );
-			memset( sRec->av_Q2, 0, sizeof(double) * sRec->NQ );
-			memset( sRec->av_Q_T, 0, sizeof(double) * sRec->NQ );
-			memset( sRec->nav_Q_T, 0, sizeof(double) * sRec->NQ );
+			sRec->n_real_q = nq_alloc;
+			sRec->pp = (double *)malloc( sizeof(double) * nq_alloc ); 
+			memset( sRec->pp, 0, sizeof(double) * nq_alloc );
+			sRec->next_pp = (double *)malloc( sizeof(double) * nq_alloc );
+			memset( sRec->next_pp, 0, sizeof(double) * nq_alloc );
+			sRec->del_pp = (double *)malloc( sizeof(double) * nq_alloc );
+			sRec->QV = (double *)malloc( sizeof(double) * nq_alloc );
+			memset( sRec->QV, 0, sizeof(double) * sRec->NQ );
+			sRec->Qdot = (double *)malloc( sizeof(double) * nq_alloc );
+			sRec->Qdot0 = (double *)malloc( sizeof(double) * nq_alloc );
+			sRec->Qdot0_trial = (double *)malloc( sizeof(double) * nq_alloc );
+			sRec->nav_Q = (double *)malloc( sizeof(double) * nq_alloc );
+			sRec->av_Q = (double *)malloc( sizeof(double) * nq_alloc );
+			sRec->av_Q2 = (double *)malloc( sizeof(double) * nq_alloc );
+			sRec->av_Q_T = (double *)malloc( sizeof(double) * nq_alloc );
+			sRec->nav_Q_T = (double *)malloc( sizeof(double) * nq_alloc );
+			memset( sRec->nav_Q, 0, sizeof(double) * nq_alloc );
+			memset( sRec->av_Q, 0, sizeof(double) * nq_alloc );
+			memset( sRec->av_Q2, 0, sizeof(double) * nq_alloc );
+			memset( sRec->av_Q_T, 0, sizeof(double) * nq_alloc );
+			memset( sRec->nav_Q_T, 0, sizeof(double) * nq_alloc );
 		}
 		else
 		{
@@ -596,7 +605,7 @@ int main( int argc, char **argv )
 		sRec->qdot0 = (double *)malloc( sizeof(double) * (3*nv+3) );
 		sRec->qdot_temp = (double *)malloc( sizeof(double) * (3*nv+3) );
 	
-		memset( sRec->pp, 0, sizeof(double) * sRec->NQ );
+		memset( sRec->pp, 0, sizeof(double) * nq_alloc );
 		memset( sRec->qdot, 0, sizeof(double) * 3 * nv );	
 		memset( sRec->qdot0, 0, sizeof(double) * 3 * nv );	
 		memset( sRec->qdot_temp, 0, sizeof(double) * 3 * nv );	
@@ -773,11 +782,23 @@ int main( int argc, char **argv )
 			any_do_gen_q = 1;	
 	}
 
+	int tracer = 0;
+	double prev_tracerp[3] = {0,0,0};
+	double nrm_junk[3];
+	int tracer_space = 10;
+	int ntraced = 0;
+	double *tracer_tracker = (double *)malloc( sizeof(double) * 3 * tracer_space ); 
+	
+
+
+	theSimulation->allSurfaces->theSurface->theTriangles[0].composition.tracer = 1;
+	theSimulation->allSurfaces->theSurface->evaluateRNRM( theSimulation->allSurfaces->theSurface->theTriangles[0].f, 1.0/3.0, 1.0/3.0, prev_tracerp, nrm_junk, theSimulation->allSurfaces->r ); 
+
 // DEBUG
 	{
 		surface_record *sRec = theSimulation->allSurfaces;
 		for( int x = 0; x < 10; x++ )
-			sRec->theSurface->local_lipidMCMove( sRec->r, theSimulation->allComplexes, theSimulation->ncomplex, time_step, 1.0 / temperature, block.lipid_mc_swap_only );
+			sRec->theSurface->local_lipidMCMove( sRec->r, theSimulation->allComplexes, theSimulation->ncomplex, time_step, 1.0 / temperature, block.diffc, theSimulation->PBC_vec, block.lipid_mc_swap_only, &tracer );
 	}
 //end
 
@@ -999,6 +1020,7 @@ int main( int argc, char **argv )
 		}
 		if( block.kinetics && do_bd_membrane )
 		{
+			int nv = sRec->theSurface->nv;
 			for( int i = 0; i < sRec->NQ; i++ )
 			{
 				double q = sRec->output_qvals[i];
@@ -1008,6 +1030,43 @@ int main( int argc, char **argv )
 				double inv_mass = sRec->EFFM->diagonal_element[i]; 
 				double frc_k = 0.5 * kc * area * q * q * q * q;	
 				printf("Tau: %le (s)\n", tau/AKMA_TIME );
+#define CHECK_FRC_K
+#ifdef CHECK_FRC_K
+				double emp_frc_k = 0;
+				double e0 = 0;
+				double epsv[10];
+				double deps = 1e-2;
+				for( int ieps = 0; ieps < 10; ieps++ )
+				{
+					double eps = ieps * deps;
+					for( int v = 0; v < sRec->theSurface->nv; v++ )
+					{
+						sRec->r[v*3+0] += eps*sRec->gen_transform[i*3*nv+v*3+0];		
+						sRec->r[v*3+1] += eps*sRec->gen_transform[i*3*nv+v*3+1];		
+						sRec->r[v*3+2] += eps*sRec->gen_transform[i*3*nv+v*3+2];		
+					}
+
+					double rcheck[3], rnrm[3];
+					sRec->theSurface->evaluateRNRM( 0, 0, 0, rcheck, rnrm, sRec->r );
+					printf("r0: %lf %lf %lf\n", rcheck[0], rcheck[1], rcheck[2] ); 
+
+					double len=0;
+					printf("%le %.14le\n", eps, len=sRec->theSurface->energy(sRec->r,NULL) );
+					epsv[ieps] = len;	
+					for( int v = 0; v < sRec->theSurface->nv; v++ )
+					{
+						sRec->r[v*3+0] -= eps*sRec->gen_transform[i*3*nv+v*3+0];		
+						sRec->r[v*3+1] -= eps*sRec->gen_transform[i*3*nv+v*3+1];		
+						sRec->r[v*3+2] -= eps*sRec->gen_transform[i*3*nv+v*3+2];		
+					}
+					if( ieps >= 2 )
+					{
+						emp_frc_k = (epsv[ieps]-2*epsv[ieps-1]+epsv[ieps-2])/(deps*deps);	
+					}
+				}
+				printf("frc_k: %le emp_frc_k: %le\n", frc_k, emp_frc_k );
+#endif
+
 
 				double gammabar = frc_k * tau * inv_mass;
 
@@ -1078,12 +1137,6 @@ int main( int argc, char **argv )
 				VP += theSimulation->allComplexes[c]->V(theSimulation);	
 				VP += theSimulation->allComplexes[c]->AttachV(theSimulation);	
 
-				if( VP > 1e4 )
-				{
-					VP += theSimulation->allComplexes[c]->V(theSimulation);	
-					VP += theSimulation->allComplexes[c]->AttachV(theSimulation);	
-					exit(1);
-				}
 			}
 
 
@@ -1115,11 +1168,33 @@ int main( int argc, char **argv )
 					PartialSyncVertices(sRec->r,sRec->id);
 					if( global_cntr % block.lipid_mc_period == 0 )
 					{
-						sRec->theSurface->local_lipidMCMove( sRec->r, theSimulation->allComplexes, theSimulation->ncomplex, time_step, 1.0 / temperature, block.lipid_mc_swap_only );
+						sRec->theSurface->local_lipidMCMove( sRec->r, theSimulation->allComplexes, theSimulation->ncomplex, time_step, 1.0 / temperature,block.diffc, theSimulation->PBC_vec, block.lipid_mc_swap_only, &tracer );
 					}
+	
+					if( block.kinetics )
+					{
+						/* TRACER mechanism to debug diffusion */
+						// one triangle is tagged with a tracer that is moved by the diffusive mechanism. we can track its movement here.
+						double tracerp[3] = {0,0,0};
+						double nrmjunk[3];	
+	
+						sRec->theSurface->evaluateRNRM( sRec->theSurface->theTriangles[tracer].f,  1.0/3.0, 1.0/3.0, tracerp, nrm_junk, sRec->r );
+						double dr[3] = { tracerp[0] - prev_tracerp[0], tracerp[1] - prev_tracerp[1], tracerp[2] - prev_tracerp[2] };
+						theSimulation->wrapPBC( dr, theSimulation->alpha );
+	
+						tracerp[0] = prev_tracerp[0] + dr[0];
+						tracerp[1] = prev_tracerp[1] + dr[1];
+						tracerp[2] = prev_tracerp[2] + dr[2];
+	
+						
+
+					//	printf("t: %le (s) tracer %le %le %le t %d\n", cur_t, tracerp[0], tracerp[1], tracerp[2], tracer );
+						memcpy( prev_tracerp, tracerp, sizeof(double) * 3 ); 
+					}
+
 				}	 
-			
 			}
+
 			if( block.cyl_tension_mc_period > 0 )
 			{
 				if( global_cntr % block.cyl_tension_mc_period == 0 )
@@ -1659,6 +1734,110 @@ int main( int argc, char **argv )
 							sRec->nav_Q[Q] += 1;
 						}
 					}
+
+					if( t == 0 && block.track_lipid_rho && par_info.my_id == BASE_TASK )
+					{
+						if( block.sphere )
+						{
+							printf("Lipid rho tracking on spheres not yet implemented.\n");
+							exit(1);
+						}
+
+						// This is a hack for right now to track the fourier modes of our explicit particles' rho.
+						if( !strcasecmp( block.track_lipid_rho, "explicit") )
+						{
+							// do explicit tracking
+							int nx = block.mode_x;
+							int ny = block.mode_y;
+			
+							double pq_0_o = 0;
+							double pq_0_i = 0;
+							double pq_1_o = 0;
+							double pq_1_i = 0;
+							double A = Lx*Ly;
+		
+							for( int c = 0; c < theSimulation->ncomplex; c++ )
+							{
+								for( int s = 0; s < theSimulation->allComplexes[c]->nattach; s++ )
+								{
+									surface_record *sRec = theSimulation->fetch(theSimulation->allComplexes[c]->sid[s]);
+									double rpt[3],rnrm[3];
+									sRec->theSurface->evaluateRNRM( theSimulation->allComplexes[c]->fs[s],
+													theSimulation->allComplexes[c]->puv[2*s+0],
+													theSimulation->allComplexes[c]->puv[2*s+1],
+													rpt,rnrm,sRec->r );
+
+									if( theSimulation->allComplexes[c]->is_inside )
+									{
+										pq_1_i += sin( 2 * M_PI * nx / Lx * rpt[0] + 2*M_PI*ny/Ly*rpt[1]);
+										pq_0_i += cos( 2 * M_PI * nx / Lx * rpt[0] + 2*M_PI*ny/Ly*rpt[1]);
+									}
+									else
+									{
+										pq_1_o += sin( 2 * M_PI * nx / Lx * rpt[0] + 2*M_PI*ny/Ly*rpt[1]);
+										pq_0_o += cos( 2 * M_PI * nx / Lx * rpt[0] + 2*M_PI*ny/Ly*rpt[1]);
+									}
+								}
+							}
+
+							pq_0_o /= A;
+							pq_0_i /= A;
+							pq_1_o /= A;
+							pq_1_i /= A;
+							printf(" %le %le %le %le", pq_0_i, pq_1_i, pq_0_o, pq_1_o );
+						}	
+						else
+						{
+							int use_lipid = -1;
+							for( int x = 0; x < sRec->theSurface->bilayerComp.nlipidTypes; x++ )
+							{
+								if( !strcasecmp( sRec->theSurface->bilayerComp.names[x], block.track_lipid_rho) ) 
+									use_lipid = x;
+							}
+							if( use_lipid > 0 )
+							{
+								double Lx = theSimulation->PBC_vec[0][0];
+								double Ly = theSimulation->PBC_vec[1][1];
+								printf(" LIPIDRHO(ic,is,oc,os):");
+								if( block.mode_max >= 0 || block.mode_q_max >= 0 )
+								{	
+									printf("Track rho on multi-modes NYI.\n");
+									exit(1);							
+								}
+								else
+								{
+									int nx = block.mode_x;
+									int ny = block.mode_y;
+			
+									double pq_0_o = 0;
+									double pq_0_i = 0;
+									double pq_1_o = 0;
+									double pq_1_i = 0;
+									double A = Lx*Ly;
+		
+									for( int t = 0; t < sRec->theSurface->nt; t++ )
+									{
+										int f = sRec->theSurface->theTriangles[t].f;
+	
+										double rpt[3],rnrm[3];
+										sRec->theSurface->evaluateRNRM( f, 1.0/3.0, 1.0/3.0, rpt, rnrm, sRec->r );
+										double nL_o = sRec->theSurface->theTriangles[t].composition.outerLeaflet[use_lipid] / sRec->theSurface->bilayerComp.APL[use_lipid];	
+										double nL_i = sRec->theSurface->theTriangles[t].composition.innerLeaflet[use_lipid] / sRec->theSurface->bilayerComp.APL[use_lipid];	
+										pq_1_o += nL_o * sin( 2 * M_PI * nx / Lx * rpt[0] + 2*M_PI*ny/Ly*rpt[1]);
+										pq_1_i += nL_i * sin( 2 * M_PI * nx / Lx * rpt[0] + 2*M_PI*ny/Ly*rpt[1]);
+										pq_0_o += nL_o * cos( 2 * M_PI * nx / Lx * rpt[0] + 2*M_PI*ny/Ly*rpt[1]);
+										pq_0_i += nL_i * cos( 2 * M_PI * nx / Lx * rpt[0] + 2*M_PI*ny/Ly*rpt[1]);
+									}
+									pq_0_o /= A;
+									pq_0_i /= A;
+									pq_1_o /= A;
+									pq_1_i /= A;
+									printf(" %le %le %le %le", pq_0_i, pq_1_i, pq_0_o, pq_1_o );
+								}
+							}
+						}
+					}
+
 					if( t == 0 )
 						printf("\n");
 				}
@@ -1730,9 +1909,29 @@ int main( int argc, char **argv )
 
 			if( block.record_curvature && o >= nequil  )
 			{
+				double avc_m = 0;
+				double navc_m = 0;
+				double avc_d = 0;
+				double navc_d = 0;
 				for( int c = 0; c < theSimulation->ncomplex; c++ )
-					avc[c] += theSimulation->allComplexes[c]->local_curvature( theSimulation );
-				navc+=1;
+				{
+					if( theSimulation->allComplexes[c]->disabled ) continue;
+
+					if( !strcasecmp( theSimulation->allComplexes[c]->complex_name, "simpleLipid" ) )
+					{
+						avc_m += theSimulation->allComplexes[c]->local_curvature( theSimulation );
+						navc_m += 1;	
+					}
+					else if( !strcasecmp( theSimulation->allComplexes[c]->complex_name, "simpleDimer" ) )
+					{
+						avc_d += theSimulation->allComplexes[c]->local_curvature( theSimulation );
+						navc_d += 1;	
+					}
+				}
+				printf("Monomer <c> %le %lf dimer <c> %le %lf\n", avc_m/navc_m, navc_m, avc_d/navc_d, navc_d );
+//				for( int c = 0; c < theSimulation->ncomplex; c++ )
+//					avc[c] += theSimulation->allComplexes[c]->local_curvature( theSimulation );
+//				navc+=1;
 			}
 
 			if( block.s_q && global_cntr % block.s_q_period == 0 && o >= nequil)
@@ -1884,6 +2083,36 @@ int main( int argc, char **argv )
 		}
 #endif			
 
+
+		if( block.kinetics && block.lipid_mc_period > 0 && block.debug_diffusion)
+		{
+			if( ntraced == tracer_space )
+			{
+				tracer_space *= 2;
+				tracer_tracker = (double *)realloc( tracer_tracker, sizeof(double) * 3 * tracer_space );
+			} 
+			tracer_tracker[3*ntraced+0] = prev_tracerp[0];
+			tracer_tracker[3*ntraced+1] = prev_tracerp[1];
+			tracer_tracker[3*ntraced+2] = prev_tracerp[2];
+			
+			double *temp_diff = (double *)malloc( sizeof(double) * ntraced );
+			memset( temp_diff, 0, sizeof(double) * ntraced );
+			for( int it = 0; it < ntraced; it++ )
+			{
+				for( int it2 = it; it2 < ntraced; it2++ )
+				{
+					double dr[3] = { 
+						tracer_tracker[it2*3+0] - tracer_tracker[it*3+0],
+						tracer_tracker[it2*3+1] - tracer_tracker[it*3+1],
+						tracer_tracker[it2*3+2] - tracer_tracker[it*3+2] };
+					temp_diff[it2-it] += dr[0]*dr[0]+dr[1]*dr[1]+dr[2]*dr[2];			
+				}
+			}
+			for( int it = 0; it < ntraced; it++ )
+				printf("%.14le %.14le\n", it * block.o_lim * block.time_step, temp_diff[it] / (ntraced-it) );
+			free(temp_diff);
+			ntraced++;
+		} 
 		
 		if( block.hours > 0 )
 		{
@@ -1991,48 +2220,48 @@ int main( int argc, char **argv )
 	{
 		for( int c = 0; c < theSimulation->ncomplex; c++ )
 		{
-			char *typeName = NULL;
-			theSimulation->allComplexes[c]->print_type(&typeName);
-			printf("Complex %d type %s average curvature %lf\n", c, typeName, avc[c]/(navc+1e-11) );
-			if( typeName) free(typeName);
+//			char *typeName = NULL;
+//			theSimulation->allComplexes[c]->print_type(&typeName);
+//			printf("Complex %d type %s average curvature %lf\n", c, typeName, avc[c]/(navc+1e-11) );
+//			if( typeName) free(typeName);
 		}
 	}
 
-#if 0 // pre-simulation change me!
-	if( doing_spherical_harmonics || doing_planar_harmonics )
+#if 1 // pre-simulation change me!
+	if( theSimulation->allSurfaces->doing_spherical_harmonics || theSimulation->allSurfaces->doing_planar_harmonics )
 	{
 		printf("------ Harmonic general variables ------\n");
-		for( int Q = 0; Q < NQ; Q++ )
+		for( int Q = 0; Q < theSimulation->allSurfaces->NQ; Q++ )
 		{
-			av_Q2[Q] *= scaling_factor[Q] * scaling_factor[Q];
-			av_Q[Q] *= scaling_factor[Q];
-			av_Q2[Q] /= nav_Q[Q];	
-			av_Q[Q] /= nav_Q[Q];
+			theSimulation->allSurfaces->av_Q2[Q] *= theSimulation->allSurfaces->scaling_factor[Q] * theSimulation->allSurfaces->scaling_factor[Q];
+			theSimulation->allSurfaces->av_Q[Q] *= theSimulation->allSurfaces->scaling_factor[Q];
+			theSimulation->allSurfaces->av_Q2[Q] /= theSimulation->allSurfaces->nav_Q[Q];	
+			theSimulation->allSurfaces->av_Q[Q] /= theSimulation->allSurfaces->nav_Q[Q];
 
 			double kc_app = -1;
 			double expected = 0;
-			if( doing_spherical_harmonics )
+			if( theSimulation->allSurfaces->doing_spherical_harmonics )
 			{	
-				double l = output_qvals[Q];
+				double l = theSimulation->allSurfaces->output_qvals[Q];
 				expected = temperature / ( kc * (l+2)*(l-1)*l*(l+1) ); 
 			}
 			else
 			{	
-				double q = output_qvals[Q];
-				expected = temperature / ( kc * area0 *q*q*q*q); 
+				double q = theSimulation->allSurfaces->output_qvals[Q];
+				expected = temperature / ( kc * theSimulation->allSurfaces->area0 *q*q*q*q); 
 			}
 
-			double var = av_Q2[Q] - av_Q[Q] * av_Q[Q];
+			double var = theSimulation->allSurfaces->av_Q2[Q] - theSimulation->allSurfaces->av_Q[Q] * theSimulation->allSurfaces->av_Q[Q];
 
 			kc_app = kc * (expected / var);
 
 			printf("Mode_index %d", Q );
-			if( doing_planar_harmonics )
-				printf(" q %le", output_qvals[Q] );
-			else if( doing_spherical_harmonics )
-				printf(" l %d", (int)lround(output_qvals[Q]) ); 
+			if( theSimulation->allSurfaces->doing_planar_harmonics )
+				printf(" q %le", theSimulation->allSurfaces->output_qvals[Q] );
+			else if( theSimulation->allSurfaces->doing_spherical_harmonics )
+				printf(" l %d", (int)lround(theSimulation->allSurfaces->output_qvals[Q]) ); 
 			printf("<h> %le <h^2> %le k_c_apparent %le\n",
-					av_Q[Q], av_Q2[Q], kc_app );
+					theSimulation->allSurfaces->av_Q[Q], theSimulation->allSurfaces->av_Q2[Q], kc_app );
 		}
 		printf("------ done\n");
 		
@@ -2071,35 +2300,4 @@ int main( int argc, char **argv )
         MPI_Barrier(MPI_COMM_WORLD);
         MPI_Finalize();
 #endif
-
-	return 0;
 }
-
-
-
-void updateParticleR( int p, int *pfaces, double *puv, double *p_r_m, double *r, surface *theSurface, int np )
-{
-	int nv = theSurface->nv;
-
-	double rp[3];
-	double nrm[3];
-	theSurface->evaluateRNRM( pfaces[p], puv[2*p+0], puv[2*p+1], rp, nrm, r);
-
-	p_r_m[3*p+0] = rp[0];			
-	p_r_m[3*p+1] = rp[1];			
-	p_r_m[3*p+2] = rp[2];		
-	
-	theSurface->updateParticle( p_r_m+3*p, p, r[3*nv+0], r[3*nv+1], r[3*nv+2] );
-	
-	if( do_2p )	
-	{
-		p_r_m[3*np+3*p+0] = rp[0] + dist_nrm * nrm[0];			
-		p_r_m[3*np+3*p+1] = rp[1] + dist_nrm * nrm[1];			
-		p_r_m[3*np+3*p+2] = rp[2] + dist_nrm * nrm[2];			
-		theSurface->updateParticle( p_r_m+3*np+3*p, np+p, r[3*nv+0], r[3*nv+1], r[3*nv+2] );
-	}
-}
-
-
-
-
