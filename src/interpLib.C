@@ -18,6 +18,7 @@
 #include "fast_mm.h"
 #include "parallel.h"
 
+//#define FACE_DEBUG_ENERGY
 
 #define ATLAS
 
@@ -32,7 +33,7 @@ double eps_f_min = 5;
 #ifdef LINUX
 #include "clapack.h"
 #endif
-	
+
 	double fix_edge_k = 0.0;
 	double fix_edge_r0 = 1.0;
 //#define USE_GPU
@@ -69,8 +70,8 @@ double phase2 = 0;
 #ifdef LOW_RES
 #define G_Q_P_1
 #else
-//#define G_Q_P_3
-#define G_Q_P_15
+#define G_Q_P_3
+//#define G_Q_P_15
 #endif
 //#define G_Q_P_3
 //#define G_Q_P_4
@@ -381,6 +382,7 @@ void surface::generateVolumePlan( void )
 			int em4 = e-4; if( em4 < 0 ) em4 += val;
 			int em5 = e-5; if( em5 < 0 ) em5 += val;
 			int em6 = e-6; if( em6 < 0 ) em6 += val;
+			int em7 = e-7; if( em7 < 0 ) em7 += val;
 			// ep1 already defined.
 			int ep2 = e+2; if( ep2 >= val ) ep2 -= val;
 			int ep3 = e+3; if( ep3 >= val ) ep3 -= val;
@@ -405,6 +407,7 @@ void surface::generateVolumePlan( void )
 			if( val >= 6 ) point_list[6] = theVertices[i].edges[em4];
 			if( val >= 7 ) point_list[7] = theVertices[i].edges[em5];
 			if( val >= 8 ) point_list[8] = theVertices[i].edges[em6];
+			if( val >= 9 ) point_list[9] = theVertices[i].edges[em7];
 
 			
 			point_list[val+1] = theVertices[k].edges[ekm2];
@@ -1143,6 +1146,8 @@ int surface::loadAndCopyLattice( const char *fileName, surface *copyFrom )
 
 int surface::loadLattice( const char *fileName, double noise, surface *copyFrom )
 {
+	exclude_tri = NULL;
+	nexcl = 0;
 	on_surface = 0;
 	disable_PBC = 0;
 	cumulative_area = NULL;
@@ -1284,9 +1289,9 @@ int surface::loadLattice( const char *fileName, double noise, surface *copyFrom 
 		}
 		if( nfields >= 5 )
 		{
-			if( val < 5 || val > 7 )
+			if( val < 4 || val > 9)
 			{
-				printf("The valence of any point currently must be between 5 and 7.\n");
+				printf("The valence of any point currently must be between 4 and 9.\n");
 				exit(1);
 			}
 			if( val > MAX_VALENCE )
@@ -1358,9 +1363,33 @@ int surface::loadLattice( const char *fileName, double noise, surface *copyFrom 
 				load_tilt[3*t+2] = 1;
 			}
 		}
+	
+		getLine( theFile, buffer );
+	}
+
+	if( !strncasecmp(buffer, "excl_tri", 8) )
+	{
+		int nr = sscanf( buffer, "excl_tri %d", &nexcl );
+		exclude_tri = (int *)malloc( sizeof(int) * 3 * nexcl );
+		for( int t = 0; t < nexcl; t++ )
+		{
+			getLine(theFile, buffer );
+			if( feof(theFile) )
+			{
+				printf("Error reading triangles.\n");
+				exit(1);
+			}
+			int nr = sscanf(buffer, "%d %d %d", exclude_tri + t*3, exclude_tri+t*3+1, exclude_tri+t*3+2 );
+
+			if( nr != 3 )
+			{
+				printf("Error reading triangles.\n");
+				exit(1);
+			}
+		}
 	}
 	
-	getLine( theFile, buffer );
+
 
 	printf("Read %d lattice points.\n", nv);
 	
@@ -2613,6 +2642,8 @@ void surface::subdivideSurface( surface *copy_surface )
 
 */
 
+	exclude_tri = NULL;
+	nexcl = 0;
 	on_surface = 0;
 	disable_PBC = 0;
 	cumulative_area = NULL;
@@ -2966,7 +2997,7 @@ void surface::get( double *r )
 	}
 }
 
-void surface::setg0( double *r, double reset_factor )
+void surface::setg0( double *r, double reset_factor)
 {	
 	if( !theFormulas )
 		generatePlan();
@@ -3040,6 +3071,8 @@ void surface::setg0( double *r, double reset_factor )
 	e = 0;
 	area = 0;
 	wgt = 0;
+
+
 
 	double area_per_lipid = 65.;
 
@@ -3275,8 +3308,19 @@ void surface::setg0( double *r, double reset_factor )
 		double RvRv = Rv[0] * Rv[0] + Rv[1] * Rv[1] + Rv[2]*Rv[2];
 
 		double g = sqrt(RuRu*RvRv-RuRv*RuRv);
-		theIrregularFormulas[frm].g0 = g;
-		theIrregularFormulas[frm].g0_base = g;
+//		theIrregularFormulas[frm].g0 = g;
+//		theIrregularFormulas[frm].g0_base = g;
+		
+		if( reset_factor > 0 )
+		{
+			theIrregularFormulas[frm].g0 = g * reset_factor + (1-reset_factor) * theIrregularFormulas[frm].g0;
+			theIrregularFormulas[frm].g0_base = theIrregularFormulas[frm].g0;
+		}
+		else
+		{
+			theIrregularFormulas[frm].g0 = g;
+			theIrregularFormulas[frm].g0_base = g;
+		}
 		theIrregularFormulas[frm].RuRv0 = RuRv / sqrt(RuRu*RvRv);
 		nlipids += g / area_per_lipid;
 
@@ -3387,7 +3431,7 @@ void surface::setg0( double *r, double reset_factor )
 	} 
 }
 
-double VA = 0,VC = 0, VA4=0, VR=0, AVC=0;
+double VA = 0,VC = 0, VA4=0, VR=0, AVC=0, SUMK=0;
 double av_h2 = 0, nav_h2 = 0;
 
 /*
@@ -3594,6 +3638,7 @@ double surface::ifenergy( int f, double *r, double *p_uv )
 				double dc_o = ( c1+c2 - bilayerComp.c0[x]);
 				double dc_i = (-c1-c2 - bilayerComp.c0[x]);
 
+
 #ifdef FIXED_A
 				lec += 0.5 * kc * dc_o*dc_o * theTriangles[tri].composition.outerLeaflet[x] * 0.5 * theIrregularFormulas[frm].weight;
 				lec += 0.5 * kc * dc_i*dc_i * theTriangles[tri].composition.innerLeaflet[x] * 0.5 * theIrregularFormulas[frm].weight;
@@ -3601,12 +3646,19 @@ double surface::ifenergy( int f, double *r, double *p_uv )
 				en += 0.5 * kc * dc_o*dc_o * f_o * 0.5;
 				en += 0.5 * kc * dc_i*dc_i * f_i * 0.5;
 #endif
+
+#ifdef FACE_DEBUG_ENERGY
+				printf("if c: %le %le c0: %le dAf: %le en: %lf\n", c1, c2, bilayerComp.c0[x], dAf, 
+				0.5 * kc * dc_o*dc_o * f_o * 0.5 + 0.5 * kc * dc_i*dc_i * f_i * 0.5 );
+#endif
 			}
 			e += lec;
 			VC += lec;
 #endif
 			e += dudv * dAf * en; 			
 			VC += dudv * dAf * en;
+			SUMK += dudv * dAf * c1*c2;
+
 			AVC += dudv *dAf * (c1+c2);
 //			face_energy_density += dudv * dA * 0.5 * kc * (c1+c2-c0 ) * (c1+c2-c0);
 			face_energy_density += dudv * dAf * en;
@@ -3634,6 +3686,8 @@ double surface::ifenergy( int f, double *r, double *p_uv )
 
 	if( p_uv )
 		e += penergy( f, r, p_uv, 0, face_energy_density/face_area );
+
+
 
 	return e;
 }
@@ -3767,6 +3821,7 @@ double surface::fenergy( int f, double *r, double *p_uv )
 #endif
 //		printf("e1: %lf e2: %lf\n e3: %lf\n en: %lf\n", en_tot, en_tot_2, en_kg, en );
 
+	
 		if( !( en >0 || en < 1 ) )
 		{
 			printf("nan en.\n");
@@ -3822,6 +3877,7 @@ double surface::fenergy( int f, double *r, double *p_uv )
 
 				double dc_o = ( c1+c2 - bilayerComp.c0[x]);
 				double dc_i = (-c1-c2 - bilayerComp.c0[x]);
+				
 #if 0
 				printf("Lipid %s outer c %le endens %le tri %d fr %le a_l %le etot %le\n", bilayerComp.names[x], c1+c2, 0.5 * kc * dc_o*dc_o , tri,f_o,theTriangles[tri].composition.outerLeaflet[x],0.5 * kc * dc_o*dc_o * f_o * 0.5* theTriangles[tri].composition.outerLeaflet[x]); 
 				printf("Lipid %s inner c %le endens %le tri %d fr %le a_l %le etot %le\n", bilayerComp.names[x],-c1-c2, 0.5 * kc * dc_i*dc_i , tri,f_i,theTriangles[tri].composition.innerLeaflet[x],0.5 * kc * dc_i*dc_i * f_i * 0.5* theTriangles[tri].composition.innerLeaflet[x]); 
@@ -3836,6 +3892,11 @@ double surface::fenergy( int f, double *r, double *p_uv )
 				en += 0.5 * kc * dc_o*dc_o * f_o * 0.5;
 				en += 0.5 * kc * dc_i*dc_i * f_i * 0.5;
 #endif
+
+#ifdef FACE_DEBUG_ENERGY
+				printf("rf c: %le %le c0: %le dAf: %le en: %le\n", c1, c2, bilayerComp.c0[x], dAf,
+					0.5 * kc * dc_o*dc_o * f_o * 0.5 + 0.5 * kc * dc_i*dc_i * f_i * 0.5  );
+#endif
 			}
 			VC += lec;
 			e += lec;
@@ -3843,6 +3904,7 @@ double surface::fenergy( int f, double *r, double *p_uv )
 #endif
 			e += dudv * dAf * en; 			
 			VC += dudv * dAf * en;
+			SUMK += dudv * dAf * c1*c2;
 //			if( f == 40 && p == 0 )
 //			printf("e %d %d %le dA %le c1 %le c2 %le\n", f, p, dudv*dA*en,
 //				dA, c1, c2 );
@@ -3877,6 +3939,9 @@ double surface::fenergy( int f, double *r, double *p_uv )
 	if( p_uv )
 		e += penergy( f, r, p_uv, 0, face_energy_density/face_area );
 
+//	if( f == 198 )
+//		printf("f198 e: %le\n", e );
+		
 	return e;
 }
 
@@ -4003,6 +4068,7 @@ double surface::fenergym( int f, double *r, double *p_uv )
 	  }
 	e += dudv * dA * en;
 	VC += dudv * dA * en;
+	SUMK += dudv * dA * d2hdx2*d2hdy2;
 	AVC += dudv *dA * (d2hdy2+d2hdx2);
 	face_energy_density += dudv * dA * 0.5 * kc * (d2hdy2 + d2hdx2-c0 ) * (d2hdy2 + d2hdx2-c0);
 	face_area += dudv *dA;  
@@ -4191,6 +4257,7 @@ double surface::energy( double *r, double *puv, int do_vertex, int *plist, int *
 	VA = 0;
 	VA4 = 0;
 	VC = 0;
+	SUMK = 0;
 	AVC = 0;
 	if( faces_for_vertex == NULL )
 		computeModifiedVertices();	
@@ -4312,12 +4379,22 @@ double surface::energy( double *r, double *puv, int do_vertex, int *plist, int *
 	}
 	else
 	{
+//		printf("tommy:");
 		for( int fx = 0; fx < par_info.nf[surface_id]; fx++ )
 		{
 			int f = par_info.faces[surface_id][fx];
 	
-			e +=  faceEnergy( f, r, puv, doMonge ); 
+			if( f== 260 )
+			{
+//				printf("Check here.\n");
+			}
+			double de = faceEnergy( f, r, puv, doMonge ); 
+			e += de;
+//			printf("f: %d VA: %le VC: %le\n", f, VA, VC );		
+
+//			printf(" %le", de );
 		}
+//		printf("\n");
 	}	
 #if defined(GLOBAL_AREA) || defined(MICRO_KA)
 	if( do_vertex < 0 && par_info.my_id == BASE_TASK )
@@ -4336,18 +4413,11 @@ double surface::energy( double *r, double *puv, int do_vertex, int *plist, int *
 
 //	exit(1);
 
-	double ie = 0;
+#ifdef	FACE_DEBUG_ENERGY
+	exit(1);
+#endif
 
-/*	DONE ABOVE NOW: DELETE THIS
-	if( do_vertex < 0 )	
-	{
-		for( int f = 0; f < nf_irr_faces; f++ )
-			e +=  faceEnergy( nf_faces + f, r, puv, doMonge ); 
-//		ie = irregularEnergy( r );
-	}
-*/
-
-	return e + ie;
+	return e;
 
 }
 
@@ -4366,6 +4436,7 @@ void surface::area( double *r, int do_vertex, double *area, double *area0)
 	VA = 0;
 	VA4 = 0;
 	VC = 0;
+	SUMK = 0;
 	AVC = 0;
 	if( faces_for_vertex == NULL )
 		computeModifiedVertices();	
@@ -4623,6 +4694,7 @@ double surface::energyMonge( double *r, int do_vertex)
 	VA = 0;
 	VA4 = 0;
 	VC = 0;
+	SUMK = 0;
 	AVC = 0;
 
 	if( faces_for_vertex == NULL )
@@ -4795,6 +4867,7 @@ double surface::energyMonge( double *r, int do_vertex)
 			{
 				e += dudv * dA * en; 			
 				VC += dudv * dA * en;
+				SUMK += dudv * dA * d2hdy2*d2hdx2;
 				AVC += dudv *dA * (d2hdx2+d2hdy2);
 
 #ifdef MICRO_KA
@@ -4954,6 +5027,7 @@ double surface::irregularEnergy( double *r )
 			{
 				e += dudv * dA * en; 			
 				VC += dudv * dA * en;
+				SUMK += dudv * dA * c1*c2;
 				AVC += dudv *dA * (c1+c2);
 				VA += 2 * 0.5 * A0 * KA * ((A-A0)/A0) * ((A-A0)/A0);
 				e += 2 * 0.5 * A0 * KA * ((A-A0)/A0) * ((A-A0)/A0); 
@@ -5519,6 +5593,7 @@ void surface::generatePlan( void )
 			int em4 = e-4; if( em4 < 0 ) em4 += val;
 			int em5 = e-5; if( em5 < 0 ) em5 += val;
 			int em6 = e-6; if( em6 < 0 ) em6 += val;
+			int em7 = e-7; if( em7 < 0 ) em7 += val;
 			// ep1 already defined.
 			int ep2 = e+2; if( ep2 >= val ) ep2 -= val;
 			int ep3 = e+3; if( ep3 >= val ) ep3 -= val;
@@ -5539,10 +5614,12 @@ void surface::generatePlan( void )
 			point_list[2] = j; // e
 			point_list[3] = theVertices[i].edges[em1];
 			point_list[4] = theVertices[i].edges[em2];
+
 			if( val >= 5 ) point_list[5] = theVertices[i].edges[em3];
 			if( val >= 6 ) point_list[6] = theVertices[i].edges[em4];
 			if( val >= 7 ) point_list[7] = theVertices[i].edges[em5];
 			if( val >= 8 ) point_list[8] = theVertices[i].edges[em6];
+			if( val >= 9 ) point_list[9] = theVertices[i].edges[em7];
 
 			
 			point_list[val+1] = theVertices[k].edges[ekm2];
@@ -7274,7 +7351,23 @@ void surface::constructTriangles( void )
 		
 				if( bad ) continue;
 #endif
+				int excluded = 0;
+
 				if( gotit )
+				{
+					int sort1[3] = { i,j,k};
+					for( int t = 0; t < nexcl; t++ )
+					{
+						int  sort2[3] = { exclude_tri[3*t+0], exclude_tri[3*t+1], exclude_tri[3*t+2] };
+
+						sort3(sort2);
+
+						if( sort1[0] == sort2[0] && sort1[1] == sort2[1] && sort1[2] == sort2[2] )
+							excluded = 1;
+					}
+				}
+
+				if( gotit && !excluded )
 				{
 					if( nt == nts )
 					{
@@ -8853,6 +8946,7 @@ void surface::constructIrregularKernels( void )
 				int em4 = e-4; if( em4 < 0 ) em4 += val;
 				int em5 = e-5; if( em5 < 0 ) em5 += val;
 				int em6 = e-6; if( em6 < 0 ) em6 += val;
+				int em7 = e-7; if( em7 < 0 ) em7 += val;
 				// ep1 already defined.
 				int ep2 = e+2; if( ep2 >= val ) ep2 -= val;
 				int ep3 = e+3; if( ep3 >= val ) ep3 -= val;
@@ -8877,6 +8971,7 @@ void surface::constructIrregularKernels( void )
 				if( val >= 6 ) point_list[6] = theVertices[i].edges[em4];
 				if( val >= 7 ) point_list[7] = theVertices[i].edges[em5];
 				if( val >= 8 ) point_list[8] = theVertices[i].edges[em6];
+				if( val >= 9 ) point_list[9] = theVertices[i].edges[em7];
 	
 				
 				point_list[val+1] = theVertices[k].edges[ekm2];

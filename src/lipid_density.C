@@ -4,6 +4,8 @@
 #include "mutil.h"
 #include "interp.h"
 #include "parallel.h"
+#include "globals.h"
+
 const double F_CUTOFF = 0.5;
 
 int rand_dbg( void )
@@ -19,6 +21,8 @@ void surface::stashf( void )
 
 void surface::set_g0_from_f(int f)
 {
+	int discrete_lipids = ( global_block ? global_block->discrete_lipids : 0 );
+
 	if( f < nf_faces )
 	{
 		int tri = theFormulas[f*nf_g_q_p].tri;
@@ -47,7 +51,12 @@ void surface::set_g0_from_f(int f)
 
 		for( int q = 0; q < nf_g_q_p; q++ )
 		{	// needs to come out with the change in g0 being proportional to "innerLeaflet[xBab]" (with the same proportionality!)
-			theFormulas[f*nf_g_q_p+q].g0 = theFormulas[f*nf_g_q_p].g0_base * (atot / theTriangles[tri].composition.A0); 
+
+			if( discrete_lipids )
+				theFormulas[f*nf_g_q_p+q].g0 = theFormulas[f*nf_g_q_p].g0_base * (atot / theTriangles[tri].composition.A0); 
+			else
+				theFormulas[f*nf_g_q_p+q].g0_base = theFormulas[f*nf_g_q_p].g0_base; 
+	
 			theFormulas[f*nf_g_q_p+q].c0 = (c0_o - c0_i)/2;
 		}
 	}
@@ -81,8 +90,11 @@ void surface::set_g0_from_f(int f)
 
 		for( int q = 0; q < nf_irr_pts; q++ )
 		{
-			theIrregularFormulas[df*nf_irr_pts+q].g0 = theIrregularFormulas[df*nf_irr_pts+q].g0_base * (atot / theTriangles[tri].composition.A0); 
-			theIrregularFormulas[df*nf_irr_pts+q].c0 = c0; 
+			if( discrete_lipids )
+				theIrregularFormulas[df*nf_irr_pts+q].g0 = theIrregularFormulas[df*nf_irr_pts+q].g0_base * (atot / theTriangles[tri].composition.A0); 
+			else
+				theIrregularFormulas[df*nf_irr_pts+q].g0 = theIrregularFormulas[df*nf_irr_pts+q].g0_base; 
+			theIrregularFormulas[df*nf_irr_pts+q].c0 = (c0_o-c0_i)/2; 
 		}
 	}
 /*

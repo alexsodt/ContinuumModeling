@@ -922,8 +922,8 @@ void surface::createAllAtom( parameterBlock *block )
 	double rel_vol[2] = {0,0};
 
 	double **M;
-	int mlow = 5;
-	int mhigh = 7;
+	int mlow = 4;
+	int mhigh = 8;
 
 	getM(&M,&mlow,&mhigh);	
 	

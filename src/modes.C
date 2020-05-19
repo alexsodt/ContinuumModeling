@@ -201,7 +201,7 @@ void surface::getAMAT( double *Amat, double *ro, double *r0_pos)
 	}
 }
 
-int surface::origSphericalHarmonicModes( double *ro, int l_min, int l_max, double **gen_transform, double **output_qvals, double **scaling_factor )
+int surface::origSphericalHarmonicModes( double *ro, int l_min, int l_max, double q_max, double **gen_transform, double **output_qvals, double **scaling_factor )
 {
 	double *Amat = (double *)malloc( sizeof(double) * (nv) * (nv) );
 	double *r0_pos = (double *)malloc( sizeof(double) * 3 * nv );

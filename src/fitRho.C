@@ -17,8 +17,9 @@ double fitThickness = 15.0;
 // fitRho statics
 static double eps_f_min = 1.0;
 int fitRho_activated = 0;
-void Simulation::setupDensity( char *fileName )
+void Simulation::setupDensity( char *fileName, int shiftRho )
 {
+
 	FILE *rhoFile = fopen(fileName, "r");
 	char *buffer = (char *)malloc( sizeof(char) * 100000 );
 	if( !rhoFile )
@@ -35,16 +36,125 @@ void Simulation::setupDensity( char *fileName )
 
 	double *rho = (double *)malloc( sizeof(double) * nx * ny * nz );
 
+
 	for( int ix = 0; ix < nx; ix++ )
 	for( int iy = 0; iy < ny; iy++ )
 	{
 		getLine( rhoFile, buffer );
 
-		for( int iz = 0; iz < nz; iz++ )
+//		for( int iz = 0; iz < nz; iz++ )
 			readNDoubles( buffer, rho+ix*ny*nz+iy*nz, nz );
 	}
 
+	int cdist[3] = {0,0,0};
+	int lims[3] = {nx,ny,nz};
+
+	if( shiftRho )
+		rhoShifter( rho, nx, ny, nz );
+
+/*	{
+
+		double distx[nx];
+		memset( distx, 0, sizeof(double) * nx );
+		double disty[ny];
+		memset( disty, 0, sizeof(double) * ny );
+		double distz[nz];
+		memset( distz, 0, sizeof(double) * nz );
+
+		double *dists[3] = { distx, disty, distz };
+
+		for( int ix = 0; ix < nx; ix++ )
+		for( int iy = 0; iy < ny; iy++ )
+		for( int iz = 0; iz < nz; iz++ )
+		{
+			int bins[3] = { ix, iy, iz };
+
+			distx[ix] += rho[ix*ny*nz+iy*nz+iz];	
+			disty[iy] += rho[ix*ny*nz+iy*nz+iz];	
+			distz[iz] += rho[ix*ny*nz+iy*nz+iz];	
+		}
+
+		for( int c = 0; c < 3; c++ )
+		{
+			double best_chi2 = 1e10;
+			double best_cen = 0;
+			double *dist = dists[c];
+
+			for( int cb = 0; cb < lims[c]; cb++ )
+			{
+				double sigma2 = 0;
+
+				for( int b = 0; b < lims[c]; b++ )
+				{
+					double dc = (b - cb);
+					if( dc > lims[c]/2 ) dc -= lims[c]/2;
+					if( dc < -lims[c]/2 ) dc += lims[c]/2;
+					sigma2 += dist[b] * dc*dc;				
+				}
+
+				if( sigma2 < best_chi2 )
+				{
+					best_cen = cb;
+					best_chi2 = sigma2;
+				}
+			}
+
+			cdist[c] = best_cen; 	
+		}
+
+		printf("Cdist: %d %d %d\n", cdist[0], cdist[1], cdist[2] );
+
+#if 1 
+		double shift[3] = { cdist[0] * La / nx,
+				    cdist[1] * Lb / ny, 
+				    cdist[2] * Lc / nz }; 
+		for( surface_record *sRec = allSurfaces; sRec; sRec = sRec->next )
+		{
+			surface *theSurface = sRec->theSurface;
+			int nv = theSurface->nv;
+			for( int v = 0; v < nv; v++ )
+			{
+				sRec->r[3*v+0] += shift[0];
+				sRec->r[3*v+1] += shift[1];
+				sRec->r[3*v+2] += shift[2];
+			
+				theSurface->theVertices[v].r[0] += shift[0];	
+				theSurface->theVertices[v].r[1] += shift[1];	
+				theSurface->theVertices[v].r[2] += shift[2];	
+			}
+		} 
+
+#else
+		// shift
+		double *rhoCopy = (double *)malloc( sizeof(double) * nx * ny * nz );
+
+		for( int ix = 0; ix < nx; ix++ )	
+		for( int iy = 0; iy < ny; iy++ )	
+		for( int iz = 0; iz < nz; iz++ )
+		{
+			int sx = ix - cdist[0];
+			int sy = iy - cdist[1];
+			int sz = iz - cdist[2];
+		
+			if( sx < 0 ) sx += nx;
+			if( sx >= nx ) sx -= nx;
+			if( sy < 0 ) sy += ny;
+			if( sy >= ny ) sy -= ny;
+			if( sz < 0 ) sz += nz;
+			if( sz >= nz ) sz -= nz;
+
+			rhoCopy[sx*nx*ny+sy*nz+sz] = rho[ix*ny*nz+iy*nz+iz];
+		}
+
+		memcpy( rho, rhoCopy, sizeof(double) * nx * ny *nz );	
+#endif
+	}
+*/
+
 	fclose(rhoFile);
+	
+
+	// #DBG BAD
 	
 	double LXS = PBC_vec[0][0];
 	double LYS = PBC_vec[1][1];
@@ -143,9 +253,11 @@ void Simulation::setupDensity( char *fileName )
 		}
 		memcpy( rho, rho_smooth, sizeof(double) * nx * ny *nz );
 	}
+	// #DBG BAD
 	printf("Done smoothing.\n");
 	setup_rho( rho, nx, ny, nz );
 	free(buffer);	
+	
 
 	fitRho_activated = 1;
 }
@@ -159,6 +271,7 @@ double surface::rhoEnergy( double *r, double PBC_vec[3][3], double thickness_inn
 		return 0;
 #endif
 	if( ! fitRho_activated ) return 0;
+	if( fabs(fitCoupling) < 1e-30 ) return 0;
 	return rhoWorker( r, NULL, PBC_vec, 0, thickness_inner, thickness_outer, NULL, NULL );
 }
 
@@ -170,6 +283,7 @@ double surface::rhoGrad( double *r, double *gr, double PBC_vec[3][3], double thi
 #endif
 
 	if( ! fitRho_activated ) return 0;
+	if( fabs(fitCoupling) < 1e-30 ) return 0;
 
 	return rhoWorker( r, gr, PBC_vec, 1, thickness_inner, thickness_outer, tDerInner, tDerOuter );
 }
@@ -225,6 +339,7 @@ double surface::rhoWorker( double * r, double *gr, double PBC_vec[3][3], int do_
 	
 	//
 	double uv_array[2*nuv];
+	memset(uv_array, 0, sizeof(double) * 2 * nuv );
 	double l = 1.0 / (double)pgrid;
 
 	// advances per row:
@@ -256,10 +371,10 @@ double surface::rhoWorker( double * r, double *gr, double PBC_vec[3][3], int do_
 	}
 
 
-	int max_f;
-	double max_u,max_v;
+	int max_f=0;
+	double max_u=1e10,max_v=1e10;
 	double max_strain = 0;
-	double max_c, max_k;
+	double max_c=1e10, max_k=1e10;
 
 	for( int f = 0; f < nt; f++ )
 	{
@@ -499,7 +614,7 @@ double surface::rhoWorker( double * r, double *gr, double PBC_vec[3][3], int do_
 
 #if 1	
 	double massive_k = 1e5;
-	double min_thresh = 10.0;
+	double min_thresh = 8.0;
 	double max_thresh = 25.0;
 	if( thickness_inner < min_thresh )
 	{
@@ -535,7 +650,7 @@ double surface::rhoWorker( double * r, double *gr, double PBC_vec[3][3], int do_
 			*tDerOuter -= 2 * massive_k * dh;
 	}
 #endif
-	if( do_grad )
+	if( do_grad )//&& max_strain > 0 )
 	{
 		printf("max strain %lf %lf %lf f %d u %lf v %lf\n", max_strain, max_c, max_k, max_f, max_u, max_v );
 		*tDerInner += der_thickness[0];
@@ -553,3 +668,159 @@ double surface::rhoWorker( double * r, double *gr, double PBC_vec[3][3], int do_
 	return e;	
 }
 
+/*
+ * finds the best translational shift of the density by doing 1-dimensional projection fits.
+ *
+ * */
+
+void Simulation::rhoShifter( double *rho, int nx, int ny, int nz )
+{
+	double distx[nx];
+	memset( distx, 0, sizeof(double) * nx );
+	double disty[ny];
+	memset( disty, 0, sizeof(double) * ny );
+	double distz[nz];
+	memset( distz, 0, sizeof(double) * nz );
+
+	double *dists[3] = { distx, disty, distz };
+
+	for( int ix = 0; ix < nx; ix++ )
+	for( int iy = 0; iy < ny; iy++ )
+	for( int iz = 0; iz < nz; iz++ )
+	{
+		int bins[3] = { ix, iy, iz };
+
+		distx[ix] += rho[ix*ny*nz+iy*nz+iz];	
+		disty[iy] += rho[ix*ny*nz+iy*nz+iz];	
+		distz[iz] += rho[ix*ny*nz+iy*nz+iz];	
+	}
+
+	double La = PBC_vec[0][0];
+	double Lb = PBC_vec[1][1];
+	double Lc = PBC_vec[2][2];
+
+	double meshx[nx];
+	double meshy[ny];
+	double meshz[nz];
+
+	memset( meshx, 0, sizeof(double)*nx);
+	memset( meshy, 0, sizeof(double)*ny);
+	memset( meshz, 0, sizeof(double)*nz);
+	
+	double *meshes[3] = { meshx, meshy, meshz };
+	int lims[3] = {nx,ny,nz};
+
+	// loop over the surfaces and their triangles, make a rough estimate of the density.
+	for( surface_record *sRec = allSurfaces; sRec; sRec = sRec->next )
+	{	
+		surface *theSurface = sRec->theSurface;
+
+		int grain = 10;
+		for( int t = 0; t < theSurface->nt; t++ )
+		{
+			for( int iu = 0; iu < grain; iu ++ )
+			for( int iv = 0; iv < grain-iu; iv++ )
+			{
+				double rpt[3],npt[3];
+	
+				double u = (iu+0.5)/grain;
+				double v = (iv+0.5)/grain;
+
+				theSurface->evaluateRNRM( t, u, v, rpt, npt, sRec->r );
+	
+				double lipds = theSurface->g( t, u, v, sRec->r );
+
+				while( rpt[0] < 0 ) rpt[0] += PBC_vec[0][0];				
+				while( rpt[0] >= PBC_vec[0][0] ) rpt[0] -= PBC_vec[0][0];				
+				while( rpt[1] < 0 ) rpt[1] += PBC_vec[1][1];				
+				while( rpt[1] >= PBC_vec[1][1] ) rpt[1] -= PBC_vec[1][1];				
+				while( rpt[2] < 0 ) rpt[2] += PBC_vec[2][2];				
+				while( rpt[2] >= PBC_vec[2][2] ) rpt[2] -= PBC_vec[2][2];				
+	
+				int  ix = nx * rpt[0] / PBC_vec[0][0];
+				int  iy = ny * rpt[1] / PBC_vec[1][1];
+				int  iz = nz * rpt[2] / PBC_vec[2][2];
+	
+				meshx[ix] += lipds;
+				meshy[iy] += lipds;
+				meshz[iz] += lipds;
+			}
+		}
+	}
+	
+	int cdist[3] = {0,0,0};
+
+	// for each dimension, find the shift that leads to the best match of the density profile.
+	for( int c = 0; c < 3; c++ )
+	{
+//		printf("DIMENSION %d\n", c );
+		double best_chi2 = 1e100;
+		double best_cen = 0;
+		double *dist = dists[c];
+		double *mesh = meshes[c];
+	
+		// cb is the center of the box.
+		for( int cb = 0; cb < lims[c]; cb++ )
+		{
+			double sigma2 = 0;
+
+			// find the scaling of the mesh density that gives the best match.
+			
+			double xy = 0;
+			double xx = 0;
+
+			for( int b = 0; b < lims[c]; b++ )
+			{
+				int tb = b + cb;
+				while( tb < 0 ) tb += lims[c];
+				while( tb >= lims[c] ) tb -= lims[c];
+				xx += mesh[tb]*mesh[tb];
+				xy += mesh[tb]*dist[b];
+			}
+
+			double m = xy/xx;
+
+			for( int b = 0; b < lims[c]; b++ )
+			{
+				int tb = b + cb;
+				while( tb < 0 ) tb += lims[c];
+				while( tb >= lims[c] ) tb -= lims[c];
+				
+				double del = dist[b] - m * mesh[tb];
+
+//				if( cb == 0 ) printf("%d %lf %lf\n", b, dist[b], mesh[tb] );
+
+				sigma2 += del*del;	
+			}
+
+			if( sigma2 < best_chi2 )
+			{
+				best_cen = cb;
+				best_chi2 = sigma2;
+			}
+		}
+
+		cdist[c] = best_cen; 	
+	}
+
+	printf("Rho shifter Cdist: %d %d %d\n", cdist[0], cdist[1], cdist[2] );
+
+	double shift[3] = { cdist[0] * La / nx,
+			    cdist[1] * Lb / ny, 
+			    cdist[2] * Lc / nz }; 
+	for( surface_record *sRec = allSurfaces; sRec; sRec = sRec->next )
+	{
+		surface *theSurface = sRec->theSurface;
+		int nv = theSurface->nv;
+		for( int v = 0; v < nv; v++ )
+		{
+			sRec->r[3*v+0] += shift[0];
+			sRec->r[3*v+1] += shift[1];
+			sRec->r[3*v+2] += shift[2];
+		
+			theSurface->theVertices[v].r[0] += shift[0];	
+			theSurface->theVertices[v].r[1] += shift[1];	
+			theSurface->theVertices[v].r[2] += shift[2];	
+		}
+	} 
+}

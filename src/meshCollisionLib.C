@@ -913,8 +913,8 @@ void surface::box_system( double edge_length ) {
         double max_x=0, max_y=0, max_z=0;
 	Point* averageTris = new Point[nt];
 	
-	int mlow = 5;
-	int mhigh = 7;
+	int mlow = 4;
+	int mhigh = 8;
 	double **M;
 	getM(&M,&mlow,&mhigh);
 
@@ -1275,8 +1275,8 @@ void surface::rebox_system( void )
         double max_x=0, max_y=0, max_z=0;
 	Point* averageTris = new Point[nt];
 	
-	int mlow = 5;
-	int mhigh = 7;
+	int mlow = 4;
+	int mhigh = 8;
 	double **M;
 	getM(&M,&mlow,&mhigh);
 

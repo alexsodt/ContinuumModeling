@@ -5,6 +5,7 @@
 #include "util.h"
 #include <math.h>
 #include <sys/time.h>
+#include "sans.h"
 
 parameterBlock::parameterBlock( void )
 {
@@ -38,12 +39,14 @@ void setDefaults( parameterBlock *block )
 
 	block->rxnDiffusionInfoName = NULL;
 
+	block->shiftRho = 0;
 	block->qvals = NULL;
 	block->loadName = NULL;
 	block->concentration = 0;
 	block->rho = 0;
 	block->lipid_lib = NULL;
 	block->meshName2 = NULL;
+	block->discrete_lipids = -1;
 
 	block->record_curvature = 0;
 	block->create_all_atom = 0;	
@@ -60,6 +63,11 @@ void setDefaults( parameterBlock *block )
 	block->nequil = 0;
 	block->nmin = 0;
 	block->minimizeResetG = 0;
+
+	block->sans_method = SANS_FFT;
+	block->sans_leaflet_perturb = 1.0; // unbiased except for curvature effect.
+	block->sans_strain_inner = 0.0; // unbiased except for curvature effect.
+	block->sans_strain_outer = 0.0; // unbiased except for curvature effect.
 
 	block->KA = -1;
 	block->kv = 0;
@@ -97,7 +105,7 @@ void setDefaults( parameterBlock *block )
 	block->bound_sigma = 10.0;
 
 	block->nve_switch = -1; // switch to NVE dynamics at this timestep.
-	block->gamma_langevin = 10; 
+	block->gamma_langevin = 0.001; 
 	block->planar_topology = 0;
 	block->collect_hk = 0;
 	block->nruns = 1;
@@ -203,6 +211,9 @@ void setDefaults( parameterBlock *block )
 	block->del = 3.0;
 	block->sigma = 10.0;
 
+	block->neutral_surface = 12.0;
+	block->neutral_surface_inner = -1;
+	block->neutral_surface_outer = -1;
 	block->s_q_res = 5;	
 	block->s_q = 0;
 	block->b_particle = -2.325053524; // protiated POPC 
@@ -214,7 +225,7 @@ void setDefaults( parameterBlock *block )
 	block->nq    = 1000;
 	block->non_interacting = 1;
 	block->max_time = 1; // one second.
-	block->s_q_period = 1000; // 1000 steps per S_q	
+	block->s_q_period = 1; // 1000 steps per S_q	
 	block->shape_correction = 0;
 
 	block->on_surface = 0;
@@ -226,7 +237,6 @@ void setDefaults( parameterBlock *block )
 	block->addProteinPDB   = NULL;
 	block->addProteinPSF   = NULL;
 
-	block->neutral_surface = 15;
 	block->scale_solvent_approach = 1.0;
 	block->strainInner = 0;
 	block->strainOuter = 0;
@@ -266,6 +276,14 @@ int resolveParameters( parameterBlock *block )
 	if( block->time_step < 0 )
 	{	
 		block->time_step = 1e-3*(2*sqrt(65/M_PI))*(2*sqrt(65/M_PI))/(4*block->diffc);
+	}
+
+	if( block->discrete_lipids == -1 )
+	{
+		if( block->lipid_mc_period > 0 )
+			block->discrete_lipids = 1;
+		else	
+			block->discrete_lipids = 0;
 	}
 
 	if( block->mab_bond_k < 0 )
@@ -449,6 +467,11 @@ int resolveParameters( parameterBlock *block )
 		printf("Gathering requires a coordinate (e.g., dcd) file.\n");
 		exit(1);
 	}
+	
+	if( block->neutral_surface_inner < 0 )
+		block->neutral_surface_inner = block->neutral_surface;
+	if( block->neutral_surface_outer < 0 )
+		block->neutral_surface_outer = block->neutral_surface;
 
 	return warning;
 }
@@ -623,6 +646,30 @@ int getInput( const char **argv, int argc, parameterBlock *block)
 				free(block->fitRho);
 			block->fitRho = (char *)malloc( sizeof(char) * (1 + strlen(word2) ) );
 			strcpy( block->fitRho, word2 );
+		}
+		else if( !strcasecmp( word1, "shiftRho" ) )
+		{
+			if( !strcasecmp( word2, "TRUE" ) || !strcasecmp( word2, "yes") || !strcasecmp( word2, "on" ) )
+				block->shiftRho = 1;
+			else if( !strcasecmp( word2, "FALSE" ) || !strcasecmp( word2, "no") || !strcasecmp( word2, "off" ) )
+				block->shiftRho = 0;
+			else
+			{
+				printf("Could not interpret input line '%s'.\n", tbuf );
+				ERROR = 1;
+			}	
+		}
+		else if( !strcasecmp( word1, "discrete_lipids" ) )
+		{
+			if( !strcasecmp( word2, "TRUE" ) || !strcasecmp( word2, "yes") || !strcasecmp( word2, "on" ) )
+				block->discrete_lipids = 1;
+			else if( !strcasecmp( word2, "FALSE" ) || !strcasecmp( word2, "no") || !strcasecmp( word2, "off" ) )
+				block->discrete_lipids = 0;
+			else
+			{
+				printf("Could not interpret input line '%s'.\n", tbuf );
+				ERROR = 1;
+			}	
 		}
 		else if( !strcasecmp( word1, "mesh2" ) )
 		{
@@ -1499,8 +1546,25 @@ int getInput( const char **argv, int argc, parameterBlock *block)
 				ERROR = 1;
 			}	
 		}
+		else if( !strcasecmp( word1, "sq_method" ) )
+		{
+			if( !strcasecmp( word2, "fft" ) )
+				block->sans_method = SANS_FFT;
+			else if( !strcasecmp( word2, "mc" ) )
+				block->sans_method = SANS_MC;
+		}
+		else if( !strcasecmp( word1, "sans_leaflet_perturb" ) )
+			block->sans_leaflet_perturb = atof(word2);
+		else if( !strcasecmp( word1, "sans_strain_outer" ) )
+			block->sans_strain_outer = atof(word2);
+		else if( !strcasecmp( word1, "sans_strain_inner" ) )
+			block->sans_strain_inner = atof(word2);
 		else if( !strcasecmp( word1, "neutral_surface") )
 			block->neutral_surface = atof(word2);
+		else if( !strcasecmp( word1, "neutral_surface_inner") )
+			block->neutral_surface_inner = atof(word2);
+		else if( !strcasecmp( word1, "neutral_surface_outer") )
+			block->neutral_surface_outer = atof(word2);
 		else if( !strcasecmp( word1, "scale_solvent_approach") )
 			block->scale_solvent_approach = atof(word2);
 		else if( !strcasecmp( word1, "strainOuter") )
