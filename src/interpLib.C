@@ -1144,8 +1144,9 @@ int surface::loadAndCopyLattice( const char *fileName, surface *copyFrom )
 	return loadLattice( fileName, 0.0, copyFrom );
 }
 
-int surface::loadLattice( const char *fileName, double noise, surface *copyFrom )
+void surface::clear( void )
 {
+	cutPoints = NULL;
 	exclude_tri = NULL;
 	nexcl = 0;
 	on_surface = 0;
@@ -1175,11 +1176,7 @@ int surface::loadLattice( const char *fileName, double noise, surface *copyFrom 
 	nf_irr_faces = 0;
 	nf_irr_pts = 0;
 	nf_g_q_p = 0;
-
-	int n_rand = 1000;
-	long *vals = (long *)malloc( sizeof(long) * n_rand);
-	ran_start(1);
-	ran_array(vals, n_rand );
+	fix_sense = 1;
 
 	c0 = 0;
 	PBC_vec[0][0] = 1e10;
@@ -1198,6 +1195,11 @@ int surface::loadLattice( const char *fileName, double noise, surface *copyFrom 
 
 	nv = 0;
 	theVertices = NULL;
+}
+
+int surface::loadLattice( const char *fileName, double noise, surface *copyFrom )
+{
+	clear();
 
 	char buffer[4096];
 	FILE *theFile = fopen(fileName,"r");
@@ -1339,13 +1341,11 @@ int surface::loadLattice( const char *fileName, double noise, surface *copyFrom 
 
 	int nload_tri = 0;
 	int *load_tri = NULL;
-	double *load_tilt = NULL;
 	if( !strncasecmp( buffer, "ntri", 4 ) )
 	{
 		sscanf( buffer, "ntri %d", &nload_tri );
 		
 		load_tri = (int *)malloc( sizeof(int) * 3 * nload_tri );
-		load_tilt = (double *)malloc( sizeof(double) * 3 * nload_tri );
 
 		for( int t = 0; t < nload_tri; t++ )
 		{
@@ -1355,13 +1355,7 @@ int surface::loadLattice( const char *fileName, double noise, surface *copyFrom 
 				printf("Error reading triangles.\n");
 				exit(1);
 			}
-			int nr = sscanf(buffer, "%d %d %d %lf %lf %lf", load_tri+3*t+0, load_tri+3*t+1, load_tri+3*t+2, load_tilt+3*t+0, load_tilt+3*t+1, load_tilt+3*t+2 );
-			if( nr < 6 )
-			{
-				load_tilt[3*t+0] = 0;
-				load_tilt[3*t+1] = 0;
-				load_tilt[3*t+2] = 1;
-			}
+			int nr = sscanf(buffer, "%d %d %d %lf %lf %lf", load_tri+3*t+0, load_tri+3*t+1, load_tri+3*t+2  );
 		}
 	
 		getLine( theFile, buffer );
@@ -1393,6 +1387,17 @@ int surface::loadLattice( const char *fileName, double noise, surface *copyFrom 
 
 	printf("Read %d lattice points.\n", nv);
 	
+	finishLoad(total_valence, load_tri, nload_tri, copyFrom );
+
+	return 0;
+}
+
+void surface::finishLoad( int total_valence, int *load_tri, int nload_tri, surface *copyFrom )
+{
+	int n_rand = 1000;
+	long *vals = (long *)malloc( sizeof(long) * n_rand);
+	ran_start(1);
+	ran_array(vals, n_rand );
 
 	assignEdgePBC();
 
@@ -1454,9 +1459,9 @@ int surface::loadLattice( const char *fileName, double noise, surface *copyFrom 
 					theTriangles[nt].ids[2] = k;
 					theTriangles[nt].ft_vector = 0;
 
-					theTriangles[nt].fixed_tilt[0] = load_tilt[3*t+0];
-					theTriangles[nt].fixed_tilt[1] = load_tilt[3*t+1];
-					theTriangles[nt].fixed_tilt[2] = load_tilt[3*t+2];
+					theTriangles[nt].fixed_tilt[0] = 0;
+					theTriangles[nt].fixed_tilt[1] = 0;
+					theTriangles[nt].fixed_tilt[2] = 0;
 					int npp = 0;
 					if( theVertices[i].protein_pt ) npp++;
 					if( theVertices[j].protein_pt ) npp++;
@@ -1836,6 +1841,7 @@ int surface::loadLattice( const char *fileName, double noise, surface *copyFrom 
 		
 				if( f1 < 0 || f2 < 0 ) continue;
 	
+
 				if( theTriangles[f1].sense && theTriangles[f2].sense )
 				{
 					int target_sense = theTriangles[f1].sense * compare_sense( theEdges[e].code[0], theEdges[e].code[1] );
@@ -2629,7 +2635,6 @@ int surface::loadLattice( const char *fileName, double noise, surface *copyFrom 
 	free(vals);
 	
 	int i = 0;		
-	return 0;
 }
 
 
@@ -2642,6 +2647,7 @@ void surface::subdivideSurface( surface *copy_surface )
 
 */
 
+	cutPoints = NULL;
 	exclude_tri = NULL;
 	nexcl = 0;
 	on_surface = 0;
@@ -9674,5 +9680,10 @@ extern "C" void hd_umcp_link_check( void);
 void hd_umcp_link_check( void )
 {
 	printf("HD/UMCP Link available.\n");
+}
+
+void surface::destroy( void )
+{
+	// NYI. currently leaks.	
 }
 

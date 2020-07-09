@@ -82,6 +82,7 @@ void setDefaults( parameterBlock *block )
 	block->mab_d_theta = 10; // 10 degrees.
 	block->restrain_volume_inside = 0;
 	block->restrain_volume_outside = 0;
+	block->inner_volume_scale = 1;
 
 	block->shift[0] = 0;
 	block->shift[1] = 0;
@@ -156,6 +157,13 @@ void setDefaults( parameterBlock *block )
 	block->alpha_restraint_z = -1;
 	block->alpha_restraint_k = 0;
 	block->write_alpha_period = -1;
+
+	block->fix_x_cut = 0;
+	block->fix_y_cut = 0;
+	block->fix_z_cut = 0;
+	block->use_fix_x_cut = 0;
+	block->use_fix_y_cut = 0;
+	block->use_fix_z_cut = 0;
 
 	block->leaflet_fraction = 0.5;
 
@@ -736,6 +744,21 @@ int getInput( const char **argv, int argc, parameterBlock *block)
 			block->npt_mc_period = atoi( word2 );
 		else if( !strcasecmp( word1, "cyl_tension_mc_period" ) )
 			block->cyl_tension_mc_period = atoi( word2 );
+		else if( !strcasecmp( word1, "fix_x_cut" ) )
+		{
+			block->fix_x_cut = atof( word2 );
+			block->use_fix_x_cut = 1;
+		}
+		else if( !strcasecmp( word1, "fix_y_cut" ) )
+		{
+			block->fix_y_cut = atof( word2 );
+			block->use_fix_y_cut = 1;
+		}
+		else if( !strcasecmp( word1, "fix_z_cut" ) )
+		{
+			block->fix_z_cut = atof( word2 );
+			block->use_fix_z_cut = 1;
+		}
 		else if( !strcasecmp( word1, "alpha_restraint_x" ) )
 			block->alpha_restraint_x = atof( word2 );
 		else if( !strcasecmp( word1, "alpha_restraint_y" ) )
@@ -748,6 +771,8 @@ int getInput( const char **argv, int argc, parameterBlock *block)
 			block->write_alpha_period = atoi( word2 );
 		else if( !strcasecmp( word1, "nruns" ) )
 			block->nruns = atoi( word2 );
+		else if( !strcasecmp( word1, "inner_volume_scale" ) )
+			block->inner_volume_scale = atof( word2 );
 		else if( !strcasecmp( word1, "restrain_volume_outside" ) )
 		{
 			if( !strcasecmp( word2, "TRUE" ) || !strcasecmp( word2, "yes") || !strcasecmp( word2, "on" ) )
@@ -1528,6 +1553,18 @@ int getInput( const char **argv, int argc, parameterBlock *block)
 				block->perfect_solvent_tiling = 1;
 			else if( !strcasecmp( word2, "FALSE" ) || !strcasecmp( word2, "no") || !strcasecmp( word2, "off" ) )
 				block->perfect_solvent_tiling = 0;
+			else
+			{
+				printf("Could not interpret input line '%s'.\n", tbuf );
+				ERROR = 1;
+			}	
+		}
+		else if( !strcasecmp( word1, "create_flip" ) )
+		{
+			if( !strcasecmp( word2, "TRUE" ) || !strcasecmp( word2, "yes") || !strcasecmp( word2, "on" ) )
+				block->create_flip = 1;
+			else if( !strcasecmp( word2, "FALSE" ) || !strcasecmp( word2, "no") || !strcasecmp( word2, "off" ) )
+				block->create_flip = 0;
 			else
 			{
 				printf("Could not interpret input line '%s'.\n", tbuf );

@@ -8,6 +8,9 @@
 #include "M_matrix.h"
 #include "alignSet.h"
 #include "GJK.h"
+#include "aux_surfaces.h"
+#include "simulation.h"
+
 //#define DEBUG_PRINT
 static double solvation_cutoff = 2.5;
 static double solvation_cutoff_MARTINI = 5.0;
@@ -217,7 +220,7 @@ void surface::createAllAtom( parameterBlock *block )
 		exit(1); 
 	}
 
-	int do_leaflet[3] = { 0,0 };
+	int do_leaflet[3] = { 0,0,0 };
 	
 	struct atom_rec *protein;
 	int nprotein=0;
@@ -566,7 +569,7 @@ void surface::createAllAtom( parameterBlock *block )
 			if( !strcasecmp( at[a].resname, "POT") ) continue;
 			if( !strcasecmp( at[a].resname, "CLA") ) continue;
 	
-			if( !strncasecmp( at[a].segid, "GLPA", 4) ||
+			if( !strncasecmp( at[a].segid, "GLP", 3) ||
 		  	    !strncasecmp( at[a].segid, "PRO", 3) )
 				seg_continuity_mode = 1;
 			else
@@ -727,15 +730,33 @@ void surface::createAllAtom( parameterBlock *block )
 	double *rimt = NULL;
 	double rim_center[3]={0,0,0};
 	double rim_extent = 0;
+
+	// load in icosahedrae, subdivide once, scale to fit.
+	surface *upper_rim_patch = NULL;
+	surface *lower_rim_patch = NULL;
+	double *upper_patch_r = NULL;
+	double *lower_patch_r = NULL;
+	double dz_rim = 20.0;
+
+
 	if( block->do_rim )
 	{
+/*
+		// center the rim patches above the middle of the rim.
 		generateRimRing( this, rsurf, &rimt, &nrim );
+*/
+		nrim = 20;
+		int *f_ring = (int *)malloc( sizeof(int) * nrim );
+		double *uv_ring = (double *)malloc( sizeof(double) * nrim * 2 );
+		double *rim_pts = (double *)malloc( sizeof(double) * nrim * 3 );
 
-		for( int t = 0; t < nrim*3; t++ )
+		get_cut_points( 2, 0, f_ring, uv_ring, rim_pts, nrim, rsurf );
+
+		for( int t = 0; t < nrim; t++ )
 		{
-			rim_center[0] += rimt[3*t+0];	
-			rim_center[1] += rimt[3*t+1];	
-			rim_center[2] += rimt[3*t+2];	
+			rim_center[0] += rim_pts[3*t+0];	
+			rim_center[1] += rim_pts[3*t+1];	
+			rim_center[2] += rim_pts[3*t+2];	
 		}
 
 		rim_center[0] /= nrim*3;
@@ -744,19 +765,118 @@ void surface::createAllAtom( parameterBlock *block )
 
 		rim_extent = 0;
 
-		for( int t = 0; t < nrim*3; t++ )
+		for( int t = 0; t < nrim; t++ )
 		{
-			if( t % 3 == 2 ) continue; // center of rim.
- 
-			double dr[3] = { rimt[3*t+0] - rim_center[0],
-					 rimt[3*t+1] - rim_center[1],
+			double dr[3] = { rim_pts[3*t+0] - rim_center[0],
+					 rim_pts[3*t+1] - rim_center[1],
 					 0 };
 			double r = normalize(dr);
 
 			rim_extent += r;
 		}
 
-		rim_extent /= (nrim*2); 
+		rim_extent /= (nrim); 
+
+
+		// get patch cuts for upper and lower.
+
+		int nuse_cut = 20;
+
+		int *f_upper = (int *)malloc( sizeof(int) * nuse_cut );
+		double *uv_upper = (double *)malloc( sizeof(double) * nuse_cut*2);
+		double *r_cut_upper = (double *)malloc( sizeof(double) * nuse_cut * 3 );
+		
+		int *f_lower = (int *)malloc( sizeof(int) * nuse_cut );
+		double *uv_lower = (double *)malloc( sizeof(double) * nuse_cut*2);
+		double *r_cut_lower = (double *)malloc( sizeof(double) * nuse_cut * 3 );
+
+		get_cut_points( 2 /* z */, dz_rim, f_upper, uv_upper, r_cut_upper, nuse_cut, rsurf );
+		get_cut_points( 2 /* z */, -dz_rim, f_lower, uv_lower, r_cut_lower, nuse_cut, rsurf );
+		
+
+		upper_rim_patch = getAuxSphere( 1 ); 
+		lower_rim_patch = getAuxSphere( 1 ); 
+
+		upper_patch_r = (double *)malloc( sizeof(double) * (3*upper_rim_patch->nv+3) );
+		lower_patch_r = (double *)malloc( sizeof(double) * (3*lower_rim_patch->nv+3) );
+		upper_patch_r[3*upper_rim_patch->nv+0]=1.0;
+		upper_patch_r[3*upper_rim_patch->nv+1]=1.0;
+		upper_patch_r[3*upper_rim_patch->nv+2]=1.0;
+		lower_patch_r[3*lower_rim_patch->nv+0]=1.0;
+		lower_patch_r[3*lower_rim_patch->nv+1]=1.0;
+		lower_patch_r[3*lower_rim_patch->nv+2]=1.0;
+		upper_rim_patch->get(upper_patch_r);
+		lower_rim_patch->get(lower_patch_r);
+
+		double rpt[3], npt[3];
+		upper_rim_patch->evaluateRNRM( 0, 1.0/3.0, 1.0/3.0, rpt, npt, upper_patch_r );
+		
+		double R_approx = sqrt(rpt[0]*rpt[0]+rpt[1]*rpt[1]+rpt[2]*rpt[2]);
+
+		double scale = rim_extent/R_approx;
+
+		for( int i = 0; i < upper_rim_patch->nv; i++ )
+		{
+			upper_patch_r[3*i+0] *= scale;
+			upper_patch_r[3*i+1] *= scale;
+			upper_patch_r[3*i+2] *= scale * (dz_rim/rim_extent);
+			
+			upper_patch_r[3*i+0] += rim_center[0];
+			upper_patch_r[3*i+1] += rim_center[1];
+			upper_patch_r[3*i+2] += rim_center[2];
+
+			upper_patch_r[3*i+2] += dz_rim;
+		}
+		
+		for( int i = 0; i < lower_rim_patch->nv; i++ )
+		{
+			lower_patch_r[3*i+0] *= scale;
+			lower_patch_r[3*i+1] *= scale;
+			lower_patch_r[3*i+2] *= scale * (dz_rim/rim_extent);
+
+			lower_patch_r[3*i+0] += rim_center[0];
+			lower_patch_r[3*i+1] += rim_center[1];
+			lower_patch_r[3*i+2] += rim_center[2];
+
+			lower_patch_r[3*i+2] -= dz_rim;
+		}
+
+		upper_rim_patch->put(upper_patch_r);
+		lower_rim_patch->put(lower_patch_r);
+
+		upper_rim_patch->addFixedPoint( rim_center );
+		lower_rim_patch->addFixedPoint( rim_center );
+		
+		for( int t = 0; t < nuse_cut; t++ )
+			upper_rim_patch->addFixedPoint( r_cut_upper+3*t );
+		for( int t = 0; t < nuse_cut; t++ )
+			lower_rim_patch->addFixedPoint( r_cut_lower+3*t );
+
+/*
+		FILE *tpsf = NULL;
+		char fname[256];
+		sprintf(fname, "upper_rim.psf");
+		tpsf = fopen(fname,"w");
+		upper_rim_patch->writeLimitingSurfacePSF(tpsf);
+		fclose(tpsf);
+		
+		sprintf(fname, "lower_rim.psf");
+		tpsf = fopen(fname,"w");
+		lower_rim_patch->writeLimitingSurfacePSF(tpsf);
+		fclose(tpsf);
+
+		FILE *txyz = NULL;		
+		sprintf(fname, "upper_rim.xyz");
+		txyz = fopen(fname,"w");
+		upper_rim_patch->writeLimitingSurface(txyz);
+		fclose(txyz);
+		
+		sprintf(fname, "lower_rim.xyz");
+		txyz = fopen(fname,"w");
+		lower_rim_patch->writeLimitingSurface(txyz);
+		fclose(txyz);
+
+		exit(1); */
 	}
 	// get regions of the bilayer which we will map collectively attempting to leave a minimum of seams.
 
@@ -810,6 +930,7 @@ void surface::createAllAtom( parameterBlock *block )
 	else
 		nregions = area0 / ( (use_area_upper)/4);
 
+	// short circuit this and just use four triangles?
 	nregions = nt/4;
 
 //	nregions *= 2;
@@ -860,7 +981,6 @@ void surface::createAllAtom( parameterBlock *block )
 	// and as little lateral tension inhomogeneity as possible.
 	// for now I'll just put them on the faces.
 
-	int *tri_list = (int *)malloc( sizeof(int) * nt );
 
 	int cur_natoms = 0;
 	int cur_atom = 1;
@@ -963,8 +1083,6 @@ void surface::createAllAtom( parameterBlock *block )
 	}
 
 	double zero_vec[3] = {0,0,0};
-	int *regional_face = (int *)malloc( sizeof(int) * nt );
-	memset( regional_face, 0, sizeof(int) * nt );
 	
 
 	double boxl = 20.0;
@@ -993,6 +1111,113 @@ void surface::createAllAtom( parameterBlock *block )
 	// if we are working on GM1 we need to write the patches into the input file.
 	int gm1_switch =0;
 
+	/*
+ *		we can reuse this build pass for doing the whole simulation build later.
+ *		tells you by-surface which regions to take.
+ * 	*/
+
+	struct build_pass
+	{
+		int structure_take_from; // the index of the PDB/PSF to get the structure
+		double min_cut[3]; // the cartesian value below which we don't use this structure (for hemifusion, etc)
+		double max_cut[3]; // the cartesian value above which we don't use this structure
+		surface *useSurface;
+		double *rsurf;
+		int nregions;
+		int *regions_for_face;
+		double strain;
+		int orientation; // normal in or out.
+	};
+
+	int n_build_passes = 2;
+
+	if( block->do_rim )
+		n_build_passes += 2;
+
+	struct build_pass passes[n_build_passes];
+
+	for( int l = 0; l < 2; l++ )
+	{
+		passes[l].structure_take_from = l; // simple
+		for ( int c = 0; c < 3; c++ )
+		{
+			passes[l].min_cut[c] = 1e30; // no limit, exclude above
+			passes[l].max_cut[c] = -1e30; // no limit, exclude below
+		}
+
+		passes[l].useSurface = this;
+		passes[l].rsurf = rsurf;
+		passes[l].nregions = nregions;
+		passes[l].regions_for_face = regions_for_face;
+		passes[l].strain = ( l == 0 ? block->strainInner : block->strainOuter );
+		passes[l].orientation = ( l == 0 ? -1 : 1 );
+	}
+
+	if( block->do_rim )
+	{
+		for( int l = 2; l < 4; l++ )
+		{
+			passes[l].structure_take_from = 2; // this is where the "aux" structure is.
+
+			for ( int c = 0; c < 3; c++ )
+			{
+				passes[l].min_cut[c] = 1e30; // exclude above
+				passes[l].max_cut[c] = -1e30; // exclude below
+			}
+
+			passes[l].useSurface = ( l == 2 ? lower_rim_patch : upper_rim_patch);
+			passes[l].strain = block->strainInner;
+			passes[l].rsurf = ( l == 2 ? lower_patch_r : upper_patch_r );
+			passes[l].orientation = -1; // always use the inside of our spheres for the rims.
+	
+			// get regions for rims.
+
+			double larea,larea0;
+			passes[l].useSurface->area( passes[l].rsurf, -1, &larea, &larea0 );	
+
+			passes[l].nregions = larea / ( (use_area_upper)/4);
+			passes[l].nregions = passes[l].useSurface->nt / 4;
+			int *l_regions_for_tri = (int *)malloc( sizeof(int) * passes[l].useSurface->nt );
+			passes[l].regions_for_face= (int *)malloc( sizeof(int) * passes[l].useSurface->nt );
+
+			if( passes[l].nregions > passes[l].useSurface->nt )
+				passes[l].nregions = passes[l].useSurface->nt;	
+	
+			passes[l].useSurface->getRegions(l_regions_for_tri, passes[l].nregions );
+	
+			for( int t = 0;  t < passes[l].useSurface->nt; t++ )
+				passes[l].regions_for_face[passes[l].useSurface->theTriangles[t].f] = l_regions_for_tri[t];
+			free(l_regions_for_tri);
+		}		
+			
+		// now, the spatial constraints on where to use which surface.
+
+		passes[0].min_cut[0] = -1e30; // infinite in xy
+		passes[0].max_cut[0] = 1e30;
+		passes[0].min_cut[1] = -1e30;
+		passes[0].max_cut[1] = 1e30;
+		passes[0].min_cut[2] = rim_center[2] - dz_rim;
+		passes[0].max_cut[2] = rim_center[2] + dz_rim;
+
+		// lower rim.
+		passes[2].min_cut[0] = -1e30; // infinite in xy
+		passes[2].max_cut[0] = 1e30;
+		passes[2].min_cut[1] = -1e30;
+		passes[2].max_cut[1] = 1e30;
+		passes[2].min_cut[2] = -1e30;
+		passes[2].max_cut[2] = rim_center[2] - dz_rim;
+		
+		// upper rim.
+		passes[3].min_cut[0] = -1e30; // infinite in xy
+		passes[3].max_cut[0] = 1e30;
+		passes[3].min_cut[1] = -1e30;
+		passes[3].max_cut[1] = 1e30;
+		passes[3].min_cut[2] = rim_center[2] + dz_rim;
+		passes[3].max_cut[2] = 1e30;
+
+			
+	}
+
 	for( int pass = 0; pass < 2; pass++ )
 	{
 
@@ -1010,6 +1235,10 @@ void surface::createAllAtom( parameterBlock *block )
 		int nlipids_placed_outside = 0;
 		int nlipids_placed_inside = 0;
 		int switched = 0;
+
+		int nleaflets = 2;
+	
+#ifdef OLD // delete this.
 		for( int x_leaflet = 0; x_leaflet < 2; x_leaflet++ )
 		{
 			if( do_leaflet[x_leaflet] == 0 ) continue;
@@ -1034,6 +1263,42 @@ void surface::createAllAtom( parameterBlock *block )
 			double Lx = master_Lx[x_leaflet];
 			double Ly = master_Ly[x_leaflet];
 			double Lz = master_Lz[x_leaflet];
+#else
+		for( int tx = 0; tx < n_build_passes; tx++ )
+		{
+			surface *useSurface = passes[tx].useSurface;
+			double *rsurf = passes[tx].rsurf;
+			int nregions = passes[tx].nregions;
+			int *regions_for_face = passes[tx].regions_for_face; 
+			int x_leaflet = passes[tx].structure_take_from;
+			double the_strain = passes[tx].strain;
+
+			if( do_leaflet[x_leaflet] == 0 ) continue;
+	
+			int *leaflet = master_leaflet[x_leaflet];
+			double *lipid_xyz = master_lipid_xyz[x_leaflet];
+			struct atom_rec *at = master_at[x_leaflet];
+			int *lipid_stop = master_lipid_stop[x_leaflet];
+			int *lipid_start = master_lipid_start[x_leaflet];
+			int nlipids = master_nlipids[x_leaflet];
+
+			int **local_cycles = master_cycles[x_leaflet];
+			int *local_cycle_len = master_cycle_lengths[x_leaflet];
+			int local_ncycles = master_ncycles[x_leaflet];
+			
+			int *local_bonds = master_bonds[x_leaflet];
+			int *local_nbonds = master_nbonds[x_leaflet];
+			int *local_bond_offsets = master_bond_offsets[x_leaflet];
+
+			double Lx = master_Lx[x_leaflet];
+			double Ly = master_Ly[x_leaflet];
+			double Lz = master_Lz[x_leaflet];
+#endif
+			int *regional_face = (int *)malloc( sizeof(int) * useSurface->nt );
+			memset( regional_face, 0, sizeof(int) * useSurface->nt );
+	
+			int *tri_list = (int *)malloc( sizeof(int) * nt );
+
 			for( int r = 0; r < nregions; r++ )
 			{
 				printf("DOING REGION %d\n", r );
@@ -1044,7 +1309,7 @@ void surface::createAllAtom( parameterBlock *block )
 				int debug_me = 0;
 				double patch_area = 0;
 
-				for( int t = 0; t < nt; t++ )
+				for( int t = 0; t < useSurface->nt; t++ )
 				{
 					if( regions_for_face[t] == r )
 					{
@@ -1052,13 +1317,13 @@ void surface::createAllAtom( parameterBlock *block )
 		//				if( t == debug_f )
 							//debug_me = 1;
 						double rc[3],nc[3];
-						evaluateRNRM( t, 1.0/3.0, 1.0/3.0, rc, nc, rsurf );
+						useSurface->evaluateRNRM( t, 1.0/3.0, 1.0/3.0, rc, nc, rsurf );
 	
-						double *v1 = rsurf + 3 * theTriangles[t].ids[0];
-						double *v2 = rsurf + 3 * theTriangles[t].ids[1];
-						double *v3 = rsurf + 3 * theTriangles[t].ids[2];
+						double *v1 = rsurf + 3 * useSurface->theTriangles[t].ids[0];
+						double *v2 = rsurf + 3 * useSurface->theTriangles[t].ids[1];
+						double *v3 = rsurf + 3 * useSurface->theTriangles[t].ids[2];
 			
-						patch_area += 0.5 * g( t, 1.0/3.0, 1.0/3.0, rsurf ) ;	
+						patch_area += 0.5 * useSurface->g( t, 1.0/3.0, 1.0/3.0, rsurf ) ;	
 						
 
 		//				if( r < natom_names )
@@ -1073,7 +1338,7 @@ void surface::createAllAtom( parameterBlock *block )
 						else
 						{
 							double dr[3] = { rc[0] - tri_cen[0]/N, rc[1] - tri_cen[1]/N, rc[2] - tri_cen[2]/N };
-							wrapPBC( dr, rsurf+3*nv );
+							useSurface->wrapPBC( dr, rsurf+3*nv );
 		
 							tri_cen[0] += tri_cen[0]/N + dr[0];	
 							tri_cen[1] += tri_cen[1]/N + dr[1];	
@@ -1096,11 +1361,11 @@ void surface::createAllAtom( parameterBlock *block )
 					int f = tri_list[xt];
 		
 					double rc[3],nc[3];
-					evaluateRNRM( f, 1.0/3.0, 1.0/3.0, rc, nc, rsurf );
+					useSurface->evaluateRNRM( f, 1.0/3.0, 1.0/3.0, rc, nc, rsurf );
 		
 					double dr[3] = { rc[0] - tri_cen[0], rc[1] - tri_cen[1], rc[2] - tri_cen[2] };
 			
-					wrapPBC( dr, rsurf+3*nv );
+					useSurface->wrapPBC( dr, rsurf+3*nv );
 		
 					double r = normalize(dr);
 		
@@ -1123,7 +1388,7 @@ void surface::createAllAtom( parameterBlock *block )
 					alpha = alpha_inside;
 				int l_cen = rand() % nlipids;
 	
-				while( leaflet[l_cen] != (x_leaflet ? 1 : -1 ) )
+				while( leaflet[l_cen] != passes[tx].orientation ) //(x_leaflet ? 1 : -1 ) )
 					l_cen = rand() % nlipids; 
 	
 			
@@ -1186,33 +1451,11 @@ void surface::createAllAtom( parameterBlock *block )
 					int ncrosses = 0;	
 
 					// everything must be evaluated at this spot to retain the x,y to u/v mapping.
-#if METHOD_ONE
-					int fout = evaluate_at( eval_cen, use_r, f, &spot_u, &spot_v, rsurf, leaflet[l], -strain[x_leaflet] );
-#else
 					// get the x/y/z coordinate system transported to the distance spot (as determined by use_r)
 					double dx_uv[2], dy_uv[2];
 					double source_r[3] = { alpha * dx, alpha * dy, lipid_xyz[3*l+2] };
-					int fout = getCoordinateSystem( f, &spot_u, &spot_v, source_r, -strain[x_leaflet], leaflet[l],
+					int fout = useSurface->getCoordinateSystem( f, &spot_u, &spot_v, source_r, -the_strain, leaflet[l],
 							dx_uv, dy_uv, rsurf, regional_face, &ncrosses ); 
-					if( debug_me && x_leaflet == 1 && pass == 1)
-					{
-						double rpt[3], rnrm[3];
-						evaluateRNRM( fout, spot_u, spot_v, rpt,rnrm, rsurf );
-							
-						if( regions_for_face[fout]== r )
-						{
-							printf("N %lf %lf %lf # ncrosses %d\n", source_r[0], source_r[1], source_r[2], ncrosses );
-							printf("C %lf %lf %lf # ncrosses %d lipid %d\n", rpt[0], rpt[1], rpt[2], ncrosses, l );
-						}
-						else
-						{
-							printf("F %lf %lf %lf\n", source_r[0], source_r[1], source_r[2] );
-							printf("O %lf %lf %lf\n", rpt[0], rpt[1], rpt[2] );
-						}
-//						printf("%lf %lf evaluates to %d %lf %lf %s\n", source_r[0], source_r[1], fout, spot_u, spot_v, (regions_for_face[fout]== r ? "INSIDE" : "OUTSIDE") ); 
-					}
-#endif
-					
 					double w_use = 1.0;
 					double w_rim = 0.0;
 					double rimp[3] = {0,0,0};
@@ -1224,21 +1467,40 @@ void surface::createAllAtom( parameterBlock *block )
 						debug_mode = 1;
 					}
 
+#if 0
 					if( block->create_pore > 0 )
 					{
 						double nrm[3];
 						double rpt[3];
 		
-						evaluateRNRM( fout, spot_u, spot_v, rpt, nrm, rsurf );
+						useSurface->evaluateRNRM( fout, spot_u, spot_v, rpt, nrm, rsurf );
 					
 						double dr[3] = { rpt[0], rpt[1], rpt[2] };
-						wrapPBC( dr, rsurf+3*nv );
+						useSurface->wrapPBC( dr, rsurf+3*nv );
 
 						double r = normalize(dr);
 
 						if( r < block->create_pore ) continue;
 					}
-
+#endif
+				
+					double test_nrm[3];
+					double test_rpt[3];
+		
+					useSurface->evaluateRNRM( fout, spot_u, spot_v, test_rpt, test_nrm, rsurf );
+		
+					int okay = 1;
+					
+					if( 
+						test_rpt[0] > passes[tx].min_cut[0] && test_rpt[0] < passes[tx].max_cut[0] &&
+						test_rpt[1] > passes[tx].min_cut[1] && test_rpt[1] < passes[tx].max_cut[1] && 
+						test_rpt[2] > passes[tx].min_cut[2] && test_rpt[2] < passes[tx].max_cut[2] 
+						) 
+					{
+						okay = 0;
+					}
+					if( !okay ) continue;
+#if 0 // OLD, new rim system
 					if( nrim > 0 )
 					{
 						double nrm[3];
@@ -1294,7 +1556,7 @@ void surface::createAllAtom( parameterBlock *block )
 						}
 
 					}			
-	
+#endif	
 		
 					if( regions_for_face[fout] == r && ncrosses < 5)
 					{
@@ -1308,7 +1570,7 @@ void surface::createAllAtom( parameterBlock *block )
 
 						int base_res = cur_res; 
 	
-						if( cur_size > 0 && (!strncasecmp( at[lipid_start[l]].segid, "GLPA", 4) || cur_res > 50 || switched) )
+						if( cur_size > 0 && (!strncasecmp( at[lipid_start[l]].segid, "GLP", 3) || cur_res > 50 || switched) )
 							EndSegment( charmmFile, cur_filename, cur_segment, cur_segname, &pairs, &seg_cntr, &npairs, &npair_space, x_leaflet,
 									&cur_size, &cur_natoms, &cur_atom,  &cur_res, &switched, gm1_switch );
 
@@ -1317,14 +1579,14 @@ void surface::createAllAtom( parameterBlock *block )
 
 						for( int test_iters = 0; test_iters < 10; test_iters++ )
 						{
-							if( TestAdd( this, l, lipid_start, lipid_stop, at,
+							if( TestAdd( useSurface, l, lipid_start, lipid_stop, at,
 								shift, upper_cen, zero_vec, alpha, 
 								main_u_cen, main_v_cen,
 								use_r, source_r,
 								spot_u, spot_v,
 								fout, rsurf,
 								leaflet[l],
-								-strain[x_leaflet],
+								-the_strain,
 								dx_uv, dy_uv,
 								w_use, w_rim, rimp, rimn,
 								x_leaflet, total_lipid_charge,
@@ -1336,11 +1598,13 @@ local_bonds, local_nbonds, local_bond_offsets, doubleBondIndexes ) )
 							{
 								if( !strncasecmp( at[lipid_start[l]].segid, "GLPA", 4) )
 									gm1_switch = 1;
+								else if( !strncasecmp( at[lipid_start[l]].segid, "GLP3", 4) )
+									gm1_switch = 3;
 								else
 									gm1_switch = 0;
 								cur_res++;
 						
-								if( cur_size > 0 && !strncasecmp( at[lipid_start[l]].segid, "GLPA", 4) )
+								if( cur_size > 0 && !strncasecmp( at[lipid_start[l]].segid, "GLP", 3) )
 									EndSegment( charmmFile, cur_filename, cur_segment, cur_segname, &pairs, &seg_cntr, &npairs, &npair_space, x_leaflet,
 										&cur_size, &cur_natoms,&cur_atom,  &cur_res, &switched, gm1_switch );
 
@@ -1350,9 +1614,13 @@ local_bonds, local_nbonds, local_bond_offsets, doubleBondIndexes ) )
 					}
 				}
 
-				memset( regional_face, 0, sizeof(int) * nt );
+				memset( regional_face, 0, sizeof(int) * useSurface->nt );
 			}
-			
+
+			free(tri_list);
+			free(regional_face);
+		
+#if 0 // OLD, new rim system	
 			if( nrim > 0 )
 			{
 				if( cur_size > 0 )
@@ -1411,7 +1679,9 @@ local_bonds, local_nbonds, local_bond_offsets, doubleBondIndexes ) )
 						
 							double wrap_to[3] = { 0,0,0};
 						
-							if( cur_size > 0 && (!strncasecmp( at[lipid_start[l]].segid, "GLPA", 4) || cur_res > 50 || switched) )
+							if( pass == 0 ) continue;	
+						
+							if( cur_size > 0 && (!strncasecmp( at[lipid_start[l]].segid, "GLP", 3) || cur_res > 50 || switched) )
 							{	
 								
 								EndSegment( charmmFile, cur_filename, cur_segment, cur_segname, &pairs, &seg_cntr, &npairs, &npair_space, x_leaflet,
@@ -1442,11 +1712,13 @@ local_bonds, local_nbonds, local_bond_offsets, doubleBondIndexes ) )
 						
 							if( !strncasecmp( at[lipid_start[l]].segid, "GLPA", 4) )
 								gm1_switch = 1;
+							else if( !strncasecmp( at[lipid_start[l]].segid, "GLP3", 4) )
+								gm1_switch = 3;
 							else
 								gm1_switch = 0;
 							cur_res++;
 						
-							if( cur_size > 0 && !strncasecmp( at[lipid_start[l]].segid, "GLPA", 4) )
+							if( cur_size > 0 && !strncasecmp( at[lipid_start[l]].segid, "GLP", 3) )
 							EndSegment( charmmFile, cur_filename, cur_segment, cur_segname, &pairs, &seg_cntr, &npairs, &npair_space, x_leaflet,
 									&cur_size, &cur_natoms,&cur_atom,  &cur_res, &switched, gm1_switch );
 						}
@@ -1457,7 +1729,7 @@ local_bonds, local_nbonds, local_bond_offsets, doubleBondIndexes ) )
 				EndSegment( charmmFile, cur_filename, cur_segment, cur_segname, &pairs, &seg_cntr, &npairs, &npair_space, x_leaflet,
 					&cur_size, &cur_natoms, &cur_atom,  &cur_res, &switched, gm1_switch );
 			}
-
+#endif
 			switched = 1;
 		}
 
@@ -1693,6 +1965,21 @@ local_bonds, local_nbonds, local_bond_offsets, doubleBondIndexes ) )
 					if( rcom[1] < -PBC_vec[1][1]/2 || rcom[1] >= PBC_vec[1][1]/2 ) continue;
 					if( rcom[2] < -PBC_vec[2][2]/2 || rcom[2] >= PBC_vec[2][2]/2 ) continue;
 				}
+			
+				if( block->do_rim )
+				{
+					// if it's in the rim, don't add it.
+					
+					double dr_cen[3] = { rcom[0] - rim_center[0],
+								    rcom[1] - rim_center[1],
+								    rcom[2] - rim_center[2] };
+				
+					double r_xy = sqrt(dr_cen[0]*dr_cen[0]+dr_cen[1]*dr_cen[1]);
+
+					if( dr_cen[2] <  dz_rim && dr_cen[2] - dz_rim && r_xy < rim_extent+10 )
+					 	continue; 
+				}
+
 
 				int bx = rcom[0] * nx / PBC_vec[0][0];
 				int by = rcom[1] * ny / PBC_vec[1][1];
@@ -2091,7 +2378,6 @@ local_bonds, local_nbonds, local_bond_offsets, doubleBondIndexes ) )
 	fprintf(charmmFile, "%s", charmm_footer );
 
 	free(regions_for_face);
-	free(tri_list);
 	free(rsurf);
 	
 	// free up boxing info	
@@ -3196,13 +3482,19 @@ void EndSegment( FILE *charmmFile, char *cur_filename, char *cur_segment, char *
         "open read unit 10 card name \"%s\"\n"
         "read coor unit 10 card resid\n", cur_filename, cur_segname, cur_filename );
      
-        if( gm1_switch )
+        if( gm1_switch == 1 ) // GM1
         {    
                 fprintf(charmmFile, "patch CERB %s %d %s %d setup warn\n", cur_segname, 2, cur_segname, 1 ); 
                 fprintf(charmmFile, "patch 14BB %s %d %s %d setup warn\n",  cur_segname,2,  cur_segname,3 );
                 fprintf(charmmFile, "patch 14BA %s %d %s %d setup warn\n",  cur_segname,3,  cur_segname,4 );
                 fprintf(charmmFile, "patch 13BB %s %d %s %d setup warn\n",  cur_segname,4,  cur_segname,5 );
                 fprintf(charmmFile, "patch SA23AB %s %d %s %d setup warn\n",  cur_segname,3,  cur_segname,6 );
+        }    
+        else if( gm1_switch == 3 ) // GM3
+        {    
+                fprintf(charmmFile, "patch CERB %s %d %s %d setup warn\n", cur_segname, 2, cur_segname, 1 ); 
+                fprintf(charmmFile, "patch 14BB %s %d %s %d setup warn\n",  cur_segname,2,  cur_segname,3 );
+                fprintf(charmmFile, "patch SA23AB %s %d %s %d setup warn\n",  cur_segname,3,  cur_segname, 4 );
         }    
 
         fprintf(charmmFile,     "\n" 
@@ -4127,9 +4419,9 @@ int TestAddRim( surface *theSurface, int l, int *lipid_start, int *lipid_stop, s
 		(*placed_atoms)[3*(*nplaced)+0] = at[xa].x;
 		(*placed_atoms)[3*(*nplaced)+1] = at[xa].y;
 		(*placed_atoms)[3*(*nplaced)+2] = at[xa].z;
-		(*nplaced)++;
 			
 		boxit( *placed_atoms+3*(*nplaced), *nplaced, theBoxes, theSurface->PBC_vec, nx, ny, nz );
+		
 
 		(*cur_natoms)++;
 		at[xa].segid = tmp;
@@ -4140,8 +4432,10 @@ int TestAddRim( surface *theSurface, int l, int *lipid_start, int *lipid_stop, s
 		at[xa].y = ysave;
 		at[xa].z = zsave;
 	
-		(*cur_atom)++;
 		total_lipid_charge[x_leaflet] += at[xa].charge;
+		
+		(*cur_atom)++;
+		(*nplaced)++;
 	}
 
 	return 1;

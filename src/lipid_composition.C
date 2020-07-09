@@ -29,6 +29,11 @@ const fixed_lipid library_fixed[] =
 	{ "DOG",  -1.0/11.5, 59.0,  "C21" },
 	{ "DOPS",  1.0/144.0, 71.6, "C21" }, // Fuller 2003, area from charmm f.f.
 	{ "CER180",	  0, 59.0,  "C1F" },
+	{ "SAPC",	  0, 59.0,  "C22" },
+	{ "SAPE",	  0, 59.0,  "C22" },
+	{ "SAPS",	  0, 59.0,  "C22" },
+	{ "PAPC",	  0, 59.0,  "C22" },
+	{ "PLPC",	  0, 59.0,  "C22" },
 	{ "SSM",  	0,   59.0,  "C1F" },
 	{ "PSM",  	0,   59.0,  "C1F" }
 };

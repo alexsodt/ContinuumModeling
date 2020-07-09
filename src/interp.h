@@ -34,6 +34,14 @@ int loadLattice( const char *fileName, double noise );
 
 #define N_BLOCK_QUANTITIES 1
 
+// functions in fitRho.C: points that some point on the surface must go through.
+typedef struct fixed_cut_point
+{
+	double k; // force constant.
+	double rpt[3];
+	struct fixed_cut_point *next;
+} fixed_cut_point;
+
 
 typedef struct
 {
@@ -290,7 +298,11 @@ struct surface
 	//int zBlength;
 
 	double std_metric;
+	
+	fixed_cut_point *cutPoints;
 
+	void clear( void );
+	void finishLoad( int total_valence, int *load_tri, int nload_tri, surface *copyfrom );
 	int loadLattice( const char *fileName, double noise, surface *copyFrom=NULL );
 	int loadAndCopyLattice( const char *fileName, surface *altSurface );
 	void setg0(double *r, double reset_factor = 0);
@@ -368,6 +380,12 @@ struct surface
 	int getPlanarHarmonicModes( double *ro, int mode_x, int mode_y, int mode_min, int mode_max, double q_max, double **gen_transform, double **output_qvals, double **scaling_factors );
 	int origPlanarHarmonicModes( double *ro, int mode_x, int mode_y, int mode_min, int mode_max, double **gen_transform, double **output_qvals, double **scaling_factors );
 
+	void setupCut( int cartesian_component, double value, double *r);
+	double cutEnergy( double *r );
+	double cutGrad( double *r, double *g );
+	void get_cut_points( int cartesian_component, double value, int *f, double *uv, double *rall, int n_cut_points, double *r);
+	void addFixedPoint( double *r_fixed );
+
 	// THESE SHOULD EVENTUALLY BE DELETED	
 	void addParticleToFace( int f, int pid, double c0, double p_area );
 	int getNear( double *p_in, int id_in, double *all_p, double cut, double alpha_x, double alpha_y, double alpha_z, int *plist, double *rads );
@@ -426,6 +444,7 @@ struct surface
 	void computeModifiedVertices( void );
 	void duplicate( surface *dupe, int nx, int ny, int nz );
 
+	int movePointToCut( int *f_in, double *u_in, double *v_in, int cartesian_component, double value, double *r);
 	int nextFace( int f, double *u, double *v, double *du, double *dv, double *r, double *mom=NULL, double *coord_transform=NULL);
 	int neighborList( int f, int *neighbors );
 	int map( int face_from, int face_to, double u, double v );
@@ -503,6 +522,9 @@ struct surface
 	void debug_dynamics( double *r, force_set *theForceSet, double *Minv, pcomplex **allComplexes, int ncomplex );
 	void timestep_analysis( double *r, force_set *theForceSet, double *Minv, pcomplex **allComplexes, int ncomplex, double approx_timestep );
 
+	void destroy( void ); // NYI
+
+
 	// restarts
 	void saveRestart( FILE *theFile, double *rsurf, double *pp, pcomplex **allComplexes, int ncomplex, int NQ, int seed );
 	void saveRestart( char **buf, double *rsurf, double *pp, pcomplex **allComplexes, int ncomplex, int NQ, int seed );
@@ -546,6 +568,9 @@ struct surface
 	int getCoordinateSystem( int source_f,   double *source_u,  double *source_v, 
 				double *dr, double strain, int leaflet,
 				  double *dx_duv, double *dy_duv, double *rsurf, int *regional_face, int *ncrosses );
+
+	void printCurvatureDistribution( double *r );
+	void minimize( double * r);
 
 #ifdef FFTW
 	fftw_complex *h_in;

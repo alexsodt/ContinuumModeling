@@ -278,6 +278,11 @@ int main( int argc, char **argv )
 		sRec->V0_i = Vi;
 		sRec->V0_o = Vo;
 		
+		// inner volume factor if you want to scale the inner volume toward some target or stress the system.
+		double new_volume_inside = Vi * block.inner_volume_scale;
+		sRec->V0_o += (Vi-new_volume_inside);
+		sRec->V0_i = new_volume_inside;
+
 
 		double area0;
 		double cur_area;
@@ -287,10 +292,16 @@ int main( int argc, char **argv )
 		sRec->area0 = area0;
 	}
 
+//	theSimulation->allSurfaces->theSurface->printCurvatureDistribution( theSimulation->allSurfaces->r );
+
 	global_block = &block; //yikes
 
 	if( block.fitRho )
 		theSimulation->setupDensity( block.fitRho, block.shiftRho );
+
+	if( block.use_fix_x_cut ) theSimulation->allSurfaces->theSurface->setupCut( 0, block.fix_x_cut, theSimulation->allSurfaces->r ); 
+	if( block.use_fix_y_cut ) theSimulation->allSurfaces->theSurface->setupCut( 1, block.fix_y_cut, theSimulation->allSurfaces->r ); 
+	if( block.use_fix_z_cut ) theSimulation->allSurfaces->theSurface->setupCut( 2, block.fix_z_cut, theSimulation->allSurfaces->r ); 
 
 	av_edge_length /= n_edge_length;
 	theSurface1->box_system(av_edge_length);
@@ -825,11 +836,15 @@ int main( int argc, char **argv )
 
 		if( par_info.my_id == BASE_TASK )
 		{
-			mpsf = fopen("minimize.psf","w");
+			char *output_name = (char *)malloc( sizeof(char) * ( 1 + strlen(block.jobName) + strlen("minimize_.xyz") + 16 ) );
+			sprintf(output_name, "minimize_%s.psf", block.jobName );
+			mpsf = fopen(output_name,"w");
         		theSimulation->writeLimitingSurfacePSF(mpsf);
 			fclose(mpsf);
        
-			minFile = fopen("minimize.xyz","w");
+			sprintf(output_name, "minimize_%s.xyz", block.jobName );
+			minFile = fopen(output_name,"w");
+			free(output_name);
 		}
 
 		for( surface_record *sRec = theSimulation->allSurfaces; sRec; sRec = sRec->next )

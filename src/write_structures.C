@@ -1721,4 +1721,39 @@ void Simulation::write_density( FILE *theFile, int nx, int ny, int nz, int forma
 	}
 }
 
+void surface::printCurvatureDistribution( double *r )
+{
+	double del = 10.0;
+
+	double maxc = 0.05;
+	int nbins = 500;
+
+	double hist[nbins];
+	memset( hist, 0, sizeof(double) * nbins );
+
+	for( int t = 0; t < nt; t++ )
+	{
+		double gval = g( t, 1.0/3.0, 1.0/3.0, r );
+		double cvec1[3], cvec2[3], c1,c2;
+		double K;
+		double J = c( t, 1.0/3.0, 1.0/3.0, r, &K, cvec1, cvec2, &c1, & c2 ); 	
+
+		double HTot = (J + 2 * K * del) / ( 1 + J*del + K * del*del );	
+
+		int cbin = nbins * (HTot - (-maxc))/(2*maxc);
+
+		if( cbin  < 0 ) cbin = 0;	
+		if( cbin >= nbins ) cbin  =nbins-1;
+
+		printf("c1: %le c2: %le g: %le\n", c1, c2, gval );
+
+		hist[cbin] += gval;
+	}	
+
+	for( int t = 0; t < nbins; t++ )	
+	{	
+		printf("%lf %le\n", -maxc + (t+0.5) * (2*maxc)/nbins, hist[t] );
+	}
+}
+
 
