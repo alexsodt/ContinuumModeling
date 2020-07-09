@@ -1596,8 +1596,8 @@ void Simulation::loadComplexes( parameterBlock *block )
 	allComplexes = (pcomplex **)malloc( sizeof(pcomplex *) );
 
 	double **M;
-	int mlow = 5;
-	int mhigh = 7;
+	int mlow = 4;
+	int mhigh = 8;
 	getM( &M, &mlow, &mhigh );
 	double *rsurf = (double *)malloc( sizeof(double) * ( 3*nv+3) );
 	theSurface->get(rsurf);

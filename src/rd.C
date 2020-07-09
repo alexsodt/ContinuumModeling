@@ -313,7 +313,7 @@ void RD::do_rd( Simulation *theSimulation )
 				prevsep, ps_prev, &p0_ratio);
 //			double pre_prob = 0;
 #endif	
-			printf("r: %lf prob: %le\n", tracked[t]->tracked_info[n].curr_sep, pre_prob );
+//			printf("r: %lf prob: %le\n", tracked[t]->tracked_info[n].curr_sep, pre_prob );
 			double currnorm = tracked[t]->tracked_info[n].prevnorm * p0_ratio;
 			double prob = pre_prob * currnorm;
 
