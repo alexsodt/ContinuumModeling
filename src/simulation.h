@@ -140,11 +140,13 @@ typedef struct Simulation
 	void saveRestart( FILE *theFile, int seed ); 
 	void saveRestart( char **buf, int seed);
 	void loadRestart( FILE *loadFile, int *seed );
-	void setupDensity( char*fileName );
+	void setupDensity( char*fileName, int shiftRho );
+	void rhoShifter( double *rho, int nx, int ny, int nz );
 
 	int AddComplex( pcomplex *addMe );	
 	void RemoveComplexDelayed( int id );
 	void GarbageCollection( void );
+	void write_density( FILE *theFile, int nx, int  ny, int nz, int format );
 	
 	// GATHER
 	double nearCurvature(double*rpt, double *cout, double *kout, double *dp_out, double *dz_out, int *leaflet_out);

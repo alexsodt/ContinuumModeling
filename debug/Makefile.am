@@ -2,7 +2,7 @@ AUTOMAKE_OPTIONS = foreign subdir-objects
 
 EMAIL = alexander.sodt@nih.gov
 
-bin_PROGRAMS = hd.dbg makeHexSquare.dbg min.dbg subdivide.dbg scale.dbg icosahedron.dbg makeBud.dbg makeBump.dbg makeHexCylinder.dbg writeBiasPotential.dbg writeCylRTraj.dbg makePore.dbg join.dbg frc_sandbox.dbg rd_jcp.dbg shiftMesh.dbg
+bin_PROGRAMS = hd.dbg makeHexSquare.dbg min.dbg subdivide.dbg scale.dbg icosahedron.dbg makeBud.dbg makeBump.dbg makeHexCylinder.dbg writeBiasPotential.dbg writeCylRTraj.dbg makePore.dbg  frc_sandbox.dbg rd_jcp.dbg shiftMesh.dbg qii_simple.dbg qii_diamond.dbg qii_gyroid.dbg gyroid_ER.dbg
 noinst_LIBRARIES = libinterp.a
 
 AM_CPPFLAGS = -include ../config.h -include ../src/local_config.h $(AM_INCLUDE) 
@@ -59,7 +59,10 @@ makeHexCylinder_dbg_SOURCES = makeHexCylinder.C $(hull_SRCS) $(util_SRCS)
 makeHexSquare_dbg_SOURCES = makeHexSquare.C $(hull_SRCS) $(util_SRCS)
 writeBiasPotential_dbg_SOURCES = writeBiasPotential.C $(util_SRCS)
 writeCylRTraj_dbg_SOURCES      = writeCylRTraj.C $(util_SRCS) 
-
+qii_diamond_dbg_SOURCES		= qii_diamond.C $(util_SRCS)
+qii_gyroid_dbg_SOURCES		= qii_gyroid.C $(util_SRCS)
+qii_simple_dbg_SOURCES		= qii_simple.C $(util_SRCS)
+gyroid_ER_dbg_SOURCES		= gyroid_ER.C $(util_SRCS)
 
 hd_dbg_LDADD              = $(AM_LDADD) $(AM_QHULL) $(AM_CUDA) -lstdc++
 rd_jcp_dbg_LDADD              = $(AM_LDADD) $(AM_QHULL) $(AM_CUDA) -lstdc++
@@ -77,6 +80,10 @@ makeHexCylinder_dbg_LDADD = $(AM_LDADD) $(AM_QHULL) -lstdc++
 makeHexSquare_dbg_LDADD = $(AM_LDADD) $(AM_QHULL) -lstdc++
 writeBiasPotential_dbg_LDADD = $(AM_LDADD) $(AM_QHULL) -lstdc++
 writeCylRTraj_dbg_LDADD = $(AM_LDADD) $(AM_QHULL) -lstdc++
+qii_simple_dbg_LDADD = $(AM_LDADD) $(AM_QHULL) -lstdc++
+qii_diamond_dbg_LDADD = $(AM_LDADD) $(AM_QHULL) -lstdc++
+qii_gyroid_dbg_LDADD = $(AM_LDADD) $(AM_QHULL) -lstdc++
+gyroid_ER_dbg_LDADD = $(AM_LDADD) $(AM_QHULL) -lstdc++
 
 compilation_time.o: .FORCE
 .PHONY: .FORCE

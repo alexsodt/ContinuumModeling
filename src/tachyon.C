@@ -43,8 +43,8 @@ int surface::writeTachyon( const char *name,
 			)
 {
 	double **M;
-	int mlow = 5;
-	int mhigh = 7;
+	int mlow = 4;
+	int mhigh = 8;
 	getM(&M,&mlow,&mhigh);
 	double cur_area;
 	double area0;

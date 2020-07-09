@@ -10,14 +10,35 @@
 #include "parallel.h"
 #include <string.h>
 #include "simulation.h"
+#include "fftw3.h"
+
+void loadBetaZ( const char *fileName, int load_to_spline );
 
 static int N_Z_BINS = 100;
 static double MINZ = -75;
 static double MAXZ =  75;
+static double shape_neutral_surface_inner = -1;
+static double shape_neutral_surface_outer = -1;
 double Ap = 1.0; // square angstroms
-
+static double *rho_cube = NULL;
+static int rc_nx=0,rc_ny=0,rc_nz=0;
+static double rc_La=0,rc_Lb=0,rc_Lc=0;
+static double *nsld = NULL;
+static int nbinsr = 250;
+static double max_sld_r = 250;
+static double leaflet_perturb = 1.0;
+static double sans_strain_inner = 0.0;
+static double sans_strain_outer = 0.0;
 void initSANS( parameterBlock *block, double **qvals, int *nq )
 {
+	leaflet_perturb = block->sans_leaflet_perturb;
+
+	shape_neutral_surface_inner = block->neutral_surface_inner;
+	shape_neutral_surface_outer = block->neutral_surface_outer;
+
+	sans_strain_inner = block->sans_strain_inner;
+	sans_strain_outer = block->sans_strain_outer;
+
 	if( block->s_q )
 	{
 		loadBetaZ( block->betazFile, SANS_SPLINE );
@@ -91,7 +112,6 @@ void Simulation::sample_B_hist( double *B_hist, double *A2dz2_sampled,
 	memset( local_sampler, 0, sizeof(double) * nbins );
 #endif
 	
-	double PP = 12.0; // approximately.
 
 	// for clarity in accounting for actual volume contribution we use a real value of dz/Ap:
 	double dz = (MAXZ-MINZ)/N_Z_BINS;
@@ -112,11 +132,36 @@ void Simulation::sample_B_hist( double *B_hist, double *A2dz2_sampled,
 
 	int n_draw = 1000;
 
-	double **draw_pts = (double **)malloc( sizeof(double) * nSurfaces );
+	double **draw_pts = (double **)malloc( sizeof(double) * nSurfaces  );
 
 	for( int x = 0; x < nSurfaces; x++ )
-		draw_pts[x] = (double *)malloc( sizeof(double) * 4 * n_draw * draw_z );
- 
+		draw_pts[x] = (double *)malloc( sizeof(double) * 4 * n_draw * draw_z * 2 );
+
+
+	double mesh_width = 5.0;
+
+	rc_nx = ceil(PBC_vec[0][0] / mesh_width);
+	rc_ny = ceil(PBC_vec[1][1] / mesh_width);
+	rc_nz = ceil(PBC_vec[2][2] / mesh_width);
+
+	rc_La = PBC_vec[0][0];
+	rc_Lb = PBC_vec[1][1];
+	rc_Lc = PBC_vec[2][2];
+
+#ifdef RHO_CUBE
+	if( !rho_cube )
+	{ 
+		rho_cube = (double *)malloc( sizeof(double) * rc_nx * rc_ny * rc_nz );
+		memset( rho_cube, 0, sizeof(double) * rc_nx * rc_ny * rc_nz );
+	}
+#endif
+
+	if( !nsld )
+	{
+		nsld = (double *)malloc( sizeof(double) * nbinsr );
+		memset( nsld, 0, sizeof(double) * nbinsr );
+	}
+
 	for( surface_record *sRec = allSurfaces; sRec; sRec = sRec->next )
 	{
 		double area0;
@@ -126,60 +171,143 @@ void Simulation::sample_B_hist( double *B_hist, double *A2dz2_sampled,
 		int nt = theSurface->nt;
 		double *rmesh = sRec->r;
 		double total_area = 0;
-		int cur_pt = 0;
-		for( int d = 0; d < n_draw; d++ )
+
+		for( int set = 0; set < 2; set++ )
 		{
-			int f1 = rand() % nt;
-			double u1 = rand() / (double)RAND_MAX, v1 = rand() / (double)RAND_MAX;
-
-			while( u1 + v1 >= 1.0 )
+			int cur_pt = 0;
+			for( int d = 0; d < n_draw; d++ )
 			{
-				u1 = rand() / (double)RAND_MAX;
-				v1 = rand() / (double)RAND_MAX;
-			}
-				
-			double r1[3], nrm1[3];
-
-			theSurface->evaluateRNRM( f1, u1, v1, r1, nrm1, rmesh); 
-
-			double w1 = theSurface->g(f1,u1,v1,rmesh);
-			double c1  = 0;
-
-			double k;
-			if( shape_correction )
-				c1 = theSurface->c(f1,u1,v1,rmesh,&k);
-
-			total_area += w1;
-			for( int nz = 0; nz < draw_z; nz++)
-			{
-				double z1 = MINZ + (MAXZ-MINZ) * rand() / (double)RAND_MAX;
-
-				double alpha1 = 1.0;
-
-				if( shape_correction )
+				int f1 = rand() % nt;
+				double u1 = rand() / (double)RAND_MAX, v1 = rand() / (double)RAND_MAX;
+	
+				while( u1 + v1 >= 1.0 )
 				{
-					if( z1 > 0 )
-						alpha1 = exp( -(z1-PP)*c1);
-					else
-						alpha1 = exp( -(z1+PP)*c1);
+					u1 = rand() / (double)RAND_MAX;
+					v1 = rand() / (double)RAND_MAX;
 				}
+					
+				double r1[3], nrm1[3];
+	
+				theSurface->evaluateRNRM( f1, u1, v1, r1, nrm1, rmesh); 
+	
+				double w1 = theSurface->g(f1,u1,v1,rmesh);
+				double c1  = 0;
+				double k;
+					c1 = theSurface->c(f1,u1,v1,rmesh,&k);
+	
 
-				double p1[3] = { r1[0] + z1 * nrm1[0],
-						 r1[1] + z1 * nrm1[1],
-						 r1[2] + z1 * nrm1[2] };
-				
-				double b1 = alpha1*evaluateSpline( z1*alpha1, SANS_SPLINE );
+				total_area += w1;
+				for( int nz = 0; nz < draw_z; nz++)
+				{
+					double z1 = MINZ + (MAXZ-MINZ) * rand() / (double)RAND_MAX;
+	
+#ifdef PREVIOUS_METHOD
+					double alpha1 = 1.0;
+	
+					if( shape_correction )
+					{
+						if( z1 > 0 )
+							alpha1 = exp( -(z1-shape_neutral_surface_outer)*c1);
+						else
+							alpha1 = exp( -(z1+shape_neutral_surface_inner)*c1);
+					}
+	
+					double p1[3] = { r1[0] + z1 * nrm1[0],
+							 r1[1] + z1 * nrm1[1],
+							 r1[2] + z1 * nrm1[2] };
+					
+					double b1 = /*alpha1**/ evaluateSpline( z1*alpha1, SANS_SPLINE );
+#else
+					double z1p = z1;
+					double zns = shape_neutral_surface_outer;
+					double b1 = evaluateSpline( z1, SANS_SPLINE );
+					double w1p = w1;
+	
+					if( shape_correction )
+					{
+//#define FIXED
+#define NEXT_TRY
 
-				draw_pts[sRec->id][cur_pt*4+0] = p1[0];	
-				draw_pts[sRec->id][cur_pt*4+1] = p1[1];	
-				draw_pts[sRec->id][cur_pt*4+2] = p1[2];	
-				draw_pts[sRec->id][cur_pt*4+3] = b1 * w1 * dz;
+#ifdef NEXT_TRY
+						double z1pp = z1;
+						if( z1 > 0 )
+						{
+							z1pp = z1 * (1 - sans_strain_outer/2);
+							w1p *= (1-sans_strain_outer);
+						}
+						else 
+						{
+							z1pp = z1 * (1 - sans_strain_inner/2);
+							w1p *= (1-sans_strain_inner);
+						}
+						if( z1 > 0 )
+							z1p = z1pp * (1 + c1 * (z1-zns)); // use the unperturbed position (z1) to compute strains.
+						else
+							z1p = z1pp * (1 - c1 * (z1+zns));
+#elif defined(FIXED)
+						if( z1 > 0 )
+							z1p = z1 * (1 + c1 * zns - c1 * z1/2);
+						else
+							z1p = z1 * (1 - c1 * zns - c1 * z1/2);
+#else
+						if( z1 > 0 )
+							z1p = z1 + c1 * ( z1*z1/2 + z1 * zns);
+						else
+							z1p = z1 + c1 * ( z1*z1/2 - z1 * zns);
 
-				cur_pt++;
+#endif
+					}
+						
+					if( z1 < 0 )
+						w1p *= (1 - zns * c1); // for positive curvature (and zns is +), reduce metric
+					else
+						w1p *= (1 + zns * c1) * leaflet_perturb; // for outer leaflet increase metric.
+	
+					double p1[3] = { r1[0] + z1p * nrm1[0],
+							 r1[1] + z1p * nrm1[1],
+							 r1[2] + z1p * nrm1[2] };
+
+					double r = sqrt(p1[0]*p1[0]+p1[1]*p1[1]+p1[2]*p1[2]);
+					int bin = nbinsr * r /max_sld_r;
+					if( bin < nbinsr && bin >= 0 )
+					{	
+						nsld[bin] += w1p * b1;
+					}
+#ifdef RHO_CUBE
+					if( rho_cube )
+					{
+						double tr[3] = { p1[0], p1[1], p1[2] };
+	
+						while( tr[0] < 0 ) tr[0] += PBC_vec[0][0];
+						while( tr[0] > PBC_vec[0][0] ) tr[0] -= PBC_vec[0][0];
+						while( tr[1] < 0 ) tr[1] += PBC_vec[1][1];
+						while( tr[1] > PBC_vec[1][1] ) tr[1] -= PBC_vec[1][1];
+						while( tr[2] < 0 ) tr[2] += PBC_vec[2][2];
+						while( tr[2] > PBC_vec[2][2] ) tr[2] -= PBC_vec[2][2];
+	
+						int bx = rc_nx * tr[0] / PBC_vec[0][0];
+						int by = rc_ny * tr[1] / PBC_vec[1][1];
+						int bz = rc_nz * tr[2] / PBC_vec[2][2];
+		
+						if( bx >= 0 && bx < rc_nx &&
+						    by >= 0 && by < rc_ny &&
+						    bz >= 0 && bz < rc_nz )
+							rho_cube[bx*rc_ny*rc_nz+by*rc_nz+bz] += w1p * b1;
+					}	
+#endif	
+#endif
+					draw_pts[sRec->id][set*4*n_draw*draw_z+cur_pt*4+0] = p1[0];	
+					draw_pts[sRec->id][set*4*n_draw*draw_z+cur_pt*4+1] = p1[1];	
+					draw_pts[sRec->id][set*4*n_draw*draw_z+cur_pt*4+2] = p1[2];	
+					draw_pts[sRec->id][set*4*n_draw*draw_z+cur_pt*4+3] = b1 * w1p * dz;
+	
+					cur_pt++;
+				}
 			}
 		}
 		tarea[2*sRec->id+1] = total_area;
 	}	
+//#define TOTAL_DRAW
 
 #ifdef TOTAL_DRAW
 	// do every single pair we've got. 
@@ -188,7 +316,7 @@ void Simulation::sample_B_hist( double *B_hist, double *A2dz2_sampled,
 	for( int s2 = s1; s2 < nSurfaces; s2++ )
 	{
 		double *draw1 = draw_pts[s1];
-		double *draw2 = draw_pts[s2];
+		double *draw2 = draw_pts[s2] + 4*n_draw*draw_z;
 		double fac = 1.0;
 
 		if( s1 != s2 )
@@ -220,7 +348,7 @@ void Simulation::sample_B_hist( double *B_hist, double *A2dz2_sampled,
 		}
 	}
 #else
-	int n_pairs = 10000000;
+	int n_pairs = 100000;
 
 	for( int p = 0; p < n_pairs; p++ )
 	{
@@ -235,7 +363,7 @@ void Simulation::sample_B_hist( double *B_hist, double *A2dz2_sampled,
 		if( p1 == p2 ) continue;
 
 		double *rp1 = draw_pts[s1] + (p1*draw_z+z1) * 4;	
-		double *rp2 = draw_pts[s2] + (p2*draw_z+z2) * 4;	
+		double *rp2 = draw_pts[s2] + (p2*draw_z+z2) * 4 + 4 * n_draw * draw_z;	
 
 		double dr[3] = { rp1[0]-rp2[0],rp1[1]-rp2[1],rp1[2]-rp2[2]};
 
@@ -418,5 +546,133 @@ void writeSq( char *fileName, double *B_hist, double A2dz2_sampled, double sans_
 
 	fflush(theFile);
 	fclose(theFile);
+
+	if( nsld )
+	{
+		FILE *debugSR = fopen("debug.sz","w");
+
+		for( int b = 0; b < nbinsr; b++ )
+		{
+			double r1 = b * max_sld_r / nbinsr;
+			double r2 = (b+1)*max_sld_r / nbinsr;
+
+			double vol = 4*M_PI*(r2*r2*r2-r1*r1*r1);
+			fprintf(debugSR,"%lf %le\n", (b+0.5) * max_sld_r/nbinsr, nsld[b]/vol );
+		}
+		fclose(debugSR);
+	}
+#ifdef RHO_CUBE
+	if( rho_cube )
+	{	
+		double La = rc_La;
+		double Lb = rc_Lb;
+		double Lc = rc_Lc;
+		FILE *cubeFile = fopen("debug.cube","w");
+		double ang_to_bohr = 1.0 / 0.5291772;
+		fprintf(cubeFile, "CUBE FILE\n");
+		fprintf(cubeFile, "OUTER LOOP: X, MIDDLE LOOP: Y, INNER LOOP: Z\n");
+		fprintf(cubeFile, "1     %lf     %lf     %lf\n",
+                        0.,0.,0. );
+		fprintf(cubeFile, "%d %lf 0.0 0.0\n", rc_nx, ang_to_bohr*La / (double)rc_nx );
+		fprintf(cubeFile, "%d 0.0 %lf 0.0\n", rc_ny, ang_to_bohr*Lb / (double)rc_ny );
+		fprintf(cubeFile, "%d 0.0 0.0 %lf\n", rc_nz, ang_to_bohr*Lc / (double)rc_nz );
+		fprintf(cubeFile, "1     0.0     0.0     0.0\n");
+
+		int gp = 0;
+		double sum = 0;
+		int ishift_x = 0, ishift_y = 0, ishift_z = 0; 
+		for( int x = 0; x < rc_nx; x++ )
+		for( int y = 0; y < rc_ny; y++ )
+		for( int z = 0; z < rc_nz; z++ )
+		{   
+		         int px = x + ishift_x;
+		         int py = y + ishift_y;
+		         int pz = z + ishift_z;
+		 
+		         if( px < 0 ) px += rc_nx; 
+		         if( px >= rc_nx ) px -= rc_nx;
+		
+		         if( py < 0 ) py += rc_ny;
+		         if( py >= rc_ny ) py -= rc_ny;
+		
+		         if( pz < 0 ) pz += rc_nz;
+		         if( pz >= rc_nz ) pz -= rc_nz;
+		
+		        fprintf(cubeFile, "%lf ", rho_cube[px*rc_ny*rc_nz+py*rc_nz+pz] );
+		        gp++;
+		        if( gp % 3 == 0 ) fprintf(cubeFile, "\n");
+		}
+		fclose(cubeFile);
+		// FFT rho
+		
+		fftw_complex *h_in = (fftw_complex *)fftw_malloc( sizeof(fftw_complex) * rc_nx * rc_ny * rc_nz );
+		fftw_complex *h_out = (fftw_complex *)fftw_malloc( sizeof(fftw_complex) * rc_nx * rc_ny * rc_nz );
+		fftw_plan p;
+
+		p = fftw_plan_dft_3d( rc_nx, rc_ny, rc_nz,
+				h_in, h_out, FFTW_FORWARD, FFTW_ESTIMATE );
+
+		for( int x = 0; x < rc_nx; x++ )
+		for( int y = 0; y < rc_ny; y++ )
+		for( int z = 0; z < rc_nz; z++ )
+		{
+			h_in[x*rc_ny*rc_nz+y*rc_nz+z][0] = rho_cube[x*rc_ny*rc_nz+y*rc_nz+z];
+			h_in[x*rc_ny*rc_nz+y*rc_nz+z][1] = 0;
+		}
+
+		fftw_execute(p);
+		
+		FILE *debugSQ = fopen("debug.sq","w");
+	
+		double qmax = 0.5;
+		double dq = 0.001;
+
+		int nq = qmax / dq;
+		double *Sq = (double *)malloc( sizeof(double) * nq );
+		memset( Sq, 0, sizeof(double) * nq );
+		double *nSq = (double *)malloc( sizeof(double) * nq );
+		memset( nSq, 0, sizeof(double) * nq );
+
+		for( int x = 0; x < rc_nx; x++ )
+		{
+			double qx = x * 2 * M_PI / La;
+
+			for( int y = 0; y < rc_ny; y++ )
+			{
+				double qy = y * 2 * M_PI / Lb;
+
+				for( int z = 0; z < rc_nz; z++ )
+				{
+					double qz = z * 2 * M_PI / Lc;
+
+					double Sqr = h_out[x*rc_ny*rc_nz+y*rc_nz+z][0];	
+					double Sqc = h_out[x*rc_ny*rc_nz+y*rc_nz+z][1];
+
+					double q = sqrt(qx*qx+qy*qy+qz*qz);	
+
+					int qbin = q / dq;
+
+					if( qbin < nq )
+					{
+						Sq[qbin] += Sqr*Sqr+Sqc*Sqc;					
+						nSq[qbin] += 1;					
+					} 
+				}
+			}
+		}
+
+		for( int iq = 0; iq < nq; iq++ )
+			fprintf(debugSQ,"%le %le %le\n", (iq+0.5)*dq, Sq[iq], nSq[iq] );
+		fclose(debugSQ);
+		fftw_destroy_plan(p);
+
+		fftw_free(h_in);
+		fftw_free(h_out);
+
+
+
+
+	}
+#endif
 }
 

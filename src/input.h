@@ -32,6 +32,7 @@ class parameterBlock
 	char *rxnDiffusionInfoName;
 	char *track_lipid_rho;
 	double rho;
+	int shiftRho;
 
 	// gather
 	int do_gather;
@@ -158,6 +159,12 @@ class parameterBlock
 	int nse;     // should we compute the auto-correlation function to mimic spin echo?
 	double q_min; // q_min to compute s_q
 	double q_max; // q_max to compute s_q
+	double sans_leaflet_perturb;
+
+	double sans_strain_inner;
+	double sans_strain_outer;
+
+	int sans_method; // NYI: only does SANS_MC for now
 	int s_q_res;
 	int nq;
 	double maxr;
@@ -243,9 +250,12 @@ class parameterBlock
 	char *patchPSF;
 	char *patchPDB;
 	double neutral_surface;
+	double neutral_surface_inner;
+	double neutral_surface_outer;
 	double scale_solvent_approach;
 	int create_all_atom;
 	int create_flip;
+	int discrete_lipids;
 	double create_pore;
 	int do_rim;
 	int perfect_solvent_tiling;
