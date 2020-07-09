@@ -1,0 +1,22 @@
+time_step 		5e-12
+mesh 			pore.mesh
+add syt7 nbound 1 inside saddle
+do_ld 			yes
+o_lim 			10
+nsteps 			250	
+movie			yes	
+diffc			1e10
+do_bd_membrane		no
+gamma_langevin 		1000
+jobname			syt7_dyn
+nmin			1	
+seed			9	
+#create_all_atom		yes
+outerKCL		150
+innerKCL		150
+innerPatchPDB           popc.pdb
+innerPatchPSF           popc.psf	
+outerPatchPDB           popc.pdb
+outerPatchPSF           popc.psf
+#solvatePSF		water.psf
+#solvatePDB		water.pdb	
