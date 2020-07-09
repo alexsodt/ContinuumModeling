@@ -1596,4 +1596,129 @@ void Simulation::writeLimitingSurfacePSF(FILE *theFile )
 
 }
 
+void Simulation::write_density( FILE *theFile, int nx, int ny, int nz, int format)
+{
+	double *rho = ( double *)malloc( sizeof(double) * nx * ny * nz );
+	memset( rho, 0, sizeof(double) * nx * ny * nz );	
+	
+	int nd = 5;
+
+	double thick = 20.0;
+
+	int mult = 1;
+
+	double Lx = PBC_vec[0][0] * (1+2*mult);
+	double Ly = PBC_vec[1][1] * (1+2*mult);
+	double Lz = PBC_vec[2][2] * (1+2*mult);
+
+	double  Ls[3] = { Lx, Ly, Lz };
+
+		for( surface_record *sRec = allSurfaces; sRec; sRec = sRec->next )
+		{
+			surface *theSurface = sRec->theSurface;
+			int nt  = theSurface->nt;
+	
+			for( int t = 0; t < nt; t++ )
+			{
+				int f = theSurface->theTriangles[t].f;
+				int i = theSurface->theTriangles[t].ids[0];
+				int j = theSurface->theTriangles[t].ids[1];
+				int k = theSurface->theTriangles[t].ids[2];
+	
+				double gfac = theSurface->g( f, 1.0/3.0, 1.0/3.0, sRec->r );
+	
+				// u: i to j.
+				// v: i to k.
+	
+				double factor = 1;
+				for( int iu = 0; iu < nd; iu++ )
+				{
+					for( int iv = 0; iv < nd-iu; iv++ )
+					{
+						if( iu == 0 && iv == 0 )
+							factor = 1.0 / theSurface->theVertices[i].valence; 
+						else  if( iu == 0 || iv == 0 )
+							factor = 1.0 / 2.0;
+	
+						double u = iu / (nd-1.);
+						double v = iv / (nd-1.);
+	
+						if( iu == 0 && iv == 0 )
+						{
+							u = 1e-4;
+							v = 1e-4;
+						}
+	
+						double rpt[3], npt[3];
+						theSurface->evaluateRNRM( f, u, v, rpt, npt, sRec->r );
+	
+						for(  int leaf = 0; leaf < 2; leaf++ )
+						{
+							for( int dx = -mult; dx <= mult; dx++ )
+							for( int dy = -mult; dy <= mult; dy++ )
+							for( int dz = -mult; dz <= mult; dz++ )
+							{
+								double lpt[3] = { rpt[0] + npt[0] * thick, rpt[1] + npt[1] * thick, rpt[2] + npt[2] * thick }; 
+								lpt[0] += dx * PBC_vec[0][0];
+								lpt[1] += dy * PBC_vec[1][1];
+								lpt[2] += dz * PBC_vec[2][2];
+								for( int c = 0; c < 3; c++  )
+								{
+									while( lpt[c] < 0 ) lpt[c] += Ls[c];
+									while( lpt[c] >= Ls[c] ) lpt[c] -= Ls[c];
+								}
+		
+								int bx = nx * lpt[0] / Lx;
+								int by = ny * lpt[1] / Ly;
+								int bz = nz * lpt[2] / Lz;
+	
+								rho[bx*ny*nz+by*nz+bz] += gfac * factor;
+							}
+						}
+					}	
+				} 
+			}
+		}
+
+	if( format == 0 )
+	{
+		fprintf(theFile, "%lf %lf %lf\n", Lx, Ly, Lz );
+		fprintf(theFile,  "%d %d %d\n", nx, ny, nz );
+		for( int ix =0;ix<nx;ix++ )
+		for( int iy = 0; iy < ny; iy++ )
+		{
+			for( int iz = 0; iz < nz; iz++ )
+				fprintf(theFile, "%lf ", rho[ix*ny*nz+iy*nz+iz] );
+			fprintf(theFile,"\n");
+		}	
+	}
+	else
+	{
+		// cube
+		fprintf(theFile, "CUBE FILE\n");
+		fprintf(theFile,  "OUTER LOOP: X, MIDDLE LOOP: Y, INNER LOOP: Z\n");
+		fprintf(theFile,  "1     0.0000       0.00000      0.000000\n");
+		fprintf(theFile,  "%d	%lf 0.000000 0.000000\n", nx,  -Lx / nx);
+		fprintf(theFile,  "%d	0.000000 %lf  0.000000\n", ny, -Ly / ny);
+		fprintf(theFile,  "%d	0.000000 0.000000 %lf\n", nz,  -Lz / nz  );
+		fprintf(theFile,  "1     0.0000       0.00000      0.000000\n");
+
+		int nput = 0;
+
+		for( int ix = 0; ix < nx; ix++ )
+		for( int iy = 0; iy < ny; iy++ )
+		for( int iz = 0; iz < nz; iz++ )
+		{
+			fprintf(theFile, "%lf ", rho[ix*ny*nz+iy*nz+iz] );
+			nput++;
+			if( nput == 3 )
+			{
+				fprintf(theFile,"\n");
+				nput  = 0;
+			}
+		}
+
+	}
+}
+
 

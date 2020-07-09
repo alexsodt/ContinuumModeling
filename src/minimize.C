@@ -60,7 +60,7 @@ double surface_f( double *p )
 		nparams += min_complexes[c]->nparams();
 	}
 		
-	if( fitRho_activated )
+	if( fitRho_activated && fabs(fitCoupling) > 1e-30 )
 	{
 #ifdef FIT_RHO_ONE_THICKNESS
 		double thick_inner = p[nparams]; nparams++;
@@ -151,7 +151,7 @@ double surface_fdf( double *p, double *g)
 		nparams += np;
 	}
 	
-	if( fitRho_activated )
+	if( fitRho_activated  && fabs(fitCoupling) > 1e-30 )
 	{
 #ifdef FIT_RHO_ONE_THICKNESS
 		double thick_inner = p[nparams];
@@ -425,39 +425,36 @@ void full_fd_test( double *p )
 {
 	double deps = 1e-4;
 
-	double *tp = (double *)malloc( sizeof(double) * min_nparams );
-	memset( tp, 0, sizeof(double) * min_nparams );
 	double *g = (double *)malloc( sizeof(double) * min_nparams );
 	memset( g, 0, sizeof(double) * min_nparams );
 
 	double e0 = surface_fdf( p, g );
 	printf("Finite difference test.\n");
 
-
-	memcpy( tp, p, sizeof(double) * min_nparams );
-	for( int p = 0; p < min_nparams; p++ )
+	for( int xp = 0; xp < min_nparams; xp++ )
 	{
 		double de_pm[2];
 	
 		for( int im = 0; im < 2; im++ )
 		{
-			tp[p] += deps * (im == 0 ? 1 : -1);	
+			p[xp] += deps * (im == 0 ? 1 : -1);	
 		
-			double v = surface_f( tp );
+			double v = surface_f( p );
 			
 			de_pm[im] = v;
 
-			tp[p] -= deps * (im == 0 ? 1 : -1);	
+			p[xp] -= deps * (im == 0 ? 1 : -1);	
 		}
 	
-		double fr_error = fabs(((de_pm[0]-de_pm[1])/(2*deps) - g[p])/((de_pm[0]-de_pm[1])/(2*deps)));	
+		double fr_error = fabs(((de_pm[0]-de_pm[1])/(2*deps) - g[xp])/((de_pm[0]-de_pm[1])/(2*deps)));	
 	
-		if( fabs( (de_pm[0]-de_pm[1])/(2*deps) - g[p]) > 1e-5 && fr_error > 1e-5 )
-			printf("parm %d fd_der %.14le g %.14le del %.14le BAD\n", p, (de_pm[0]-de_pm[1])/(2*deps), g[p],  (de_pm[0]-de_pm[1])/(2*deps) - g[p] );
+		if( fabs( (de_pm[0]-de_pm[1])/(2*deps) - g[xp]) > 1e-5 && fr_error > 1e-5 )
+			printf("parm %d fd_der %.14le g %.14le del %.14le BAD\n", xp, (de_pm[0]-de_pm[1])/(2*deps), g[xp],  (de_pm[0]-de_pm[1])/(2*deps) - g[xp] );
 		else if( fabs( (de_pm[0]-de_pm[1])/(2*deps)) > 1e-10 )	
-			printf("parm %d fd_der %.14le g %.14le del %.14le OK\n", p, (de_pm[0]-de_pm[1])/(2*deps), g[p],  (de_pm[0]-de_pm[1])/(2*deps) - g[p] );
+			printf("parm %d fd_der %.14le g %.14le del %.14le OK\n", xp, (de_pm[0]-de_pm[1])/(2*deps), g[xp],  (de_pm[0]-de_pm[1])/(2*deps) - g[xp] );
 	}
-	free(tp);
+	
+
 	free(g);
 
 //	exit(1);
@@ -465,10 +462,8 @@ void full_fd_test( double *p )
 
 void fd_test( double *p )
 {
-	double deps = 1e-10;
+	double deps = 1e-6;
 
-	double *tp = (double *)malloc( sizeof(double) * min_nparams );
-	memset( tp, 0, sizeof(double) * min_nparams );
 	double *g = (double *)malloc( sizeof(double) * min_nparams );
 	memset( g, 0, sizeof(double) * min_nparams );
 
@@ -479,15 +474,17 @@ void fd_test( double *p )
 		double expec = 0;
 		for( int x = 0; x < min_nparams;x++ )
 		{
-			tp[x] = p[x] - eps * g[x];
+			p[x] -= eps * g[x];
 			expec += -g[x] * g[x] * eps;
 		}
 
-		double v = surface_f( tp );
+		double v = surface_f( p );
 		printf("%le %.14le %.14le del %.14le\n", eps, v-e0, expec, (v-(e0+expec)) );
+		
+		for( int x = 0; x < min_nparams;x++ )
+			p[x] += eps * g[x];
 	}
 
-	free(tp);
 	free(g);
 }
 
@@ -518,7 +515,7 @@ void Simulation::minimize( int freeze_membrane  )
 	for( int c = 0; c < ncomplex; c++ )
 		num_params += allComplexes[c]->nparams();
 
-	if( fitRho_activated )
+	if( fitRho_activated && fabs(fitCoupling) > 1e-30  )
 	{
 #ifdef FIT_RHO_ONE_THICKNESS
 		num_params += 1; // same thickness
@@ -563,7 +560,7 @@ void Simulation::minimize( int freeze_membrane  )
 
 	int thickness_ptr = 0;
 
-	if( fitRho_activated )
+	if( fitRho_activated && fabs(fitCoupling) > 1e-30  )
 	{
 		printf("Current thickness: %lf %lf\n", cur_rho_thickness[0], cur_rho_thickness[1] );
 		thickness_ptr = tp;
@@ -590,7 +587,7 @@ void Simulation::minimize( int freeze_membrane  )
 	if( use_m > num_params )
 		use_m = num_params;
 	double e_init = surface_f(p);
-//	full_fd_test(p);
+	//full_fd_test(p);
 	printf("Entering minimize with e_init: %le\n", e_init );
 	l_bfgs_setup( use_m, num_params, p, 1.0, surface_f, surface_fdf); 
 
@@ -639,7 +636,7 @@ void Simulation::minimize( int freeze_membrane  )
 	for( int c = 0; c < ncomplex; c++ )
 		allComplexes[c]->refresh(this);
 
-	if( fitRho_activated )
+	if( fitRho_activated && fabs(fitCoupling) > 1e-30  )
 	{
 #ifdef FIT_RHO_ONE_THICKNESS
 		cur_rho_thickness[0] = p[thickness_ptr];		

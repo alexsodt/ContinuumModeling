@@ -290,8 +290,7 @@ int main( int argc, char **argv )
 	global_block = &block; //yikes
 
 	if( block.fitRho )
-		theSimulation->setupDensity( block.fitRho );
-
+		theSimulation->setupDensity( block.fitRho, block.shiftRho );
 
 	av_edge_length /= n_edge_length;
 	theSurface1->box_system(av_edge_length);
@@ -339,7 +338,7 @@ int main( int argc, char **argv )
 	double T = 300;
 
 	int n = 16;
-	
+	double sph_R = 1;
 
 	if( block.sphere )
 	{
@@ -349,6 +348,7 @@ int main( int argc, char **argv )
 			V0 =fabs(theSurface1->volume( sRec->r));
 //			printf("Area: %lf (R: %lf)\n", area0, sqrt(area0/(4*M_PI))  );
 			printf("Volume: %lf (R: %lf)\n", V0, pow( V0/(4*M_PI/3.0), 1.0/3.0) );
+			sph_R = pow( V0/(4*M_PI/3.0), 1.0/3.0);
 		}
 	}
 
@@ -501,7 +501,7 @@ int main( int argc, char **argv )
 			if( block.sphere )
 			{	
 				sRec->doing_spherical_harmonics = 1;
-				sRec->NQ = useSurface->getSphericalHarmonicModes( sRec->r, block.mode_min, block.mode_max, block.mode_q_max, &sRec->gen_transform, &sRec->output_qvals, &sRec->scaling_factor );
+				sRec->NQ = useSurface->origSphericalHarmonicModes( sRec->r, block.mode_min, block.mode_max, block.mode_q_max, &sRec->gen_transform, &sRec->output_qvals, &sRec->scaling_factor );
 			}
 			else
 			{
@@ -724,6 +724,22 @@ int main( int argc, char **argv )
 			use_seed = debug_seed;
 		}
 #endif
+		
+		for( surface_record *sRec = theSimulation->allSurfaces; sRec; sRec = sRec->next )
+		{
+			double Vi,Vo;
+			double alphas[3]={1,1,1};
+			surface *useSurface = sRec->theSurface;
+
+			useSurface->new_volume( &Vi, &Vo, sRec->r, alphas, NULL ); // to test gradient. 
+			sRec->V0_i = Vi;
+			sRec->V0_o = Vo;
+
+			double area0;
+			double cur_area;
+			useSurface->area(sRec->r, -1, &cur_area, &area0 );
+			printf("Surface %d area: %le area0: %le volume: i: %le o: %le\n", sRec->id, cur_area, area0 , Vi, Vo );
+		}
 	}
 
 	
@@ -795,7 +811,7 @@ int main( int argc, char **argv )
 	theSimulation->allSurfaces->theSurface->evaluateRNRM( theSimulation->allSurfaces->theSurface->theTriangles[0].f, 1.0/3.0, 1.0/3.0, prev_tracerp, nrm_junk, theSimulation->allSurfaces->r ); 
 
 // DEBUG
-	{
+	if ( 0 ) {
 		surface_record *sRec = theSimulation->allSurfaces;
 		for( int x = 0; x < 10; x++ )
 			sRec->theSurface->local_lipidMCMove( sRec->r, theSimulation->allComplexes, theSimulation->ncomplex, time_step, 1.0 / temperature, block.diffc, theSimulation->PBC_vec, block.lipid_mc_swap_only, &tracer );
@@ -844,6 +860,12 @@ int main( int argc, char **argv )
 		}
 		
 	}
+
+	FILE *densFile = fopen("density.txt","w");
+
+	theSimulation->write_density( densFile, 100, 100, 100, 0 );
+
+	fclose(densFile);
 
 	if( block.do_gather )
 		theSimulation->gather(&block);
@@ -1021,6 +1043,9 @@ int main( int argc, char **argv )
 		if( block.kinetics && do_bd_membrane )
 		{
 			int nv = sRec->theSurface->nv;
+
+			FILE *dbgFile = fopen("debug_traj.xyz","w");
+
 			for( int i = 0; i < sRec->NQ; i++ )
 			{
 				double q = sRec->output_qvals[i];
@@ -1029,35 +1054,48 @@ int main( int argc, char **argv )
 				double tau = AKMA_TIME * 1.0 / time_const;
 				double inv_mass = sRec->EFFM->diagonal_element[i]; 
 				double frc_k = 0.5 * kc * area * q * q * q * q;	
+
+				if( block.sphere )
+				{
+					double l = sRec->output_qvals[i];
+					frc_k = (kc/kT) * (l-1)*(l+2)*(l*(l+1));
+					double approx_q = 2*M_PI*l/sph_R;
+
+					time_const = kc * approx_q*approx_q*approx_q  / (4 * eta);
+					tau = AKMA_TIME * 1.0 / time_const;
+				}
+
 				printf("Tau: %le (s)\n", tau/AKMA_TIME );
 #define CHECK_FRC_K
 #ifdef CHECK_FRC_K
 				double emp_frc_k = 0;
 				double e0 = 0;
 				double epsv[10];
-				double deps = 1e-2;
+				double deps = 1;
 				for( int ieps = 0; ieps < 10; ieps++ )
 				{
 					double eps = ieps * deps;
 					for( int v = 0; v < sRec->theSurface->nv; v++ )
 					{
-						sRec->r[v*3+0] += eps*sRec->gen_transform[i*3*nv+v*3+0];		
-						sRec->r[v*3+1] += eps*sRec->gen_transform[i*3*nv+v*3+1];		
-						sRec->r[v*3+2] += eps*sRec->gen_transform[i*3*nv+v*3+2];		
+						sRec->r[v*3+0] += eps*sRec->gen_transform[i*3*nv+v*3+0] / sRec->scaling_factor[i];		
+						sRec->r[v*3+1] += eps*sRec->gen_transform[i*3*nv+v*3+1] / sRec->scaling_factor[i];		
+						sRec->r[v*3+2] += eps*sRec->gen_transform[i*3*nv+v*3+2] / sRec->scaling_factor[i];		
 					}
 
 					double rcheck[3], rnrm[3];
 					sRec->theSurface->evaluateRNRM( 0, 0, 0, rcheck, rnrm, sRec->r );
-					printf("r0: %lf %lf %lf\n", rcheck[0], rcheck[1], rcheck[2] ); 
+//					printf("r0: %lf %lf %lf\n", rcheck[0], rcheck[1], rcheck[2] ); 
 
 					double len=0;
 					printf("%le %.14le\n", eps, len=sRec->theSurface->energy(sRec->r,NULL) );
 					epsv[ieps] = len;	
+        		
+
 					for( int v = 0; v < sRec->theSurface->nv; v++ )
 					{
-						sRec->r[v*3+0] -= eps*sRec->gen_transform[i*3*nv+v*3+0];		
-						sRec->r[v*3+1] -= eps*sRec->gen_transform[i*3*nv+v*3+1];		
-						sRec->r[v*3+2] -= eps*sRec->gen_transform[i*3*nv+v*3+2];		
+						sRec->r[v*3+0] -= eps*sRec->gen_transform[i*3*nv+v*3+0] / sRec->scaling_factor[i];		
+						sRec->r[v*3+1] -= eps*sRec->gen_transform[i*3*nv+v*3+1] / sRec->scaling_factor[i];		
+						sRec->r[v*3+2] -= eps*sRec->gen_transform[i*3*nv+v*3+2] / sRec->scaling_factor[i];		
 					}
 					if( ieps >= 2 )
 					{
@@ -1794,7 +1832,7 @@ int main( int argc, char **argv )
 								if( !strcasecmp( sRec->theSurface->bilayerComp.names[x], block.track_lipid_rho) ) 
 									use_lipid = x;
 							}
-							if( use_lipid > 0 )
+							if( use_lipid >= 0 )
 							{
 								double Lx = theSimulation->PBC_vec[0][0];
 								double Ly = theSimulation->PBC_vec[1][1];
@@ -2267,6 +2305,7 @@ int main( int argc, char **argv )
 		
 	}
 #endif
+
 	if( block.outputMesh )
 	{
 		char *fileName = (char *)malloc( sizeof(char) * strlen(block.jobName) + 6 );

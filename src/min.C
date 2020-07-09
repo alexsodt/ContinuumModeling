@@ -101,7 +101,7 @@ int main( int argc, char **argv )
 	theSimulation->allComplexes = NULL;
 	setupParallel(theSimulation);
 
-	KA = 1.215;
+	KA = 0.215;
 
 //	theSurface->fdiff_check_grad(r);
 	double vol = theSurface->volume(r);
@@ -196,7 +196,7 @@ int main( int argc, char **argv )
 }
 
 double vext = 0;
-extern double VA, VC;
+extern double VA, VC, SUMK;
 double f( double *r )
 {
 	vext = 0;
@@ -211,7 +211,10 @@ double fdf( double *r, double *g )
 	double en = f(r);
 	static int xx = 0;
 //	if( xx % 100 == 0 )
-		printf("fdf e: %.14le VE: %.14le AE: %.14le CE: %.14le\n", en, vext, VA, VC );
+
+
+	double k_2pi = -(SUMK)/(2*M_PI);
+		printf("fdf e: %.14le VE: %.14le AE: %.14le CE: %.14le INTK: %.14le (%.3lf x -2 Pi)\n", en, vext, VA, VC, SUMK, k_2pi );
 	xx++;
 	memset( g, 0, sizeof(double) * (3 * minSurface->nv+3) );
 	minSurface->grad(r,g);
