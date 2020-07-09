@@ -39,6 +39,7 @@ class parameterBlock
 	char *dcdName;
 	char *structureName;
 
+	double inner_volume_scale;
 	int restrain_volume_inside;
 	int restrain_volume_outside;
 	int timestep_analysis;
@@ -67,6 +68,12 @@ class parameterBlock
 	int npt_mc_period; // period which to do monte-carlo lipid movement
 	int cyl_tension_mc_period;
 
+	double fix_x_cut;
+	double fix_y_cut;
+	double fix_z_cut;
+	int use_fix_x_cut;
+	int use_fix_y_cut;
+	int use_fix_z_cut;
 
 	double alpha_restraint_x;
 	double alpha_restraint_y;

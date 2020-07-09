@@ -17,7 +17,9 @@ static int do_freeze_membrane = 0;
 static pcomplex **min_complexes;
 extern double VA,VC;
 double VV = 0;
-extern double water_KV;Simulation *min_simulation = NULL;
+extern double water_KV;
+Simulation *min_simulation = NULL;
+static surface_record one_srec;
 static double cur_rho_thickness[2] = { 15.0, 15.0 };
 
 #define FIT_RHO_ONE_THICKNESS
@@ -25,7 +27,19 @@ static double cur_rho_thickness[2] = { 15.0, 15.0 };
 double surface_f( double *p )
 {
 	int offset = 3; 
-	for( surface_record *sRec = min_simulation->allSurfaces; sRec; sRec = sRec->next )
+	
+	surface_record *header = NULL;
+
+	int do_sim = 1;
+
+	if( min_simulation )
+		header = min_simulation->allSurfaces;
+	else
+	{
+		do_sim = 0;
+		header = &one_srec;
+	}
+	for( surface_record *sRec = header; sRec; sRec = sRec->next )
 	{
 		int nv = sRec->theSurface->nv;
 		p[offset+3*nv+0] = p[0];
@@ -46,7 +60,7 @@ double surface_f( double *p )
 	VA = 0;
 	VC = 0;
 	double v = 0;
-	for( surface_record *sRec = min_simulation->allSurfaces; sRec; sRec = sRec->next )
+	for( surface_record *sRec = header; sRec; sRec = sRec->next )
 	{
 		v += sRec->theSurface->energy( p+sRec->temp_min_offset, NULL );
 	}
@@ -60,7 +74,7 @@ double surface_f( double *p )
 		nparams += min_complexes[c]->nparams();
 	}
 		
-	if( fitRho_activated && fabs(fitCoupling) > 1e-30 )
+	if( do_sim && fitRho_activated && fabs(fitCoupling) > 1e-30 )
 	{
 #ifdef FIT_RHO_ONE_THICKNESS
 		double thick_inner = p[nparams]; nparams++;
@@ -69,26 +83,32 @@ double surface_f( double *p )
 		double thick_inner = p[nparams]; nparams++;
 		double thick_outer = p[nparams]; nparams++;
 #endif
-		for( surface_record *sRec = min_simulation->allSurfaces; sRec; sRec = sRec->next )
+		for( surface_record *sRec = header; sRec; sRec = sRec->next )
 			v += sRec->theSurface->rhoEnergy( p+sRec->temp_min_offset, min_simulation->PBC_vec, thick_inner, thick_outer );
 	}	
 
-	for( int cx = 0; cx < par_info.nc; cx++ )
-	{
-		int c = par_info.complexes[cx];
+	for( surface_record *sRec = header; sRec; sRec = sRec->next )
+		v += sRec->theSurface->cutEnergy( p+sRec->temp_min_offset );
 
-		v += min_complexes[c]->V( min_simulation );
-		v += min_complexes[c]->AttachV( min_simulation );
+	if( do_sim )
+	{
+		for( int cx = 0; cx < par_info.nc; cx++ )
+		{
+			int c = par_info.complexes[cx];
+	
+			v += min_complexes[c]->V( min_simulation );
+			v += min_complexes[c]->AttachV( min_simulation );
+		}
+		v += Boxed_PP_V( min_simulation );
 	}
-	v += Boxed_PP_V( min_simulation );
 	
 	ParallelSum(&v,1);
 
 	// AFTER PARALLEL SUM:
 
-	if( water_KV > 0 )
+	if( do_sim && water_KV > 0 )
 	{
-		for( surface_record *sRec = min_simulation->allSurfaces; sRec; sRec = sRec->next )
+		for( surface_record *sRec = header; sRec; sRec = sRec->next )
 		{
 			double Vi,Vo;
 			sRec->theSurface->new_volume( &Vi, &Vo, sRec->r, min_simulation->alpha, NULL );
@@ -131,7 +151,18 @@ double surface_fdf( double *p, double *g)
 	double v = 0;	
 	int offset = 3; 
 	
-	for( surface_record *sRec = min_simulation->allSurfaces; sRec; sRec = sRec->next )
+	int do_sim = 1;
+
+	surface_record *header = NULL;
+	if( min_simulation )
+		header = min_simulation->allSurfaces;
+	else
+	{
+		do_sim = 0;
+		header = &one_srec;
+	}
+	
+	for( surface_record *sRec = header; sRec; sRec = sRec->next )
 	{
 		int nv = sRec->theSurface->nv;
 		p[offset+3*nv+0] = p[0];
@@ -151,35 +182,41 @@ double surface_fdf( double *p, double *g)
 		nparams += np;
 	}
 	
-	if( fitRho_activated  && fabs(fitCoupling) > 1e-30 )
+	//if( fitRho_activated  && fabs(fitCoupling) > 1e-30 )
 	{
+		double thick_inner, thick_outer;
+		double *rho_g_i, *rho_g_o;
+		int do_rho = 0;
+
+		if( fitRho_activated && fabs(fitCoupling) > 1e-30 )
+		{
+			do_rho = 1;
 #ifdef FIT_RHO_ONE_THICKNESS
-		double thick_inner = p[nparams];
-		double *rho_g_i = g+nparams;
-		*rho_g_i = 0;
-
-		double thick_outer = p[nparams]; 
-		double *rho_g_o = g+nparams;
-		*rho_g_o = 0;
-
-		nparams++;
+			thick_inner = p[nparams];
+			rho_g_i = g+nparams;
+			*rho_g_i = 0;
+	
+			thick_outer = p[nparams]; 
+			rho_g_o = g+nparams;
+			*rho_g_o = 0;
+	
+			nparams++;
 #else
-		double thick_inner = p[nparams];
-		double *rho_g_i = g+nparams;
-		*rho_g_i = 0;
-		nparams++;
-
-		double thick_outer = p[nparams]; 
-		double *rho_g_o = g+nparams;
-		*rho_g_o = 0;
-		nparams++;
+			thick_inner = p[nparams];
+			rho_g_i = g+nparams;
+			*rho_g_i = 0;
+			nparams++;
+	
+			thick_outer = p[nparams]; 
+			rho_g_o = g+nparams;
+			*rho_g_o = 0;
+			nparams++;
 #endif
+		}
+
 		int offset = 3; 
 
-		*rho_g_i = 0;
-		*rho_g_o = 0;
-	
-		for( surface_record *sRec = min_simulation->allSurfaces; sRec; sRec = sRec->next )
+		for( surface_record *sRec = header; sRec; sRec = sRec->next )
 		{
 			int nv = sRec->theSurface->nv;
 			p[offset+3*nv+0] = p[0];
@@ -188,7 +225,11 @@ double surface_fdf( double *p, double *g)
 			sRec->g = g+offset;
 			sRec->r = p+offset;		
 
-			v += sRec->theSurface->rhoGrad( p+offset, g+offset, min_simulation->PBC_vec, thick_inner, thick_outer, rho_g_i, rho_g_o );
+
+			if(do_rho )
+				v += sRec->theSurface->rhoGrad( p+offset, g+offset, min_simulation->PBC_vec, thick_inner, thick_outer, rho_g_i, rho_g_o );
+
+			v += sRec->theSurface->cutGrad( p+offset, g+offset );
 			offset += sRec->theSurface->nv*3+3;
 		}
 	}	
@@ -334,7 +375,7 @@ double surface_fdf( double *p, double *g)
 	g[1] = 0;
 	g[2] = 0;
 
-	for( surface_record *sRec = min_simulation->allSurfaces; sRec; sRec = sRec->next )
+	for( surface_record *sRec = header; sRec; sRec = sRec->next )
 	{
 		g[sRec->temp_min_offset+3*sRec->theSurface->nv+0] = 0;
 		g[sRec->temp_min_offset+3*sRec->theSurface->nv+1] = 0;
@@ -347,7 +388,7 @@ double surface_fdf( double *p, double *g)
 			g[x] = 0;
 	}
 
-	for( surface_record *sRec = min_simulation->allSurfaces; sRec; sRec = sRec->next )
+	for( surface_record *sRec = header; sRec; sRec = sRec->next )
 		v += sRec->theSurface->energy( p+sRec->temp_min_offset, NULL );
 	ParallelSum( &v, 1 );
 	
@@ -355,7 +396,7 @@ double surface_fdf( double *p, double *g)
 
 	if( water_KV > 0 )
 	{
-		for( surface_record *sRec = min_simulation->allSurfaces; sRec; sRec = sRec->next )
+		for( surface_record *sRec = header; sRec; sRec = sRec->next )
 		{
 			double * dvol = (double *)malloc( sizeof(double) * 3 * sRec->theSurface->nv );
 			memset( dvol, 0, sizeof(double) * 3 * sRec->theSurface->nv );
@@ -591,6 +632,7 @@ void Simulation::minimize( int freeze_membrane  )
 	printf("Entering minimize with e_init: %le\n", e_init );
 	l_bfgs_setup( use_m, num_params, p, 1.0, surface_f, surface_fdf); 
 
+	printf("Minimize IN: V: %.14le VA: %lf VC: %lf VV: %lf\n", e_init, VA, VC, VV );
 	if( mag_init > 1e-20 )
 	{
 		for( int x = 0; x < nsteps; x++ )
@@ -617,7 +659,7 @@ void Simulation::minimize( int freeze_membrane  )
 
 //	full_fd_test(p);
 
-	printf("Minimize: VG: %.14le VV: %.14le VA: %lf VC: %lf VV: %lf grad rms %le\n", v, e, VA, VC, VV, rms );
+	printf("Minimize OUT: VG: %.14le VV: %.14le VA: %lf VC: %lf VV: %lf grad rms %le\n", v, e, VA, VC, VV, rms );
 
 	enable_elastic_interior = prev_enable;
 
@@ -650,4 +692,101 @@ void Simulation::minimize( int freeze_membrane  )
 	free(p);
 	free(g);
 }
+
+/*
+ * Minimizes the curvature energy of the surface only, no frills.
+ * */
+
+void surface::minimize( double *r )
+{
+	min_simulation = NULL;
+	min_ncomplex = 0;	
+	min_complexes = NULL;
+
+	int num_params = 3 + (nv * 3+3); // alphas
+
+	min_nsurfaceparams = num_params;
+	min_nparams = num_params;
+	
+	double *p = (double *)malloc( sizeof(double) * num_params );
+	double *g = (double *)malloc( sizeof(double) * num_params );
+	
+	p[0] = r[3*nv+0];
+	p[1] = r[3*nv+1];
+	p[2] = r[3*nv+2];
+
+	int offset = 3;
+	
+	one_srec.theSurface = this;
+	one_srec.temp_r = (double *)malloc( sizeof(double ) * 3 * nv );
+	one_srec.r = p + offset;
+	one_srec.g = g + offset;
+	one_srec.temp_g = (double *)malloc( sizeof(double) * 3 * nv );
+	one_srec.next = NULL;
+	
+	memcpy( p + offset, r, sizeof(double ) * (3 * nv+3) );
+
+	offset += 3*nv+3;
+
+	int tp = min_nsurfaceparams;
+
+	// derivative might be zero (absolutely)
+
+	surface_fdf(p,g);
+	double mag_init = 0;
+	for( int p = 0; p < num_params; p++ )
+		mag_init += g[p]*g[p];
+	
+	int nsteps = 100;
+	
+	int use_m = nsteps;
+	if( use_m > num_params )
+		use_m = num_params;
+	double e_init = surface_f(p);
+	//full_fd_test(p);
+	printf("Entering minimize with e_init: %le\n", e_init );
+	l_bfgs_setup( use_m, num_params, p, 1.0, surface_f, surface_fdf); 
+
+	printf("Minimize IN: V: %.14le VA: %lf VC: %lf VV: %lf\n", e_init, VA, VC, VV );
+	if( mag_init > 1e-20 )
+	{
+		for( int x = 0; x < nsteps; x++ )
+		{
+			if( ! l_bfgs_iteration( p ) ) { break; }
+	
+//		if( x %10 == 0 )
+//			printf("Sub iteration %d, V: %le\n", x, surface_f(p) );
+		}
+	}	
+	else
+	{
+		printf("Initial gradient zero.\n");
+	}	
+	l_bfgs_clear();
+	double v =surface_fdf(p,g);
+	double e = surface_f(p);
+
+	double rms = 0;
+	for( int x = 0; x < num_params; x++ )
+		rms += g[x]*g[x];
+	rms /= num_params;
+	rms = sqrt(rms);
+
+	printf("Minimize OUT: VG: %.14le VV: %.14le VA: %lf VC: %lf VV: %lf grad rms %le\n", v, e, VA, VC, VV, rms );
+
+	memcpy( r, one_srec.r, sizeof(double)* 3* nv );
+
+	r[3*nv+0] = p[0];
+	r[3*nv+1] = p[1];
+	r[3*nv+2] = p[2];
+
+
+	free( one_srec.temp_g );	
+	free( one_srec.temp_r );	
+	
+	free(p);
+	free(g);
+}
+	
+
 

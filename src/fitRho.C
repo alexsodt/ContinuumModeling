@@ -9,6 +9,8 @@
 #include "fitRho.h"
 #include "simulation.h"
 #include "parallel.h"
+#include "mutil.h"
+#include "M_matrix.h"
 
 // fitRho globals
 double fitCoupling = 1.0;
@@ -788,7 +790,7 @@ void Simulation::rhoShifter( double *rho, int nx, int ny, int nz )
 				
 				double del = dist[b] - m * mesh[tb];
 
-//				if( cb == 0 ) printf("%d %lf %lf\n", b, dist[b], mesh[tb] );
+				if( cb == 0 ) printf("%d %lf %lf\n", b, dist[b], mesh[tb] );
 
 				sigma2 += del*del;	
 			}
@@ -803,11 +805,20 @@ void Simulation::rhoShifter( double *rho, int nx, int ny, int nz )
 		cdist[c] = best_cen; 	
 	}
 
-	printf("Rho shifter Cdist: %d %d %d\n", cdist[0], cdist[1], cdist[2] );
+	printf("Rho shifter Cdist: %d %d %d\n", -cdist[0], -cdist[1], -cdist[2] );
 
-	double shift[3] = { cdist[0] * La / nx,
-			    cdist[1] * Lb / ny, 
-			    cdist[2] * Lc / nz }; 
+	double shift[3] = { -cdist[0] * La / nx,
+			    -cdist[1] * Lb / ny, 
+			    -cdist[2] * Lc / nz }; 
+
+	double PBCs[3] = { La, Lb, Lc };
+	for( int c = 0; c < 3; c++ )
+	{
+		while( shift[c] >  PBCs[c]/2 ) shift[c] -= PBCs[c];
+		while( shift[c] < -PBCs[c]/2 ) shift[c] += PBCs[c];
+	}
+	
+	printf("Rho shifter Cdist: %d %d %d, shift: %le %le %le\n", cdist[0], cdist[1], cdist[2], shift[0], shift[1], shift[2] );
 	for( surface_record *sRec = allSurfaces; sRec; sRec = sRec->next )
 	{
 		surface *theSurface = sRec->theSurface;
@@ -824,3 +835,530 @@ void Simulation::rhoShifter( double *rho, int nx, int ny, int nz )
 		}
 	} 
 }
+
+// FIXED CUTS: some point on the surface must go through the set of points.
+
+static int n_cut_points = 20;
+
+int surface::movePointToCut( int *f_in, double *u_in, double *v_in, int cartesian_component, double value, double *r)
+{
+	int f = *f_in;
+	double u = *u_in;	
+	double v = *v_in;
+
+	int found_pt = 0;
+
+	do {
+		double drdu[3], drdv[3];
+
+		double rpt[3],nrm[3];
+		// find the point
+		evaluateRNRM( f, u, v, rpt, nrm,  r );			
+		// find the tangent plane
+		ru( f, u, v, r, drdu );
+		rv( f, u, v, r, drdv );
+		// find the uv-vector that moves us in the proper direction.
+
+		double dsign = 1;
+
+		if( rpt[cartesian_component] < value ) // needs to move up
+			dsign = 1;
+		else
+			dsign = -1;	
+
+		// find drdu/drdv combination that maximizes dcart.
+		double kv_on_ku = 1;
+
+		double rux = drdu[0], ruy = drdu[1], ruz = drdu[2];
+		double rvx = drdv[0], rvy = drdv[1], rvz = drdv[2];
+
+		switch( cartesian_component )
+		{
+			case 0:	
+				kv_on_ku = -(( ruy*ruy*rvx  + ruz*ruz*rvx - rux*ruy*rvy - rux*ruz*rvz)/(  ruy*rvx*rvy -  rux*rvy*rvy + ruz*rvx*rvz - rux*rvz*rvz));
+				break;	
+			case 1:
+				kv_on_ku = -((-(rux*ruy*rvx) + rux*rux*rvy + ruz*ruz*rvy - ruy*ruz*rvz)/(-(ruy*rvx*rvx) + rux*rvx*rvy + ruz*rvy*rvz - ruy*rvz*rvz));	
+				break;	
+			case 2:
+				kv_on_ku = -((-(rux*ruz*rvx) - ruy*ruz*rvy + rux*rux*rvz + ruy*ruy*rvz)/(-(ruz*rvx*rvx) - ruz*rvy*rvy + rux*rvx*rvz + ruy*rvy*rvz));
+				break;	
+		}
+
+		double duv[2] = { 1, kv_on_ku };
+
+		double move[3] = { duv[0] * drdu[0] + duv[1] * drdv[0],
+				   duv[0] * drdu[1] + duv[1] * drdv[1],
+				   duv[0] * drdu[2] + duv[1] * drdv[2] };
+
+		double ln = sqrt(duv[0]*duv[0]+duv[1]*duv[1]);
+
+		duv[0] /= ln;
+		duv[1] /= ln;
+
+		double move_expec = normalize(move);
+		if( fabs(move[cartesian_component])  < 0.05 )
+		{
+			found_pt = -1;		
+		} 
+		else
+		{
+//			printf("Going for it.\n");
+		}
+		if( move[cartesian_component] * (rpt[cartesian_component]-value) > 0 )
+		{
+			duv[0] *= -1;
+			duv[1] *= -1;
+		}
+
+		int f_o = f;
+		double uv_o[2] = { u,v};
+		double duv_o[2] = { duv[0], duv[1] };
+
+		double alpha_low  = 0.0;
+		double alpha_high = 1.0;
+
+		// check to see if we end up past the point
+		
+		int nf;
+		do {
+			nf = f;
+			f = nextFace( f, &u, &v, duv+0, duv+1, r );
+		} while( nf != f );	
+
+		double pt2[3];
+		evaluateRNRM( f, u, v, pt2, nrm, r );
+
+		double move_length = sqrt( 
+				(pt2[0]-rpt[0])*(pt2[0]-rpt[0])+
+				(pt2[1]-rpt[1])*(pt2[1]-rpt[1])+
+				(pt2[2]-rpt[2])*(pt2[2]-rpt[2]) );
+		double move_expec_o = move_expec;
+		if( (pt2[cartesian_component] - value) * ( rpt[cartesian_component] - value) < 0 )
+		{
+			// moved past, bisect to find the point.
+			
+			double alpha_low  = 0.0;
+			double alpha_high = 1.0;
+			double alpha_test = 0.5;
+
+			int niters = 0;
+			do { 
+				duv[0] = duv_o[0] * alpha_test;						
+				duv[1] = duv_o[1] * alpha_test;						
+				f = f_o;
+				u = uv_o[0];		
+				v = uv_o[1];
+	
+				int nf;
+				do {
+					nf = f;
+					f = nextFace( f, &u, &v, duv+0, duv+1, r );
+				} while( nf != f );	
+			
+				evaluateRNRM( f, u, v, pt2, nrm, r );	
+		
+
+//				printf("alphas: %.14le %.14le %.14le cur: %.14le\n", alpha_low, alpha_test, alpha_high, pt2[cartesian_component] );
+	
+				if( (pt2[cartesian_component] - value) * ( rpt[cartesian_component] - value) < 0 ) // moved past
+				{
+					alpha_high = alpha_test;
+					alpha_test = (alpha_low+alpha_test)/2;
+				}
+				else 
+				{
+					alpha_low = alpha_test;
+					alpha_test = (alpha_high+alpha_test)/2;
+				}
+	
+				if( fabs(pt2[cartesian_component]-value) < 1e-3)
+					found_pt = 1;
+				niters++;
+			} while( found_pt != 1 && niters < 100 );
+		}
+		else 
+		{	
+			double scalef = 0.5;
+			while( move_length/move_expec < 0.5 )
+			{
+				duv[0] = duv_o[0] * scalef;
+				duv[1] = duv_o[1] * scalef;
+				
+				double move[3] = { duv[0] * drdu[0] + duv[1] * drdv[0],
+						   duv[0] * drdu[1] + duv[1] * drdv[1],
+						   duv[0] * drdu[2] + duv[1] * drdv[2] };
+				move_expec = normalize(move);
+
+				f = f_o;
+				u = uv_o[0];
+				v = uv_o[1];
+
+				int nf;
+				do {
+					nf = f;
+					f = nextFace( f, &u, &v, duv+0, duv+1, r );
+				} while( nf != f );	
+		
+				evaluateRNRM( f, u, v, pt2, nrm, r );
+
+				move_length = sqrt( 
+					(pt2[0]-rpt[0])*(pt2[0]-rpt[0])+
+					(pt2[1]-rpt[1])*(pt2[1]-rpt[1])+
+					(pt2[2]-rpt[2])*(pt2[2]-rpt[2]) );
+
+				scalef *= 0.5;
+			}
+		}					
+	} while( found_pt == 0 );
+	
+	if( found_pt == 1 )
+	{
+		*f_in = f;
+		*u_in = u;
+		*v_in = v;
+	}
+
+
+	return found_pt;
+}
+
+void surface::get_cut_points( int cartesian_component, double value, int *f_pts, double *uv_pts, double *rall, int n_cut_points, double *r)
+{
+	for( int p = 0; p < n_cut_points; p++ )
+	{
+		int done = 0;
+
+		while( !done )
+		{
+			int f;
+			double u,v;
+			randomPointOnSurface( &f, &u, &v );
+	
+			int found_pt = movePointToCut(  &f, &u, &v, cartesian_component, value, r );
+
+			if( found_pt == 1 )
+			{
+				f_pts[p] = f;
+				uv_pts[p*2+0] = u;
+				uv_pts[p*2+1] = v;
+				done = 1;
+
+				double rpt[3], nrm[3];
+				evaluateRNRM( f, u, v, rpt, nrm, r );
+
+
+				rall[p*3+0] = rpt[0];
+				rall[p*3+1] = rpt[1];
+				rall[p*3+2] = rpt[2];
+			}
+		}
+	}		
+
+	int n_mc = 30 * n_cut_points;
+
+	for( int mc = 0; mc < n_mc; mc++ )
+	{
+		double cure = 0;
+
+		for( int p = 0; p < n_cut_points; p++ )
+		for( int p2 = p+1; p2 < n_cut_points; p2++ )
+		{
+			double dr[3] = { rall[3*p+0] - rall[3*p2+0], rall[3*p+1] - rall[3*p2+1], rall[3*p+2] - rall[3*p2+2] };
+
+			double l = sqrt(dr[0]*dr[0]+dr[1]*dr[1]+dr[2]*dr[2]);
+
+			cure += 1.0/l/l;	
+		}
+
+		int to_move = rand() % n_cut_points;	
+	
+		double rsave[3] = { rall[3*to_move+0], rall[3*to_move+1], rall[3*to_move+2] };
+		int f_save = f_pts[to_move];
+		double u_save = uv_pts[2*to_move];
+		double v_save = uv_pts[2*to_move+1];
+
+		double sigma = 5.0;
+
+		double frc_duv[2] = { 0,0};
+		double dt = 1;
+		double fstep;
+
+		int f = f_save;
+		double u = u_save;
+		double v = v_save;
+
+		localMove( &f, &u, &v, sigma, r, frc_duv, dt, &fstep, 0 ); 
+
+		int found_pt = movePointToCut(  &f, &u, &v, cartesian_component, value, r );
+		
+		if( found_pt == 1 )
+		{
+			double rpt[3], nrm[3];
+			evaluateRNRM( f, u, v, rpt, nrm, r );
+
+			rall[3*to_move+0] = rpt[0]; 
+			rall[3*to_move+1] = rpt[1]; 
+			rall[3*to_move+2] = rpt[2]; 
+			double newe = 0;
+
+			for( int p = 0; p < n_cut_points; p++ )
+			for( int p2 = p+1; p2 < n_cut_points; p2++ )
+			{
+				double dr[3] = { rall[3*p+0] - rall[3*p2+0], rall[3*p+1] - rall[3*p2+1], rall[3*p+2] - rall[3*p2+2] };
+	
+				double l = sqrt(dr[0]*dr[0]+dr[1]*dr[1]+dr[2]*dr[2]);
+	
+				newe += 1.0/l/l;	
+			}
+
+			if( newe < cure )
+			{
+				f_pts[to_move] = f;
+				uv_pts[2*to_move] = u;
+				uv_pts[2*to_move+1] = v;
+
+				cure = newe;
+			}
+			else
+			{
+				rall[3*to_move+0] = rsave[0];
+				rall[3*to_move+1] = rsave[1];
+				rall[3*to_move+2] = rsave[2];
+			}
+		}
+
+	}
+	
+}
+
+void surface::addFixedPoint( double *r_fixed )
+{
+	fixed_cut_point *new_point = (fixed_cut_point *)malloc( sizeof(fixed_cut_point) );
+	new_point->rpt[0] = r_fixed[0];
+	new_point->rpt[1] = r_fixed[1];
+	new_point->rpt[2] = r_fixed[2];
+	new_point->k = 10; // 10 kcal/mol/a^2
+
+	new_point->next = cutPoints;
+	cutPoints = new_point; 
+}
+
+void surface::setupCut( int cartesian_component, double value, double *r)
+{
+	// here's how we'll get them. find n_cut_points random points on the surface at the cut value
+	// use a pseudopotential to optimize their position at the cut value to try to make them evenly spaced.		
+	int *f_pts = (int *)malloc( sizeof(int) * n_cut_points );
+	double *uv_pts = (double *)malloc( sizeof(double) * 2 * n_cut_points );	
+	double *rall = (double *)malloc( sizeof(double) * 3 * n_cut_points );
+
+	get_cut_points( cartesian_component, value, f_pts, uv_pts, rall, n_cut_points, r );
+
+#if 0
+	for( int p = 0; p < n_cut_points; p++ )
+	{
+		int done = 0;
+
+		while( !done )
+		{
+			int f;
+			double u,v;
+			randomPointOnSurface( &f, &u, &v );
+	
+			int found_pt = movePointToCut(  &f, &u, &v, cartesian_component, value, r );
+
+			if( found_pt == 1 )
+			{
+				f_pts[p] = f;
+				uv_pts[p*2+0] = u;
+				uv_pts[p*2+1] = v;
+				done = 1;
+
+				double rpt[3], nrm[3];
+				evaluateRNRM( f, u, v, rpt, nrm, r );
+
+
+				rall[p*3+0] = rpt[0];
+				rall[p*3+1] = rpt[1];
+				rall[p*3+2] = rpt[2];
+			}
+		}
+	}		
+
+	int n_mc = 1000;
+
+	for( int mc = 0; mc < n_mc; mc++ )
+	{
+		double cure = 0;
+
+		for( int p = 0; p < n_cut_points; p++ )
+		for( int p2 = p+1; p2 < n_cut_points; p2++ )
+		{
+			double dr[3] = { rall[3*p+0] - rall[3*p2+0], rall[3*p+1] - rall[3*p2+1], rall[3*p+2] - rall[3*p2+2] };
+
+			double l = sqrt(dr[0]*dr[0]+dr[1]*dr[1]+dr[2]*dr[2]);
+
+			cure += 1.0/l/l;	
+		}
+
+		int to_move = rand() % n_cut_points;	
+	
+		double rsave[3] = { rall[3*to_move+0], rall[3*to_move+1], rall[3*to_move+2] };
+		int f_save = f_pts[to_move];
+		double u_save = uv_pts[2*to_move];
+		double v_save = uv_pts[2*to_move+1];
+
+		double sigma = 5.0;
+
+		double frc_duv[2] = { 0,0};
+		double dt = 1;
+		double fstep;
+
+		int f = f_save;
+		double u = u_save;
+		double v = v_save;
+
+		localMove( &f, &u, &v, sigma, r, frc_duv, dt, &fstep, 0 ); 
+
+		int found_pt = movePointToCut(  &f, &u, &v, cartesian_component, value, r );
+		
+		if( found_pt == 1 )
+		{
+			double rpt[3], nrm[3];
+			evaluateRNRM( f, u, v, rpt, nrm, r );
+
+			rall[3*to_move+0] = rpt[0]; 
+			rall[3*to_move+1] = rpt[1]; 
+			rall[3*to_move+2] = rpt[2]; 
+			double newe = 0;
+
+			for( int p = 0; p < n_cut_points; p++ )
+			for( int p2 = p+1; p2 < n_cut_points; p2++ )
+			{
+				double dr[3] = { rall[3*p+0] - rall[3*p2+0], rall[3*p+1] - rall[3*p2+1], rall[3*p+2] - rall[3*p2+2] };
+	
+				double l = sqrt(dr[0]*dr[0]+dr[1]*dr[1]+dr[2]*dr[2]);
+	
+				newe += 1.0/l/l;	
+			}
+
+			if( newe < cure )
+			{
+				f_pts[to_move] = f;
+				uv_pts[2*to_move] = u;
+				uv_pts[2*to_move+1] = v;
+
+				cure = newe;
+			}
+			else
+			{
+				rall[3*to_move+0] = rsave[0];
+				rall[3*to_move+1] = rsave[1];
+				rall[3*to_move+2] = rsave[2];
+			}
+		}
+
+		printf("cure: %le\n", cure );
+	}
+
+//	for( int t = 0; t < n_cut_points; t++ )
+//		printf("r: %le %le %le\n", rall[3*t+0], rall[3*t+1], rall[3*t+2] );
+
+#endif
+
+	for( int t = 0; t < n_cut_points; t++ )
+	{
+		fixed_cut_point *new_point = (fixed_cut_point *)malloc( sizeof(fixed_cut_point) );
+		new_point->rpt[0] = rall[3*t+0];
+		new_point->rpt[1] = rall[3*t+1];
+		new_point->rpt[2] = rall[3*t+2];
+		new_point->k = 10; // 10 kcal/mol/a^2
+
+		new_point->next = cutPoints;
+		cutPoints = new_point; 
+	}
+
+	free(f_pts);
+	free(uv_pts);
+	free(rall);	
+}
+
+double surface::cutEnergy( double *r )
+{
+	double **M;
+	int mlow,mhigh;
+	getM(&M,&mlow,&mhigh);
+
+	double cute = 0;
+
+	for( fixed_cut_point *thePt = cutPoints; thePt; thePt = thePt->next )
+	{
+		double r_compr[3] = { thePt->rpt[0], thePt->rpt[1], thePt->rpt[2] };
+
+		int f;
+		double u, v;
+		double distance;
+		nearPointOnBoxedSurface( r_compr, &f, &u, &v, M, mlow, mhigh, &distance );
+
+		double rpt[3],npt[3];
+		evaluateRNRM( f, u, v, rpt, npt, r );
+
+		double dr[3] = { rpt[0] - r_compr[0], rpt[1] - r_compr[1], rpt[2] - r_compr[2] };
+
+		cute += (thePt->k/2) * (dr[0]*dr[0]+dr[1]*dr[1]+dr[2]*dr[2]);	
+	}
+
+	return cute;	
+}
+
+double surface::cutGrad( double *r, double *g )
+{
+	double **M;
+	int mlow,mhigh;
+	getM(&M,&mlow,&mhigh);
+
+	double cute = 0;
+
+	for( fixed_cut_point *thePt = cutPoints; thePt; thePt = thePt->next )
+	{
+		double r_compr[3] = { thePt->rpt[0], thePt->rpt[1], thePt->rpt[2] };
+
+		int f;
+		double u, v;
+		double distance;
+		nearPointOnBoxedSurface( r_compr, &f, &u, &v, M, mlow, mhigh, &distance );
+
+		double rpt[3],npt[3];
+
+		evaluateRNRM( f, u, v, rpt, npt, r );
+
+		double dr[3] = { rpt[0] - r_compr[0], rpt[1] - r_compr[1], rpt[2] - r_compr[2] };
+
+		// dr d mesh points.
+
+		int ncoords;	
+		double coeffs[12+MAX_VALENCE];
+		int coord_list[12+MAX_VALENCE];
+
+		get_pt_coeffs( f, u, v,	coeffs, coord_list, &ncoords ); 	
+
+		for( int t = 0; t < ncoords; t++ )
+		{
+			int c = coord_list[t];
+
+			g[3*c+0] += (thePt->k) * dr[0] * coeffs[t];
+			g[3*c+1] += (thePt->k) * dr[1] * coeffs[t];
+			g[3*c+2] += (thePt->k) * dr[2] * coeffs[t];
+		}
+
+		cute += (thePt->k/2) * (dr[0]*dr[0]+dr[1]*dr[1]+dr[2]*dr[2]);	
+	}
+
+	return cute;
+}
+
+
+
+
+
+

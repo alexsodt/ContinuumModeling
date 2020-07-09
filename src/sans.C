@@ -226,9 +226,25 @@ void Simulation::sample_B_hist( double *B_hist, double *A2dz2_sampled,
 					if( shape_correction )
 					{
 //#define FIXED
-#define NEXT_TRY
+#define NEXT_NEXT_TRY
 
-#ifdef NEXT_TRY
+#ifdef NEXT_NEXT_TRY
+						double z1pp = z1;
+						if( z1 > 0 )
+						{
+							z1pp = z1 * (1 - sans_strain_outer/2);
+							w1p *= (1-sans_strain_outer);
+						}
+						else 
+						{
+							z1pp = z1 * (1 - sans_strain_inner/2);
+							w1p *= (1-sans_strain_inner);
+						}
+						if( z1 > 0 )
+							z1p = z1pp * (1 + c1 * (z1/2-zns)); // use the unperturbed position (z1) to compute strains.
+						else
+							z1p = z1pp * (1 - c1 * (z1/2+zns));
+#elif defined(NEXT_TRY)
 						double z1pp = z1;
 						if( z1 > 0 )
 						{
@@ -261,7 +277,7 @@ void Simulation::sample_B_hist( double *B_hist, double *A2dz2_sampled,
 					if( z1 < 0 )
 						w1p *= (1 - zns * c1); // for positive curvature (and zns is +), reduce metric
 					else
-						w1p *= (1 + zns * c1) * leaflet_perturb; // for outer leaflet increase metric.
+						w1p *= (1 + zns * c1); // for outer leaflet increase metric.
 	
 					double p1[3] = { r1[0] + z1p * nrm1[0],
 							 r1[1] + z1p * nrm1[1],
