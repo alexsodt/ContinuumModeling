@@ -7,7 +7,7 @@
 #include "gsl/gsl_randist.h"
 #include "gsl/gsl_rng.h"
 #include "random_global.h"
-#define MOVE_CHECK
+//#define MOVE_CHECK
 
 static int disable_random_mode = 0;
 

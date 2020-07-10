@@ -13,7 +13,7 @@
 #include "globals.h"
 #include "rd.h"
 #include "M_matrix.h"
-#include "maxk.h"
+#include "maxc.h"
 
 //#define DISABLE_POINT_GRADIENT_DEBUG
 
@@ -1721,8 +1721,16 @@ void Simulation::loadComplexes( parameterBlock *block )
 
 			if( rec->saddle )
 			{
-				max_gauss_c( theSurface, &f, &u, &v, 1000, rsurf );	
+				max_c( theSurface, &f, &u, &v, 1000, rsurf, MAX_C_GAUSS );	
 				// from this random point, move to maximize negative gaussian curvature.
+			}
+			else if( rec->positive )
+			{
+				max_c( theSurface, &f, &u, &v, 1000, rsurf, MAX_C_POS );	
+			}
+			else if( rec->negative )
+			{
+				max_c( theSurface, &f, &u, &v, 1000, rsurf, MAX_C_NEG );	
 			}
 
 

@@ -1758,7 +1758,7 @@ int getInput( const char **argv, int argc, parameterBlock *block)
 			else if( !strcasecmp( word3, "concentration") ) 
 				rec->concentration = value;
 			
-			if( nr == 5 )
+			if( nr >= 5 )
 			{
 				if( !strcasecmp( word5, "inside") ) 
 					rec->inside_outside = -1;
@@ -1772,12 +1772,18 @@ int getInput( const char **argv, int argc, parameterBlock *block)
 			}
 			
 			rec->saddle = 0;
+			rec->positive = 0;
+			rec->negative = 0;
 
 			if( nr >= 6 )
 			{
 				
 				if( !strcasecmp( word6, "saddle") ) 
 					rec->saddle = 1;
+				else if( !strcasecmp( word6, "+") ) 
+					rec->positive = 1;
+				else if( !strcasecmp( word6, "-") ) 
+					rec->negative = 1;
 				else
 				{
 					printf("Error interpreting optional mod sub-command '%s' in command '%s'.\n", word6, buffer );

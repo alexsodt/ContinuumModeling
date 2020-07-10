@@ -64,8 +64,40 @@ static double bond_k[5][2] =
 
 void syt7::init( double *r )
 {
-	printf("Currently Syt7 can only be initialized on the membrane.\n");
-	exit(1);
+	// aqueous initialization.
+
+	// syt7 model has six sites
+	
+
+//	printf("Currently Syt7 can only be initialized on the membrane.\n");
+//	exit(1);
+
+	base_init();
+
+	nsites = 6;
+	nattach = 0;
+
+	alloc();
+
+	double vdw_r = 5.0;
+	sigma[0] = vdw_r;
+	sigma[1] = vdw_r;
+	sigma[2] = vdw_r;
+	sigma[3] = vdw_r;
+	sigma[4] = vdw_r;
+	sigma[5] = vdw_r;
+
+	mass[0] = monomer_MW*100;
+	mass[1] = monomer_MW*100;
+	mass[2] = monomer_MW*100;
+	mass[3] = monomer_MW*100;
+	mass[4] = monomer_MW*100;
+	mass[5] = monomer_MW*100;
+
+	bound = 0;
+	
+	// initial geometry.
+
 }
 
 // initialize the BAR domain on the membrane.
@@ -100,11 +132,21 @@ void syt7::init( Simulation *theSimulation, surface *theSurface, double *rsurf, 
 	
 	double rpt_attach1[3], nrm_attach1[3];
 	theSurface->evaluateRNRM( f, u, v, rpt_attach1, nrm_attach1, rsurf );
-
+	printf("attach1: %le %le %le\n", rpt_attach1[0], rpt_attach1[1], rpt_attach1[2] );
 	double rp[3];
 	double nrm[3];
 	theSurface->evaluateRNRM( f, u, v, rp, nrm, rsurf);
-
+	printf("rp: %le %le %le nrm: %le %le %le\n", rp[0], rp[1], rp[2], nrm[0], nrm[1], nrm[2] );
+	double the_sign = rp[0]*nrm[0]+rp[1]*nrm[1]+rp[2]*nrm[2];
+	int reverse = 1;
+	if( the_sign < 0 )
+		reverse = -1;
+	nrm_attach1[0] *= reverse;
+	nrm_attach1[1] *= reverse;
+	nrm_attach1[2] *= reverse;
+	nrm[0] *= reverse;
+	nrm[1] *= reverse;
+	nrm[2] *= reverse;
 	sid[0] = theSurface->surface_id;
 	sid[1] = theSurface->surface_id;
 	sid[2] = theSurface->surface_id;
@@ -134,6 +176,9 @@ void syt7::init( Simulation *theSimulation, surface *theSurface, double *rsurf, 
 	double c_val1, c_val2;
 	double k;
 	theSurface->c( f, u, v, rsurf, &k, c_vec_1, c_vec_2, &c_val1, &c_val2 ); 
+	c_val1 *= reverse;
+	c_val2 *= reverse;	
+
 
 	//
 	// Find the neck-attachment point of the second protein.
@@ -177,12 +222,24 @@ void syt7::init( Simulation *theSimulation, surface *theSurface, double *rsurf, 
 	do {
 		f_1 = nf;
 		nf = theSurface->nextFace( f_1, uv1+0, uv1+1, duv1+0, duv1+1, rsurf ); 
+	
+		double rp_t[3];
+		double nrm_t[3];
+		theSurface->evaluateRNRM( f_1, uv1[0], uv1[1], rp_t, nrm_t, rsurf);
+		printf("Moving to: %le %le %le\n", rp_t[0], rp_t[1], rp_t[2] );
 	} while( nf != f_1 );
 	
 	// the neck-attachment point of the second protein.
 	puv[4] = uv1[0];
 	puv[5] = uv1[1];
 	fs[2] = f_1;
+	
+	double rp_2[3];
+	double nrm_2[3];
+	theSurface->evaluateRNRM( f_1, uv1[0], uv1[1], rp_2, nrm_2, rsurf);
+	nrm_2[0] *= reverse;
+	nrm_2[1] *= reverse;
+	nrm_2[2] *= reverse;
 
 	//
 	// find the upper-leaflet attachment point of the first protein
@@ -261,7 +318,8 @@ void syt7::init( Simulation *theSimulation, surface *theSurface, double *rsurf, 
 	double c_val1_2, c_val2_2;
 	double k_2;
 	theSurface->c( f_1, uv1[0], uv1[1], rsurf, &k_2, c_vec_1_2, c_vec_2_2, &c_val1_2, &c_val2_2 ); 
-
+	c_val1_2 *= reverse;
+	c_val2_2 *= reverse;
 	// choose the negative curvature direction.
 
 	duv1[0] = c_vec_1_2[0];	
@@ -319,6 +377,10 @@ void syt7::init( Simulation *theSimulation, surface *theSurface, double *rsurf, 
 	
 	double rpt_attach2[3], nrm_attach2[3];
 	theSurface->evaluateRNRM( fs[2], puv[4], puv[5], rpt_attach2, nrm_attach2, rsurf );
+
+	nrm_attach2[0] *= reverse;
+	nrm_attach2[1] *= reverse;
+	nrm_attach2[2] *= reverse;
 
 	rall[5*3+0] = rpt_attach2[0] + nrm_attach2[0] * bond_length_attach_long * io_sign;	
 	rall[5*3+1] = rpt_attach2[1] + nrm_attach2[1] * bond_length_attach_long * io_sign;	
