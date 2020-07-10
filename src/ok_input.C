@@ -5,7 +5,6 @@
 #include "util.h"
 #include <math.h>
 #include <sys/time.h>
-#include "sans.h"
 
 parameterBlock::parameterBlock( void )
 {
@@ -39,14 +38,12 @@ void setDefaults( parameterBlock *block )
 
 	block->rxnDiffusionInfoName = NULL;
 
-	block->shiftRho = 0;
 	block->qvals = NULL;
 	block->loadName = NULL;
 	block->concentration = 0;
 	block->rho = 0;
 	block->lipid_lib = NULL;
 	block->meshName2 = NULL;
-	block->discrete_lipids = -1;
 
 	block->record_curvature = 0;
 	block->create_all_atom = 0;	
@@ -64,11 +61,6 @@ void setDefaults( parameterBlock *block )
 	block->nmin = 0;
 	block->minimizeResetG = 0;
 
-	block->sans_method = SANS_FFT;
-	block->sans_leaflet_perturb = 1.0; // unbiased except for curvature effect.
-	block->sans_strain_inner = 0.0; // unbiased except for curvature effect.
-	block->sans_strain_outer = 0.0; // unbiased except for curvature effect.
-
 	block->KA = -1;
 	block->kv = 0;
 	block->kc = 14;
@@ -82,7 +74,6 @@ void setDefaults( parameterBlock *block )
 	block->mab_d_theta = 10; // 10 degrees.
 	block->restrain_volume_inside = 0;
 	block->restrain_volume_outside = 0;
-	block->inner_volume_scale = 1;
 
 	block->shift[0] = 0;
 	block->shift[1] = 0;
@@ -158,13 +149,6 @@ void setDefaults( parameterBlock *block )
 	block->alpha_restraint_k = 0;
 	block->write_alpha_period = -1;
 
-	block->fix_x_cut = 0;
-	block->fix_y_cut = 0;
-	block->fix_z_cut = 0;
-	block->use_fix_x_cut = 0;
-	block->use_fix_y_cut = 0;
-	block->use_fix_z_cut = 0;
-
 	block->leaflet_fraction = 0.5;
 
 	block->track_rho = 0;
@@ -219,9 +203,6 @@ void setDefaults( parameterBlock *block )
 	block->del = 3.0;
 	block->sigma = 10.0;
 
-	block->neutral_surface = 12.0;
-	block->neutral_surface_inner = -1;
-	block->neutral_surface_outer = -1;
 	block->s_q_res = 5;	
 	block->s_q = 0;
 	block->b_particle = -2.325053524; // protiated POPC 
@@ -233,7 +214,7 @@ void setDefaults( parameterBlock *block )
 	block->nq    = 1000;
 	block->non_interacting = 1;
 	block->max_time = 1; // one second.
-	block->s_q_period = 1; // 1000 steps per S_q	
+	block->s_q_period = 1000; // 1000 steps per S_q	
 	block->shape_correction = 0;
 
 	block->on_surface = 0;
@@ -245,6 +226,7 @@ void setDefaults( parameterBlock *block )
 	block->addProteinPDB   = NULL;
 	block->addProteinPSF   = NULL;
 
+	block->neutral_surface = 15;
 	block->scale_solvent_approach = 1.0;
 	block->strainInner = 0;
 	block->strainOuter = 0;
@@ -284,14 +266,6 @@ int resolveParameters( parameterBlock *block )
 	if( block->time_step < 0 )
 	{	
 		block->time_step = 1e-3*(2*sqrt(65/M_PI))*(2*sqrt(65/M_PI))/(4*block->diffc);
-	}
-
-	if( block->discrete_lipids == -1 )
-	{
-		if( block->lipid_mc_period > 0 )
-			block->discrete_lipids = 1;
-		else	
-			block->discrete_lipids = 0;
 	}
 
 	if( block->mab_bond_k < 0 )
@@ -475,11 +449,6 @@ int resolveParameters( parameterBlock *block )
 		printf("Gathering requires a coordinate (e.g., dcd) file.\n");
 		exit(1);
 	}
-	
-	if( block->neutral_surface_inner < 0 )
-		block->neutral_surface_inner = block->neutral_surface;
-	if( block->neutral_surface_outer < 0 )
-		block->neutral_surface_outer = block->neutral_surface;
 
 	return warning;
 }
@@ -655,30 +624,6 @@ int getInput( const char **argv, int argc, parameterBlock *block)
 			block->fitRho = (char *)malloc( sizeof(char) * (1 + strlen(word2) ) );
 			strcpy( block->fitRho, word2 );
 		}
-		else if( !strcasecmp( word1, "shiftRho" ) )
-		{
-			if( !strcasecmp( word2, "TRUE" ) || !strcasecmp( word2, "yes") || !strcasecmp( word2, "on" ) )
-				block->shiftRho = 1;
-			else if( !strcasecmp( word2, "FALSE" ) || !strcasecmp( word2, "no") || !strcasecmp( word2, "off" ) )
-				block->shiftRho = 0;
-			else
-			{
-				printf("Could not interpret input line '%s'.\n", tbuf );
-				ERROR = 1;
-			}	
-		}
-		else if( !strcasecmp( word1, "discrete_lipids" ) )
-		{
-			if( !strcasecmp( word2, "TRUE" ) || !strcasecmp( word2, "yes") || !strcasecmp( word2, "on" ) )
-				block->discrete_lipids = 1;
-			else if( !strcasecmp( word2, "FALSE" ) || !strcasecmp( word2, "no") || !strcasecmp( word2, "off" ) )
-				block->discrete_lipids = 0;
-			else
-			{
-				printf("Could not interpret input line '%s'.\n", tbuf );
-				ERROR = 1;
-			}	
-		}
 		else if( !strcasecmp( word1, "mesh2" ) )
 		{
 			if( block->meshName2 )
@@ -744,21 +689,6 @@ int getInput( const char **argv, int argc, parameterBlock *block)
 			block->npt_mc_period = atoi( word2 );
 		else if( !strcasecmp( word1, "cyl_tension_mc_period" ) )
 			block->cyl_tension_mc_period = atoi( word2 );
-		else if( !strcasecmp( word1, "fix_x_cut" ) )
-		{
-			block->fix_x_cut = atof( word2 );
-			block->use_fix_x_cut = 1;
-		}
-		else if( !strcasecmp( word1, "fix_y_cut" ) )
-		{
-			block->fix_y_cut = atof( word2 );
-			block->use_fix_y_cut = 1;
-		}
-		else if( !strcasecmp( word1, "fix_z_cut" ) )
-		{
-			block->fix_z_cut = atof( word2 );
-			block->use_fix_z_cut = 1;
-		}
 		else if( !strcasecmp( word1, "alpha_restraint_x" ) )
 			block->alpha_restraint_x = atof( word2 );
 		else if( !strcasecmp( word1, "alpha_restraint_y" ) )
@@ -771,8 +701,6 @@ int getInput( const char **argv, int argc, parameterBlock *block)
 			block->write_alpha_period = atoi( word2 );
 		else if( !strcasecmp( word1, "nruns" ) )
 			block->nruns = atoi( word2 );
-		else if( !strcasecmp( word1, "inner_volume_scale" ) )
-			block->inner_volume_scale = atof( word2 );
 		else if( !strcasecmp( word1, "restrain_volume_outside" ) )
 		{
 			if( !strcasecmp( word2, "TRUE" ) || !strcasecmp( word2, "yes") || !strcasecmp( word2, "on" ) )
@@ -1571,37 +1499,8 @@ int getInput( const char **argv, int argc, parameterBlock *block)
 				ERROR = 1;
 			}	
 		}
-		else if( !strcasecmp( word1, "create_flip" ) )
-		{
-			if( !strcasecmp( word2, "TRUE" ) || !strcasecmp( word2, "yes") || !strcasecmp( word2, "on" ) )
-				block->create_flip = 1;
-			else if( !strcasecmp( word2, "FALSE" ) || !strcasecmp( word2, "no") || !strcasecmp( word2, "off" ) )
-				block->create_flip = 0;
-			else
-			{
-				printf("Could not interpret input line '%s'.\n", tbuf );
-				ERROR = 1;
-			}	
-		}
-		else if( !strcasecmp( word1, "sq_method" ) )
-		{
-			if( !strcasecmp( word2, "fft" ) )
-				block->sans_method = SANS_FFT;
-			else if( !strcasecmp( word2, "mc" ) )
-				block->sans_method = SANS_MC;
-		}
-		else if( !strcasecmp( word1, "sans_leaflet_perturb" ) )
-			block->sans_leaflet_perturb = atof(word2);
-		else if( !strcasecmp( word1, "sans_strain_outer" ) )
-			block->sans_strain_outer = atof(word2);
-		else if( !strcasecmp( word1, "sans_strain_inner" ) )
-			block->sans_strain_inner = atof(word2);
 		else if( !strcasecmp( word1, "neutral_surface") )
 			block->neutral_surface = atof(word2);
-		else if( !strcasecmp( word1, "neutral_surface_inner") )
-			block->neutral_surface_inner = atof(word2);
-		else if( !strcasecmp( word1, "neutral_surface_outer") )
-			block->neutral_surface_outer = atof(word2);
 		else if( !strcasecmp( word1, "scale_solvent_approach") )
 			block->scale_solvent_approach = atof(word2);
 		else if( !strcasecmp( word1, "strainOuter") )
@@ -1729,14 +1628,13 @@ int getInput( const char **argv, int argc, parameterBlock *block)
 			char *word3 = (char *)malloc( sizeof(char) * (strlen(buffer)+1) );	
 			char *word4 = (char *)malloc( sizeof(char) * (strlen(buffer)+1) );	
 			char *word5 = (char *)malloc( sizeof(char) * (strlen(buffer)+1) );	
-			char *word6 = (char *)malloc( sizeof(char) * (strlen(buffer)+1) );	
 
-			int nr = sscanf( buffer, "%s %s %s %s %s %s", word1, word2, word3, word4, word5, word6 );
+			int nr = sscanf( buffer, "%s %s %s %s %s", word1, word2, word3, word4, word5 );
 
 			if( nr < 4 )
 			{
 				printf("Syntax error in ``add'' command.\n");
-				printf("add COMPLEX nbound|nsolution|coverage|concentration value [inside|outside] [mod]\n");
+				printf("add COMPLEX nbound|nsolution|coverage|concentration value [inside|outside]\n");
 					exit(1);
 			}
 
@@ -1758,7 +1656,7 @@ int getInput( const char **argv, int argc, parameterBlock *block)
 			else if( !strcasecmp( word3, "concentration") ) 
 				rec->concentration = value;
 			
-			if( nr >= 5 )
+			if( nr == 5 )
 			{
 				if( !strcasecmp( word5, "inside") ) 
 					rec->inside_outside = -1;
@@ -1770,37 +1668,12 @@ int getInput( const char **argv, int argc, parameterBlock *block)
 					exit(1);
 				}
 			}
-			
-			rec->saddle = 0;
-			rec->positive = 0;
-			rec->negative = 0;
-
-			if( nr >= 6 )
-			{
-				
-				if( !strcasecmp( word6, "saddle") ) 
-					rec->saddle = 1;
-				else if( !strcasecmp( word6, "+") ) 
-					rec->positive = 1;
-				else if( !strcasecmp( word6, "-") ) 
-					rec->negative = 1;
-				else
-				{
-					printf("Error interpreting optional mod sub-command '%s' in command '%s'.\n", word6, buffer );
-					exit(1);
-				}
-			}
 
 			if( fabs( value -uvalue) > 1e-10 )
 			{
 				printf("ERROR. likely floating point/integer error for command '%s'.\n", buffer );
 				exit(1);
 			}
-
-			free(word3);
-			free(word4);
-			free(word5);
-			free(word6);
 		}
 		else
 		{
@@ -1839,7 +1712,6 @@ void printParamBlock( parameterBlock *block )
 	printf("\tkc:        %lf kcal/mol\n", block->kc );
 	printf("Random seed: %d\n", block->random_seed );
 	printf("DC:    %le Angstrom^2/s\n", block->diffc );
-	printf("Time-step:    %le s\n", block->time_step );
 
 	if( block->do_ld )
 	{

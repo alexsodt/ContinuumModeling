@@ -838,7 +838,7 @@ void Simulation::rhoShifter( double *rho, int nx, int ny, int nz )
 
 // FIXED CUTS: some point on the surface must go through the set of points.
 
-static int n_cut_points = 20;
+static int n_cut_points = 5;
 
 int surface::movePointToCut( int *f_in, double *u_in, double *v_in, int cartesian_component, double value, double *r)
 {

@@ -276,7 +276,13 @@ double surface_fdf( double *p, double *g)
 				min_complexes[c]->save_grad[2*a+0] += point_grad[0];		
 				min_complexes[c]->save_grad[2*a+1] += point_grad[1];		
 			}
-			
+
+			for( int a = min_complexes[c]->nattach; a < min_complexes[c]->nsites; a++ )
+			{
+				min_complexes[c]->save_grad[3*a+0] += rg[3*a+0];	
+				min_complexes[c]->save_grad[3*a+1] += rg[3*a+1];	
+				min_complexes[c]->save_grad[3*a+2] += rg[3*a+2];	
+			}			
 		}
 	
 		v += min_complexes[c]->AttachG( min_simulation, min_complexes[c]->save_grad );
@@ -651,7 +657,7 @@ void Simulation::minimize( int freeze_membrane  )
 	rms /= num_params;
 	rms = sqrt(rms);
 
-	fd_test(p);
+//	full_fd_test(p);
 
 	printf("Minimize OUT: VG: %.14le VV: %.14le VA: %lf VC: %lf VV: %lf grad rms %le\n", v, e, VA, VC, VV, rms );
 

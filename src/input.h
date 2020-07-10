@@ -7,6 +7,9 @@ struct complex_record
 	int inside_outside;
 	int nbound;
 	int nsolution;
+	int saddle; // move to a saddle point of the membrane
+	int positive; // move to maximize local positive curvature
+	int negative; // move to maximize local negative curvature
 	double coverage;
 	double concentration;
 

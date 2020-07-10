@@ -7,7 +7,18 @@
 #include "gsl/gsl_randist.h"
 #include "gsl/gsl_rng.h"
 #include "random_global.h"
-#define MOVE_CHECK
+//#define MOVE_CHECK
+
+static int disable_random_mode = 0;
+
+void disable_random_uv_step( void )
+{
+	disable_random_mode = 1;
+}
+void enable_random_uv_step( void )
+{
+	disable_random_mode = 0;
+}
 
 static double THRESH = 1e-4;
 
@@ -1706,7 +1717,7 @@ int surface::nextFace( int f, double *u_in, double *v_in, double *du_in, double 
 
 	// not defined if the user somehow wants to run down the edge of a triangle.
 
-	if( fabs(*u_in+*v_in-1.0) < THRESH || fabs(*v_in) < THRESH || fabs(*u_in) < THRESH )
+	if( !disable_random_mode && (fabs(*u_in+*v_in-1.0) < THRESH || fabs(*v_in) < THRESH || fabs(*u_in) < THRESH ) )
 	{
 		if( fabs(*du_in+*dv_in) < THRESH )
 		{
