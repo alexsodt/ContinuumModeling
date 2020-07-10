@@ -1,23 +1,29 @@
-time_step 		2e-12
+#time_step 		2e-10
+#time_step		4.138029e-12
 jobname			rd
-c0			0.015
-dimer_c0		0.030
+c0			0.01
+dimer_c0			0.05
 mesh 			planar.mesh # radius is 20 nm
 #add simplelipid nbound 874 outside # makes for 10\% surface coverage, 65 AA/lipid
-add simplelipid nbound 286 outside # makes for 10\% surface coverage, 65 AA/lipid
+add simplelipid nbound 500 outside # makes for 10\% surface coverage, 65 AA/lipid
 #load                   rd.save
 planar_topology	 	yes
 sphere 			no
 do_bd_particles 	yes
-do_ld			yes
+do_bd_membrane		yes	
+kinetics		yes
+#do_ld			yes
+mode_x			1	
 do_rd			yes
 rxn_diffusion		rxn_info.inp
-diffc			1e10
+diffc			5e9
 o_lim 			1
-nequil			1000
-nsteps			50000
-hours			0.1
+nequil			0
+nsteps			10000
+#hours			2
 movie			yes	
-gamma_langevin 		100	
-KA			0.2
-disable_mesh		yes
+#gamma_langevin 		10000	
+KA			0.
+record_curvature	yes
+#load			load.save
+#disable_mesh		yes

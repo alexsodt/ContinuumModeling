@@ -1,6 +1,6 @@
 time_step 		1e-12
-jobname			pore_dynamics
-mesh 			pore.mesh
+jobname			fusion
+mesh 			fusion.mesh
 #mode_min 		2
 #mode_max 		2
 do_ld 			yes
