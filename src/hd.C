@@ -478,8 +478,8 @@ int main( int argc, char **argv )
 			for( int fi = 0; fi <= plim; fi++ )
 			for( int fj = 0; fj <= plim-fi; fj++, totp++)
 			{
-				double f1 = fi / (double)plim;
-				double f2 = fj / (double)plim;
+				double f1 = (fi+0.5) / ((double)plim+1);
+				double f2 = (fj+0.5) / ((double)plim+1);
 	
 				theForceSet->face_set[totp] = f;
 	

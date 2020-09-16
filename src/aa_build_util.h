@@ -32,6 +32,7 @@ struct aa_build_data
 
 	double PBC_vec[3][3];
 	int nx, ny, nz;
+	int nx_c, ny_c, nz_c;
 
 	void init( void );
 	void setupBoxing( double Lx, double Ly, double Lz, int nx, int ny, int nz);

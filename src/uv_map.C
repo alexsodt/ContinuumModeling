@@ -38,8 +38,9 @@ void surface::get_pt_coeffs( int f, double u, double v, double *coeffs, int *coo
 		double fu = u;
 		double fv = v;					
 
+
 		int domain = theKernel->domain(fu,fv);
-		if( domain-1 >= theKernel->ndomains )
+		if(  domain-1 >= theKernel->ndomains )
 		{
 			printf("LOGICAL ERROR evaluating R,nrm on irregular vertex face.\n");
 			exit(1);
@@ -484,9 +485,15 @@ double surface::metric( int f, double u, double v, double *r, double *gmat, doub
 
 		double fu = u;
 		double fv = v;					
+		
+		if( fu < 1e-10 && fv < 1e-10 )
+		{
+			fu = 1e-10;
+			fv = 1e-10;
+		}
 
 		int domain = theKernel->domain(fu,fv);
-		if( domain-1 >= theKernel->ndomains )
+		if(  domain < 0 || domain-1 >= theKernel->ndomains )
 			return 1e-100;
 
 		double *theMap = theKernel->get_map( &fu, &fv );
@@ -911,9 +918,14 @@ double surface::g( int f, double u, double v, double *r )
 
 		double fu = u;
 		double fv = v;					
+		if( fu < 1e-10 && fv < 1e-10 )
+		{
+			fu = 1e-10;
+			fv = 1e-10;
+		}
 
 		int domain = theKernel->domain(fu,fv);
-		if( domain-1 >= theKernel->ndomains )
+		if(  domain < 0 || domain-1 >= theKernel->ndomains )
 			return 1e-100;
 
 		double *theMap = theKernel->get_map( &fu, &fv );
@@ -1152,9 +1164,14 @@ void surface::r2der( int f, double u, double v, double *r, double *dr_uu, double
 
 		double fu = u;
 		double fv = v;					
+		if( fu < 1e-10 && fv < 1e-10 )
+		{
+			fu = 1e-10;
+			fv = 1e-10;
+		}
 
 		int domain = theKernel->domain(fu,fv);
-		if( domain-1 >= theKernel->ndomains )
+		if(  domain < 0 || domain-1 >= theKernel->ndomains )
 		{
 			printf("ERROR trying to evaluate ru outside of irregular domain.\n");
 			exit(1);
@@ -1383,8 +1400,14 @@ void surface::ru( int f, double u, double v, double *r, double *dr_u )
 		double fu = u;
 		double fv = v;					
 
+		if( fu < 1e-10 && fv < 1e-10 )
+		{
+			fu = 1e-10;
+			fv = 1e-10;
+		}
+
 		int domain = theKernel->domain(fu,fv);
-		if( domain-1 >= theKernel->ndomains )
+		if(  domain < 0 || domain-1 >= theKernel->ndomains )
 		{
 			printf("ERROR trying to evaluate ru outside of irregular domain.\n");
 			exit(1);
@@ -1557,9 +1580,15 @@ void surface::rv( int f, double u, double v, double *r, double *dr_v )
 
 		double fu = u;
 		double fv = v;					
+		
+		if( fu < 1e-10 && fv < 1e-10 )
+		{
+			fu = 1e-10;
+			fv = 1e-10;
+		}
 
 		int domain = theKernel->domain(fu,fv);
-		if( domain-1 >= theKernel->ndomains )
+		if(  domain < 0 || domain-1 >= theKernel->ndomains )
 		{
 			printf("ERROR trying to evaluate ru outside of irregular domain.\n");
 			exit(1);
@@ -2390,9 +2419,14 @@ double surface::c( int f, double u, double v, double *r, double *k, double *c_ve
 
 		double fu = u;
 		double fv = v;					
+		if( fu < 1e-10 && fv < 1e-10 )
+		{
+			fu = 1e-10;
+			fv = 1e-10;
+		}
 
 		int domain = theKernel->domain(fu,fv);
-		if( domain-1 >= theKernel->ndomains )
+		if(  domain < 0 || domain-1 >= theKernel->ndomains )
 		{
 			printf("ERROR trying to evaluate ru outside of irregular domain.\n");
 			exit(1);
@@ -3416,12 +3450,17 @@ double surface::gradFetch( int f, double u, double v, double *r,
 	*nCoor = ncoords_base;
 	double fu = u;
 	double fv = v;					
+	if( fu < 1e-10 && fv < 1e-10 )
+	{
+		fu = 1e-10;
+		fv = 1e-10;
+	}
 	int domain = 0;
 
 	if( do_irreg )
 	{
 		domain = theKernel->domain(fu,fv);
-		if( domain-1 >= theKernel->ndomains )
+		if( domain < 0 ||  domain-1 >= theKernel->ndomains )
 		{
 			printf("ERROR trying to evaluate ru outside of irregular domain.\n");
 			exit(1);

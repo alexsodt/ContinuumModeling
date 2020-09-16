@@ -320,7 +320,7 @@ void surface::createAllAtom( Simulation *theSimulation, parameterBlock *block, p
 	int nplacedSpace = 100;
 	double *placed_atoms = (double *)malloc( sizeof(double) * 3 * nplacedSpace );
 	
-	double boxl = 20.0;
+	double boxl = 5.0;
 
 	int nx = PBC_vec[0][0] / boxl;
 	int ny = PBC_vec[1][1] / boxl;
@@ -3536,6 +3536,7 @@ int TestAdd( surface *theSurface, int l, int *lipid_start, int *lipid_stop, stru
 		double *pl_atoms = *placed_atoms;
 		double clash_cutoff = 0.5;
 
+#ifdef OLD_CLASH
 		for( int t = 0; t < lc; t++ )
 		{
 			int bx = coords[3*t+0] * nx / PBC_vec[0][0];
@@ -3602,7 +3603,9 @@ int TestAdd( surface *theSurface, int l, int *lipid_start, int *lipid_stop, stru
 		{
 			printf("compare_clash: %d nclash: %d\n", compare_clash, nclash );
 		}
-
+#else
+		nclash = buildData->nclash_aa( coords, lc, is_mod ); 
+#endif
 		if( nclash > 10 )
 			clash = 1;
 
@@ -3629,6 +3632,7 @@ int TestAdd( surface *theSurface, int l, int *lipid_start, int *lipid_stop, stru
 			}
 		}
 
+#ifdef OLD_CLASH
 		for( int c = 0; c < local_ncycles && !clash; c++ )
 		{
 			int relev = 1;
@@ -3780,7 +3784,9 @@ int TestAdd( surface *theSurface, int l, int *lipid_start, int *lipid_stop, stru
 		{
 			printf("cycle_clash: %d compare: %d\n", clash, cycle_clash_compare );
 		}
-
+#else
+		clash = cycle_clash_compare;
+#endif
 		// SECOND: check global rings against local bonds.
 		// can ring box this if it makes sense.	
 
@@ -3790,6 +3796,7 @@ int TestAdd( surface *theSurface, int l, int *lipid_start, int *lipid_stop, stru
 			int the_bond_xa = 0;
 			int the_sub_bond = 0;
 			int got_miss = 0;
+#ifdef OLD_CLASH
 		for( int pass = 0; pass < 2 && ! (pass == 1 && !got_miss); pass++ )
 		{
 			
@@ -3943,6 +3950,28 @@ int TestAdd( surface *theSurface, int l, int *lipid_start, int *lipid_stop, stru
 					cycle_clash_compare = 2;
 			}
 		}
+#else
+			for( int xa = lipid_start[l]; xa <= lipid_stop[l] && !clash; xa++, toff++ )
+			{
+				int loff = xa - lipid_start[l];
+				for( int bx = 0; bx < local_nbonds[xa] && !clash; bx++ )
+				{
+					int loff2 = local_bonds[local_bond_offsets[xa]+bx] - lipid_start[l];
+			
+					double r1[3] = { 
+						coords[3*loff+0],
+						coords[3*loff+1],
+						coords[3*loff+2] };
+					double r2[3] = { 
+						coords[3*loff2+0],
+						coords[3*loff2+1],
+						coords[3*loff2+2]  };
+	
+					if( buildData->bondClash( r1, r2 ) )
+						clash = 2;
+				}
+			}	
+#endif
 		}
 
 		if( !clash ) 

@@ -3,7 +3,7 @@
 #include "io_mol_read.h"
 
 // need to set this with configure.
-const char *libDir = "/data/sodtaj/HD/lib";
+const char *libDir = "/Users/sodtaj/git_projects/HD/lib";
 
 struct map31
 {

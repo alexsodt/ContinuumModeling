@@ -237,7 +237,12 @@ void aa_build_data::addCyclesInRun( int offset, double *coords, int a_start, int
 			box_com[1] /= cycle_lens[c];
 			box_com[2] /= cycle_lens[c];
 
-			boxit( box_com, global_ncycles, cycleBoxes, PBC_vec, nx, ny, nz );
+			if( global_ncycles == 365 )
+			{
+				printf("Boxing 365.\n");
+			}
+
+			boxit( box_com, global_ncycles, cycleBoxes, PBC_vec, nx_c, ny_c, nz_c );
 			
 			global_ncycles++;
 		}
@@ -303,7 +308,7 @@ void aa_build_data::addMappedCycles( int offset, double *coords, int *map, int n
 			box_com[1] /= cycle_lens[c];
 			box_com[2] /= cycle_lens[c];
 
-			boxit( box_com, global_ncycles, cycleBoxes, PBC_vec, nx, ny, nz );
+			boxit( box_com, global_ncycles, cycleBoxes, PBC_vec, nx_c, ny_c, nz_c );
 			
 			global_ncycles++;
 		}
@@ -341,7 +346,7 @@ void aa_build_data::addSpecialCycle( int *cycle, int len, double *coords )
 	box_com[1] /= len;
 	box_com[2] /= len;
 			
-	boxit( box_com, global_ncycles, cycleBoxes, PBC_vec, nx, ny, nz );
+	boxit( box_com, global_ncycles, cycleBoxes, PBC_vec, nx_c, ny_c, nz_c );
 	
 	global_ncycles++;
 
@@ -354,27 +359,34 @@ int aa_build_data::bondClash( double *r1, double *r2 )
 	// modify this to use boxing data I guess.
 
 	double bond_com[3] = { (r1[0]+r2[0])/2, (r1[1]+r2[1])/2, (r1[2]+r2[2])/2 };
+
+	while( bond_com[0] < 0 ) bond_com[0] += PBC_vec[0][0];
+	while( bond_com[1] < 0 ) bond_com[1] += PBC_vec[1][1];
+	while( bond_com[2] < 0 ) bond_com[2] += PBC_vec[2][2];
+	while( bond_com[0] > PBC_vec[0][0] ) bond_com[0] -= PBC_vec[0][0];
+	while( bond_com[1] > PBC_vec[1][1] ) bond_com[1] -= PBC_vec[1][1];
+	while( bond_com[2] > PBC_vec[2][2] ) bond_com[2] -= PBC_vec[2][2];
 	
-	int bx = bond_com[0] * nx / PBC_vec[0][0];
-	int by = bond_com[1] * ny / PBC_vec[1][1];
-	int bz = bond_com[2] * nz / PBC_vec[2][2];
+	int bx = bond_com[0] * nx_c / PBC_vec[0][0];
+	int by = bond_com[1] * ny_c / PBC_vec[1][1];
+	int bz = bond_com[2] * nz_c / PBC_vec[2][2];
 			
-	for( int dx = -2; dx <= 2 && !clash; dx++ )
-	for( int dy = -2; dy <= 2 && !clash; dy++ )
-	for( int dz = -2; dz <= 2 && !clash; dz++ )
+	for( int dx = -1; dx <= 1 && !clash; dx++ )
+	for( int dy = -1; dy <= 1 && !clash; dy++ )
+	for( int dz = -1; dz <= 1 && !clash; dz++ )
 	{
 		int n_b_x = bx + dx;
 		int n_b_y = by + dy;
 		int n_b_z = bz + dz;
 	
-		if( n_b_x >= nx ) n_b_x -= nx;
-		if( n_b_x < 0 ) n_b_x += nx;
-		if( n_b_y >= ny ) n_b_y -= ny;
-		if( n_b_y < 0 ) n_b_y += ny;
-		if( n_b_z >= nz ) n_b_z -= nz;
-		if( n_b_z < 0 ) n_b_z += nz;
+		if( n_b_x >= nx_c ) n_b_x -= nx_c;
+		if( n_b_x < 0 ) n_b_x += nx_c;
+		if( n_b_y >= ny_c ) n_b_y -= ny_c;
+		if( n_b_y < 0 ) n_b_y += ny_c;
+		if( n_b_z >= nz_c ) n_b_z -= nz_c;
+		if( n_b_z < 0 ) n_b_z += nz_c;
 
-		int nb = n_b_x*ny*nz+n_b_y*nz+n_b_z;
+		int nb = n_b_x*ny_c*nz_c+n_b_y*nz_c+n_b_z;
 
 		for( int px = 0; px < cycleBoxes[nb].np && !clash; px++ )
 		{
@@ -415,7 +427,7 @@ int aa_build_data::bondClash( double *r1, double *r2 )
 	
 			double r = normalize(dr);
 				
-//			if( r < 10.0 )
+			if( r < 10.0 )
 			{
 				double r1_s[3] = { r1[0] + shift[0],
 						   r1[1] + shift[1],
@@ -463,11 +475,20 @@ int aa_build_data::cycleClash( double *coords, int a_start, int *cycle, int len 
 	ring_com[1] /= len;
 	ring_com[2] /= len;
 
+	double ring_com_pbc[3] = {ring_com[0], ring_com[1], ring_com[2] };
+	
+	while( ring_com_pbc[0] < 0 ) ring_com_pbc[0] += PBC_vec[0][0];
+	while( ring_com_pbc[1] < 0 ) ring_com_pbc[1] += PBC_vec[1][1];
+	while( ring_com_pbc[2] < 0 ) ring_com_pbc[2] += PBC_vec[2][2];
+	while( ring_com_pbc[0] >= PBC_vec[0][0] ) ring_com_pbc[0] -= PBC_vec[0][0];
+	while( ring_com_pbc[1] >= PBC_vec[1][1] ) ring_com_pbc[1] -= PBC_vec[1][1];
+	while( ring_com_pbc[2] >= PBC_vec[2][2] ) ring_com_pbc[2] -= PBC_vec[2][2];
+
 	int clash = 0;
 			
-	int bx = ring_com[0] * nx / PBC_vec[0][0];
-	int by = ring_com[1] * ny / PBC_vec[1][1];
-	int bz = ring_com[2] * nz / PBC_vec[2][2];
+	int bx = ring_com_pbc[0] * nx / PBC_vec[0][0];
+	int by = ring_com_pbc[1] * ny / PBC_vec[1][1];
+	int bz = ring_com_pbc[2] * nz / PBC_vec[2][2];
 			
 	for( int dx = -1; dx <= 1 && !clash; dx++ )
 	for( int dy = -1; dy <= 1 && !clash; dy++ )
@@ -551,9 +572,18 @@ int aa_build_data::nclash_aa( double *coords, int lc, int is_mod )
 	int nclash = 0;
 	for( int t = 0; t < lc; t++ )
 	{
-		int bx = coords[3*t+0] * nx / PBC_vec[0][0];
-		int by = coords[3*t+1] * ny / PBC_vec[1][1];
-		int bz = coords[3*t+2] * nz / PBC_vec[2][2];
+		double tr[3] = { coords[3*t+0], coords[3*t+1], coords[3*t+2] };
+
+		while( tr[0] < 0 ) tr[0] += PBC_vec[0][0];
+		while( tr[1] < 0 ) tr[1] += PBC_vec[1][1];
+		while( tr[2] < 0 ) tr[2] += PBC_vec[2][2];
+		while( tr[0] >= PBC_vec[0][0] ) tr[0] -= PBC_vec[0][0];
+		while( tr[1] >= PBC_vec[1][1] ) tr[1] -= PBC_vec[1][1];
+		while( tr[2] >= PBC_vec[2][2] ) tr[2] -= PBC_vec[2][2];
+
+		int bx = tr[0] * nx / PBC_vec[0][0];
+		int by = tr[1] * ny / PBC_vec[1][1];
+		int bz = tr[2] * nz / PBC_vec[2][2];
 		
 		if( bx >= nx ) bx -= nx;
 		if( bx < 0 ) bx += nx;
@@ -612,7 +642,7 @@ int aa_build_data::nclash_aa( double *coords, int lc, int is_mod )
 	return nclash;
 }
 	
-void aa_build_data::setupBoxing( double PBC_in[3][3], int nx_in, int ny_in, int nz_in)
+void aa_build_data::setupBoxing( double PBC_in[3][3], int nx_in, int ny_in, int nz_in )
 {
 	for( int tx = 0; tx < 3; tx++ )
 	for( int ty = 0; ty < 3; ty++ )
@@ -621,6 +651,10 @@ void aa_build_data::setupBoxing( double PBC_in[3][3], int nx_in, int ny_in, int 
 	nx = nx_in;
 	ny = ny_in;
 	nz = nz_in;
+
+	nx_c = nx/3; if( nx_c < 1 ) nx_c = 1;
+	ny_c = ny/4; if( ny_c < 1 ) ny_c = 1;
+	nz_c = nz/4; if( nz_c < 1 ) nz_c = 1;
 
 	theBoxes = (caa_box *)malloc( sizeof(caa_box) * nx * ny * nz );
 	
@@ -631,9 +665,9 @@ void aa_build_data::setupBoxing( double PBC_in[3][3], int nx_in, int ny_in, int 
 		theBoxes[b].plist = (int *)malloc( sizeof(int) * theBoxes[b].npSpace );
 	}
 	
-	cycleBoxes = (caa_box *)malloc( sizeof(caa_box) * nx * ny * nz );
+	cycleBoxes = (caa_box *)malloc( sizeof(caa_box) * nx_c * ny_c * nz_c );
 	
-	for( int b = 0; b < nx*ny*nz; b++ )
+	for( int b = 0; b < nx_c*ny_c*nz_c; b++ )
 	{
 		cycleBoxes[b].np = 0;
 		cycleBoxes[b].npSpace = 2;
