@@ -9,6 +9,7 @@
 #include "pdbFetch.h"
 #include "face_mask.h"
 #include "aa_build_util.h"
+#include "io_mol_read.h"
 
 static double monomer_MW = 10*26492.14; //amu 
 
@@ -465,7 +466,10 @@ void ifitm3::writeStructure( Simulation *theSimulation,
 
 	*ions = (ion_add *)realloc( *ions,  sizeof(ion_add) * naddSpace );
 
+	int *output_map = (int *)malloc( sizeof(int) *nIFI );
+	double *flat_coords = (double *)malloc( sizeof(double) * 3 * nIFI );
 	int tx = 0;
+	int flat_map = 0;
 	for( int a = 0; a < nIFI; a++ )
 	{
 		if( !strcasecmp(IFI[a].segid, segid_search ) )
@@ -492,12 +496,29 @@ void ifitm3::writeStructure( Simulation *theSimulation,
 				(*at_out)[*nat_out].x = pcopy[3*tx+0];
 				(*at_out)[*nat_out].y = pcopy[3*tx+1];
 				(*at_out)[*nat_out].z = pcopy[3*tx+2];
+
+				flat_coords[3*flat_map+0] = pcopy[3*tx+0];
+				flat_coords[3*flat_map+1] = pcopy[3*tx+1];
+				flat_coords[3*flat_map+2] = pcopy[3*tx+2];
+				output_map[a] = flat_map;
+
+				flat_map++;
+				// the map needs to go from the pool'd index (a) to the output index (*nat_out).
 				(*nat_out) += 1;
 			}
 
 			tx++;
 		}
 	}
+
+	buildData->addMappedCycles( buildData->curPlace(), pcopy, output_map, flat_map, getPool(pool_code)->cycles, getPool(pool_code)->cycle_lengths, getPool(pool_code)->ncycles ); 
+	buildData->addMappedBonds( buildData->curPlace(), output_map, flat_map, getPool(pool_code)->bonds, getPool(pool_code)->bond_offsets, getPool(pool_code)->nbonds ); 
+
+	free(output_map);
+	free(flat_coords);
+
+
+
 
 	free(pcopy);	
 
