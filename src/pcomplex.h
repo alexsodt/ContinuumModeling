@@ -3,8 +3,11 @@
 #include "simulation.h"
 #include "interp.h"
 #include "input.h"
+#include "pdbFetch.h"
 
 struct atom_rec;
+struct surface_mask;
+struct aa_build_data;
 
 #define __pcomplexh__
 
@@ -135,7 +138,7 @@ struct pcomplex
 	void evaluate_momentum( surface *theSurface, double *rsurf, double *pout );
 	double local_curvature( Simulation *theSimulation);
 	void print_type( char **outp );
-	virtual void writeStructure( Simulation *theSimulation, struct atom_rec **at, int *nat );
+	virtual void writeStructure( Simulation *theSimulation, surface_mask *upperSurfaceMask, surface_mask *lowerSurfaceMask, struct atom_rec **at, int *nat, char **seq, ion_add **ions, int *nions, aa_build_data *buildData );
 
 
 	void disable( void) { disabled = 1; }
@@ -221,7 +224,29 @@ struct syt7 : pcomplex
 	double V( Simulation *theSimulation );
 	double grad( Simulation *theSimulation, double *surface_g, double *particle_g );
 
-	void writeStructure( Simulation *theSimulation, struct atom_rec **at, int *nat );
+	//void writeStructure( Simulation *theSimulation, struct atom_rec **at, int *nat );
+	void writeStructure( Simulation *theSimulation, surface_mask *upperSurfaceMask, surface_mask *lowerSurfaceMask, struct atom_rec **at, int *nat, char **seq, ion_add **ions, int *nions, struct aa_build_data *buildData );
+	void move_inside(void);
+	void move_outside(void);	
+};
+
+struct ifitm3 : pcomplex
+{
+
+	void init( Simulation *theSimulation, surface *, double *rsurf, int f, double u, double v ); 
+	void init( double *r );
+	void bind( int f, double u, double v);
+	void unbind( void );
+	void loadParams( parameterBlock *block );
+	
+	int getNBonds( void );
+	void putBonds( int *bond_list );
+
+	double V( Simulation *theSimulation );
+	double grad( Simulation *theSimulation, double *surface_g, double *particle_g );
+
+	//void writeStructure( Simulation *theSimulation, struct atom_rec **at, int *nat );
+	void writeStructure( Simulation *theSimulation, surface_mask *upperSurfaceMask, surface_mask *lowerSurfaceMask, struct atom_rec **at, int *nat, char **seq, ion_add **ions, int *nions, struct aa_build_data *buildData );
 	void move_inside(void);
 	void move_outside(void);	
 };

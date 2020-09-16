@@ -719,6 +719,15 @@ void loadPSFfromPDB( FILE *theFile )
 				local_nat++;
 			at_temp.zap();
 		}
+		if( !strncasecmp( buffer, "HETATM", 6 ) )
+		{
+			struct atom_rec at_temp;
+			readATOM( buffer, &at_temp );
+			// for now, only accept calcium.
+			if( !strcasecmp( at_temp.atname, "CA") || !strcasecmp( at_temp.atname, "CAL") )
+				local_nat++;
+			at_temp.zap();
+		}
 	}
 
 	rewind(theFile);
@@ -741,11 +750,20 @@ void loadPSFfromPDB( FILE *theFile )
 		
 		if( feof(theFile) ) break;	
 	
-		if( !strncasecmp( buffer, "ATOM",4) )
+		if( !strncasecmp( buffer, "ATOM",4) || !strncasecmp( buffer, "HETATM", 6 ) )
 		{ 
 			struct atom_rec lat;
-
+			lat.charge = 0;
 			readATOM( buffer, &lat );
+			
+			if( !strncasecmp( buffer, "HETATM", 6 ) )
+			{
+				// for now, only accept calcium.
+				if( !strcasecmp( lat.atname, "CA") || !strcasecmp( lat.atname, "CAL") )
+					lat.charge = 2;
+				else
+					continue;
+			}
 
 			if( lat.altloc == 'B' )
 				continue;
@@ -1462,10 +1480,22 @@ void loadPDB( FILE *theFile, struct atom_rec *at)
 			pbc_set = 1;	
 		}
 
-                if( !strncasecmp( buffer, "ATOM", 4 ) )
+
+                if( !strncasecmp( buffer, "ATOM", 4 ) || !strncasecmp( buffer, "HETATM", 6 ) )
                 {    
-                        readATOM( buffer, at+a );
-			
+	        	at[a].charge = 0;
+
+        	        readATOM( buffer, at+a );
+		
+			if( !strncasecmp( buffer, "HETATM", 6 ) )
+			{
+				// for now, only accept calcium.
+				if( !strcasecmp( at[a].atname, "CA") || !strcasecmp( at[a].atname, "CAL") )
+					at[a].charge = 2;
+				else
+					continue;
+			}
+	
 			if( at[a].altloc == 'B' )
 				continue;
 

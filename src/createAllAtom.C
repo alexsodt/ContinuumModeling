@@ -11,6 +11,9 @@
 #include "pcomplex.h"
 #include "aux_surfaces.h"
 #include "simulation.h"
+#include "io_mol_read.h"
+#include "face_mask.h"
+#include "aa_build_util.h"
 
 //#define DEBUG_PRINT
 static double solvation_cutoff = 2.5;
@@ -20,6 +23,8 @@ static double PP = 15.0;
 //static double PP = 25.0;
 static int debug_on = 0;
 static int activate_martini = 0;
+
+
 static int **global_cycles = NULL;
 static int *global_cycle_len = NULL;
 static int global_ncycles = 0;
@@ -70,15 +75,9 @@ struct crd_psf_pair
 void EndSegment( FILE *charmmFile, char *cur_filename, char *cur_segment, char *cur_segname,	crd_psf_pair **pairs, int *seg_cntr, int *npairs, int *npair_space, int x_leaflet,
 	int *cur_size, int *cur_natoms, int *cur_atom, int *cur_res, int *switched, int gm1_switch );
 
-struct caa_box
-{
-	int np;
-	int npSpace;
-	int *plist;
-};
 
 int TestAdd( surface *theSurface, int l, int *lipid_start, int *lipid_stop, struct atom_rec *at, 
-	double *shift, double *upper_cen, double *add_to,
+	double *cell_shift, double *upper_cen, double *add_to,
 	double alpha,
 	double main_u_cen,
 	double main_v_cen,
@@ -108,6 +107,7 @@ int TestAdd( surface *theSurface, int l, int *lipid_start, int *lipid_stop, stru
 	int *cur_space,
 	int *cur_res,
 	caa_box *theBoxes, int nx, int ny, int nz,
+	aa_build_data *buildData,
 
 	int **local_cycle,
 	int *local_cycle_len,
@@ -117,42 +117,10 @@ int TestAdd( surface *theSurface, int l, int *lipid_start, int *lipid_stop, stru
 	int *local_nbonds,
 	int *local_bond_offset,
 	
-	FILE *doubleBondIndexes
+	FILE *doubleBondIndexes,
+	int is_mod  // was this modified to put a protein here?
 	);
 
-int TestAddRim( surface *theSurface, int l, int *lipid_start, int *lipid_stop, struct atom_rec *at, 
-	double dx, double dy,
-	double *lipid_xyz,
-	double *shift, double *upper_cen, double *rim_center,
-	double alpha,
-	double *use_r,
-	double *rsurf,
-	int leaflet,
-	int x_leaflet,
-	double *total_lipid_charge,
-	int *cur_atom,
-	int *cur_natoms,
-	double **placed_atoms,
-	int *nplaced,
-	int nplaced_pcut,
-	int *nplacedSpace,
-	char *cur_segname,
-	char **cur_segment,
-	int *cur_size,
-	int *cur_space,
-	int *cur_res,
-	caa_box *theBoxes, int nx, int ny, int nz,
-	
-	int **local_cycle,
-	int *local_cycle_len,
-	int ncycle,
-	
-	int *local_bonds,
-	int *local_nbonds,
-	int *local_bond_offsets
-	);
-	
-void boxit( double *r_in, int index, caa_box *theBoxes, double PBC_vec[3][3], int nx, int ny, int nz ); 
 
 void surface::createAllAtom( Simulation *theSimulation, parameterBlock *block, pcomplex **allComplexes, int ncomplex )
 {
@@ -167,16 +135,6 @@ void surface::createAllAtom( Simulation *theSimulation, parameterBlock *block, p
 
 	// write the mesh we are building into all-atom. Remove this later but I need it to debug.
 
-	FILE *tpsf = NULL;
-	char fname[256];
-	sprintf(fname, "%s_create.psf", block->jobName );
-	tpsf = fopen(fname,"w");
-	sprintf(fname, "%s_create.xyz", block->jobName );
-	writeLimitingSurfacePSF(tpsf);
-	fclose(tpsf);
-	FILE *tFile = fopen(fname,"w");
-	writeLimitingSurface(tFile);
-	fclose(tFile);
 
 	// outputs in CHARMM coordinate format
 
@@ -384,9 +342,297 @@ void surface::createAllAtom( Simulation *theSimulation, parameterBlock *block, p
 		theBoxes[b].npSpace = 2;
 		theBoxes[b].plist = (int *)malloc( sizeof(int) * theBoxes[b].npSpace );
 	}
+	
+	// aa_build_data stores all of the bonds, cycles and atom positions of what we've added to detect clashes.	
+	struct aa_build_data *buildData = (struct aa_build_data *)malloc( sizeof(struct aa_build_data) );
+
+	buildData->init();
+	buildData->setupBoxing( PBC_vec, nx, ny, nz);
+	
+	int added_pcomplex_ions = 0;
+
+#define NEW_POOL
+	int pass_pool_id[3] = { -1, -1, -1 };
+
+	for( int pass = 0; pass < 3; pass++ )
+	{
+		if( pass == 0 && block->innerPatchPDB )
+		{
+			do_leaflet[pass] = 1;
+			pass_pool_id[pass] = addStructureToPool( block->innerPatchPDB, block->innerPatchPSF );	
+		}
+		else if( pass == 1 && block->outerPatchPDB ) 
+		{
+			do_leaflet[pass] = 1;
+			pass_pool_id[pass] = addStructureToPool( block->outerPatchPDB, block->outerPatchPSF );	
+		}
+		else if( pass == 2 && block->altPatchPDB )
+		{
+			do_leaflet[pass] = 1;
+			pass_pool_id[pass] = addStructureToPool( block->altPatchPDB, block->altPatchPSF );	
+		}
+		else if( block->patchPDB )
+		{
+			do_leaflet[pass] = -1;
+			pass_pool_id[pass] = addStructureToPool( block->patchPDB, block->patchPSF );	
+		}
+	}
+
+	if( do_leaflet[0] > 0 && do_leaflet[1] == -1 )
+		do_leaflet[1] = 0;
+	else if( do_leaflet[1] > 0 && do_leaflet[0] == -1 )
+		do_leaflet[0] = 0;
+
+	// these masks have blobs of faces where contiguous bits of simulated bilayers are built in.	
+	surface_mask upper_leaflet_mask;
+	surface_mask lower_leaflet_mask;
+
+	double target_area_upper = getPool(pass_pool_id[0])->Lx *  getPool(pass_pool_id[0])->Ly / 4;
+	double target_area_lower = getPool(pass_pool_id[1])->Lx *  getPool(pass_pool_id[1])->Ly / 4;
+
+	upper_leaflet_mask.build( this, rsurf, target_area_upper );
+	lower_leaflet_mask.build( this, rsurf, target_area_lower );
+
+	double cur_area,area0;
+	area(rsurf,-1, &cur_area,&area0);
+
+	// Expected TOTAL neutral surface area.		
+	// A0*(1 + J * PP + K * PP * PP ) 
+
+	double JZ =0;
+	double KZ =0;
+	double Z = 0;
+	for( int f = 0; f < nt; f++ )
+	{
+		double u_cen=1.0/3.0;
+		double v_cen=1.0/3.0;
+
+		double cvec1[2] = {0,0}, cvec2[2]={0,0};
+		double gv = g(f, 1.0/3.0, 1.0/3.0, rsurf );
+		double c1=0,c2=0;
+		double k;
+		double ctot = c(f,u_cen,v_cen,rsurf,&k,cvec1,cvec2,&c1,&c2);
+		
+		JZ += (c1+c2)*gv;
+		KZ += c1*c2 * gv;
+	        Z  += gv;
+	}
+
+	JZ /= Z;
+	KZ /= Z;
+
+	double PP_in   = (1-JZ*PP)*PP * exp(-block->strainInner);
+	double PP_out  = (1+JZ*PP)*PP * exp(-block->strainOuter);
+
+	double area_outside = area0;
+	double area_inside = area0;
+	
+	int rim_sense = 1; // rim corresponds to the negative of the normal (the "inside")
+
+	upper_leaflet_mask.applyPoolToAllRegions( pass_pool_id[0] );
+	lower_leaflet_mask.applyPoolToAllRegions( pass_pool_id[1] );
+
 
 	if( ncomplex > 0 )
 	{
+		// for now, one segment per pcomplex.
+
+		struct ion_add *add_ions = (struct ion_add *)malloc( sizeof(ion_add) * 10 );
+		int nions = 0;
+
+		int pcomp_start = 0;
+		for( int p = 0; p < ncomplex; p++ )
+		{
+			char *seq = NULL;
+			allComplexes[p]->writeStructure( theSimulation, &upper_leaflet_mask, &lower_leaflet_mask, &pcomplex_atoms, &npcomplex_atoms, &seq, &add_ions, &nions, buildData);
+	
+			if( ! seq ) continue;
+
+			for( int t = 0; t < strlen(seq); t++ )
+			{
+				switch( seq[t] )
+				{
+					case 'D':
+					case 'E':
+						total_protein_charge -= 1;
+						break;
+					case 'R':
+					case 'K':
+						total_protein_charge += 1;
+						break;
+				}
+			}
+	
+			// For the C-terminal COO-
+			total_protein_charge -= 1; 
+
+			char fileName[256];
+			sprintf(fileName, "pcomp_%d_%s.pdb", p, block->jobName );
+
+			FILE *createPCompPDB = fopen(fileName,"w");
+
+			// write SEQRES to add in missing residues.
+	
+			writeSEQRES( createPCompPDB, seq );
+
+			char use_segid[256];
+			
+			if( p < 10 )
+				sprintf(use_segid, "p00%d", p );
+			else if( p < 100 )
+				sprintf(use_segid, "p0%d", p );
+			else 
+				sprintf(use_segid, "p%d", p );
+
+			for( int tp = pcomp_start; tp < npcomplex_atoms; tp++ )
+			{
+				char *temp = pcomplex_atoms[tp].segid;
+				pcomplex_atoms[tp].segid = use_segid;				
+				if( pcomplex_atoms[tp].atname[0] != 'H' )
+				{
+					printATOM( createPCompPDB, pcomplex_atoms[tp].bead, pcomplex_atoms[tp].res, pcomplex_atoms+tp ); 
+				}
+				pcomplex_atoms[tp].segid = temp;
+			}
+			fprintf(createPCompPDB, "END\n");
+			fclose(createPCompPDB);
+
+			fprintf(charmmFile, "open read card unit 10 name \"pcomp_%d_%s.pdb\"\n", p, block->jobName );	
+			fprintf(charmmFile, "read sequence PDB SEQRES unit 10\n"
+					    "generate %s setup warn first ACE last CTER\n", use_segid );	
+			if( pcomplex_atoms[pcomp_start].res != 1 )
+			{
+				fprintf(charmmFile,
+					"set s %d\n"
+					"label loop%d\n"
+					"calc r = @S + %d\n"
+					"RENAme RESId @R sele RESID @S end\n"
+					"incr s by -1\n"
+					"if s gt 0 goto loop%d\n", strlen(seq), p, pcomplex_atoms[pcomp_start].res-1, p );			
+			}
+
+			fprintf(charmmFile, "open write unit 10 card name \"%s.psf\"\n", use_segid);
+			fprintf(charmmFile, "write psf  unit 10 card\n");
+
+			fprintf(charmmFile, "open read card unit 10 name \"pcomp_%d_%s.pdb\"\n", p, block->jobName );	
+			fprintf(charmmFile, "read coor unit 10 pdb resi\n");
+
+			fprintf(charmmFile, "ic param\n");
+			fprintf(charmmFile, "ic build\n");
+			fprintf(charmmFile, "hbuild sele all end\n");
+			
+			fprintf(charmmFile, "nbonds atom switch cdie vdw vfswitch  -\n"
+"       ctonnb 10.0 ctofnb 12.0 cutnb 14.0 cutim 16.0 -\n"
+"       inbfrq -1 imgfrq -1 wmin 1.0 cdie eps 80.0\n"
+"energy\n"
+"mini sd nstep 200 nprint 10\n" );
+			
+			fprintf(charmmFile, "open write unit 10 card name \"%s.crd\"\n", use_segid );
+			fprintf(charmmFile, "write coor unit 10 card\n");
+			fprintf(charmmFile, "delete atom sele atom * * * end\n");
+
+			fflush(charmmFile);
+			pcomp_start = npcomplex_atoms;
+		}
+	
+		if( nions > 0 )
+		{
+			char fileName[256];
+			sprintf(fileName,"%s_extra_ions.pdb", block->jobName );
+			FILE *add_ions_file = fopen(fileName,"w");
+
+			char ionSeg[256];
+			sprintf(ionSeg,"IONS");
+			for( int i = 0; i < nions; i++ )
+			{	
+				struct atom_rec lat;
+
+				char ionName[256];
+				switch( add_ions[i].type )
+				{
+					case ION_CAL:
+						sprintf(ionName, "CAL");
+						total_protein_charge += 2;
+						break;
+					case ION_MG:
+						sprintf(ionName, "MG");
+						total_protein_charge += 2;
+						break;
+					case ION_FE:
+						sprintf(ionName, "FE");
+						total_protein_charge += 2;
+						break;
+				}
+				lat.atname = ionName;
+				lat.resname= ionName;
+				lat.segid  = ionSeg;
+				lat.altloc = ' ';
+				lat.chain = ' ';
+				lat.bead = i+1;
+				lat.res = i+1;
+				lat.x = add_ions[i].x;	
+				lat.y = add_ions[i].y;	
+				lat.z = add_ions[i].z;	
+
+				printATOM( add_ions_file, i+1, i+1, &lat ); 
+			}
+			fprintf(add_ions_file, "END\n");
+			fclose(add_ions_file);
+
+			fprintf(charmmFile,
+"open read card unit 10 name \"%s_extra_ions.pdb\"\n"
+"read sequence PDB  unit 10\n"
+"generate IONS setup warn noangle nodihedral\n"
+
+"open write unit 10 card name \"%s_extra_ions.psf\"\n"
+"write psf  unit 10 card\n"
+"open read card unit 10 name \"%s_extra_ions.pdb\"\n"
+"read coor unit 10 pdb resi\n"
+"open write unit 10 card name \"%s_extra_ions.crd\"\n"
+"write coor unit 10 card\n"
+"delete atom sele atom * * * end\n", block->jobName, block->jobName, block->jobName, block->jobName );
+			added_pcomplex_ions = 1;
+
+		}
+
+
+		if( nplacedSpace < nplaced+ npcomplex_atoms ) 
+		{
+			nplacedSpace = nplaced + npcomplex_atoms;
+			placed_atoms = (double *)realloc( placed_atoms, sizeof(double)*3* (nplacedSpace) );
+		}
+
+		for( int tp = 0; tp < npcomplex_atoms; tp++ )
+		{
+			placed_atoms[3*nplaced+0] = pcomplex_atoms[tp].x;	
+			placed_atoms[3*nplaced+1] = pcomplex_atoms[tp].y;	
+			placed_atoms[3*nplaced+2] = pcomplex_atoms[tp].z;	
+
+			double to_add[3] = { pcomplex_atoms[tp].x, pcomplex_atoms[tp].y, pcomplex_atoms[tp].z }; 
+			int pl = buildData->addAtom( to_add );
+
+			boxit( placed_atoms+3*pl, pl, theBoxes, PBC_vec, nx, ny, nz );
+	
+			nplaced++;
+		}
+
+
+		global_atom_space = nplaced;
+		global_nbonds = (int *)malloc( sizeof(int) * nplaced );
+		global_bond_offsets = (int *)malloc( sizeof(int) * nplaced );
+		memset( global_nbonds, 0, sizeof(int) * nplaced );
+		memset( global_bond_offsets, 0, sizeof(int) * nplaced );
+
+		buildData->markPcut();
+		nplaced_pcut = nplaced;
+
+#if 0
+
+
+
+
+
+
 		for( int p = 0; p < ncomplex; p++ )
 			allComplexes[p]->writeStructure( theSimulation, &pcomplex_atoms, &npcomplex_atoms );
 
@@ -423,381 +669,9 @@ void surface::createAllAtom( Simulation *theSimulation, parameterBlock *block, p
 		memset( global_bond_offsets, 0, sizeof(int) * nplaced );
 
 		nplaced_pcut = nplaced;
+#endif
 	}
 
-	for( int pass = 0; pass < 3; pass++ )
-	{
-		FILE *pdbFile;	
-				
-		int **basis=NULL;
-		int *basis_length=NULL;
-		int nbasis=0;
-		int loaded_psf = 0;
-	
-		if( pass == 0 && block->innerPatchPDB )
-		{
-			pdbFile = fopen(block->innerPatchPDB, "r" );
-			do_leaflet[0] = 1;
-
-			if( !pdbFile )
-			{
-				printf("Couldn't open file \"%s\"\n", block->innerPatchPDB );
-				exit(1);
-			}
-
-			if( block->innerPatchPSF )
-			{
-				FILE *psfFile = fopen(block->innerPatchPSF,"r");
-			
-				if( !psfFile )
-				{
-					printf("Couldn't open file \"%s\"\n", block->innerPatchPSF );
-					exit(1);
-				}
-	
-				loadPSF( psfFile );
-		
-				loaded_psf = 1;	
-				
-			}
-			else
-				loadPSFfromPDB( pdbFile );
-		}
-		else if( pass == 1 && block->outerPatchPDB ) 
-		{
-			do_leaflet[1] = 1;
-			pdbFile = fopen(block->outerPatchPDB, "r" );
-			if( !pdbFile )
-			{
-				printf("Couldn't open file \"%s\"\n", block->outerPatchPDB );
-				exit(1);
-			}
-			if( block->outerPatchPSF )
-			{
-				FILE *psfFile = fopen(block->outerPatchPSF,"r");
-	
-				if( !psfFile )
-				{
-					printf("Couldn't open file \"%s\"\n", block->outerPatchPSF );
-					exit(1);
-				}
-	
-				loaded_psf = 1;	
-				loadPSF( psfFile );
-			}
-			else
-				loadPSFfromPDB( pdbFile );
-		}
-		else if( pass == 2 && block->altPatchPDB )
-		{
-			pdbFile = fopen(block->altPatchPDB, "r" );
-			do_leaflet[2] = 1;
-
-			if( !pdbFile )
-			{
-				printf("Couldn't open file \"%s\"\n", block->altPatchPDB );
-				exit(1);
-			}
-
-			if( block->altPatchPSF )
-			{
-				FILE *psfFile = fopen(block->altPatchPSF,"r");
-			
-				if( !psfFile )
-				{
-					printf("Couldn't open file \"%s\"\n", block->altPatchPSF );
-					exit(1);
-				}
-	
-				loaded_psf = 1;	
-				loadPSF( psfFile );
-			}
-			else
-				loadPSFfromPDB( pdbFile );
-		}
-		else if( block->patchPDB )
-		{
-			do_leaflet[pass] = -1;
-			pdbFile = fopen(block->patchPDB,"r");
-			if( !pdbFile )
-			{
-				printf("Couldn't open file \"%s\"\n", block->patchPDB );
-				exit(1);
-			}
-			if( block->patchPSF )
-			{
-				FILE *psfFile = fopen(block->patchPSF,"r");
-
-				if( !psfFile )
-				{
-					printf("Couldn't open file \"%s\"\n", block->patchPDB );
-					exit(1);
-				}
-
-				loaded_psf = 1;	
-				loadPSF( psfFile );
-			}
-			else
-				loadPSFfromPDB( pdbFile );
-		}
-		else
-			continue;
-		master_at[pass] = (struct atom_rec *)malloc( sizeof(struct atom_rec ) * curNAtoms() );
-		nat[pass] = curNAtoms();
-
-		struct atom_rec *at = master_at[pass];
-
-
-		rewind(pdbFile);
-		loadPDB( pdbFile, at );	
-	
-		fclose(pdbFile);
-		
-		if( PBCD( master_Lx+pass,master_Ly+pass,master_Lz+pass,&alpha,&beta,&gamma) )
-		{
-			printf("Couldn't read CRYST1 record from PDB.\n");
-			exit(1);
-		}
-		
-		double Lx = master_Lx[pass];
-		double Ly = master_Ly[pass];
-		double Lz = master_Lz[pass];
-
-		// the index where a lipid's atoms start
-		master_lipid_start[pass] = (int *)malloc( sizeof(int) * curNAtoms() );
-		// the index where a lipid's atoms stop
-		master_lipid_stop[pass]  = (int *)malloc( sizeof(int) * curNAtoms() );
-		// the coordinates of that lipid.
-		master_lipid_xyz[pass]       = (double *)malloc( sizeof(double) * 3 * curNAtoms() );
-		master_leaflet[pass]            = (int *)malloc( sizeof(int) * curNAtoms() );
-		master_nlipids[pass] = 0;
-		
-		int *bond_offsets = NULL;
-		int *nbonds = NULL;
-		int *bond_list = NULL;
-		
-		if( loaded_psf ) // get rings of the molecules for penetration search.
-		{
-			fetchCycleBasis( &basis, &basis_length, &nbasis );
-
-			int nb = getNBonds();
-			int *bonds = (int *)malloc( sizeof(int) * nb * 2 );
-			getBonds(bonds);
-
-			bond_offsets = (int *)malloc( sizeof(int) * nat[pass] );
-			nbonds = (int *)malloc( sizeof(int) * nat[pass] );
-			memset( nbonds, 0, sizeof(int) * nat[pass] );
-			int off = 0;		
-
-			for( int b = 0; b < nb; b++ )
-			{
-				nbonds[bonds[2*b+0]] += 1;	
-				nbonds[bonds[2*b+1]] += 1;	
-			}
-
-			for( int a = 0; a < curNAtoms(); a++ )
-			{
-				bond_offsets[a]=off;
-				off += nbonds[a];
-			}
-
-			bond_list = (int *)malloc( sizeof(int) * off );
-			memset( nbonds, 0, sizeof(int) * nat[pass] );
-
-			for( int b = 0; b < nb; b++ )
-			{
-				int a1 = bonds[2*b+0];
-				int a2 = bonds[2*b+1];
-				bond_list[bond_offsets[a1]+nbonds[a1]] = a2;
-				nbonds[a1] += 1;	
-				bond_list[bond_offsets[a2]+nbonds[a2]] = a1;
-				nbonds[a2] += 1;	
-			}						
-		}
-
-		master_cycles[pass] = basis;
-		master_cycle_lengths[pass] = basis_length;
-		master_ncycles[pass] = nbasis;
-	
-		master_bonds[pass] = bond_list;
-		master_nbonds[pass] = nbonds;
-		master_bond_offsets[pass] = bond_offsets;
-
-		int *lipid_start = master_lipid_start[pass];
-		int *lipid_stop = master_lipid_stop[pass];
-		double *lipid_xyz = master_lipid_xyz[pass];
-		int *leaflet = master_leaflet[pass];
-		char p_segid[256];
-		int pres = -1;
-		int seg_continuity_mode = 0;
-		p_segid[0] = '\0';
-		// fill the index
-	
-		int nlipids=-1;
-		for( int a = 0; a < curNAtoms(); a++ )
-		{
-			if( !strcasecmp( at[a].resname, "TIP3") ) continue;
-			if( !strcasecmp( at[a].resname, "W") ) continue;
-			if( !strcasecmp( at[a].resname, "SOD") ) continue;
-			if( !strcasecmp( at[a].resname, "POT") ) continue;
-			if( !strcasecmp( at[a].resname, "CLA") ) continue;
-	
-			if( !strncasecmp( at[a].segid, "GLP", 3) ||
-		  	    !strncasecmp( at[a].segid, "PRO", 3) )
-				seg_continuity_mode = 1;
-			else
-				seg_continuity_mode = 0;
-	
-			if( (!seg_continuity_mode && (at[a].res != pres)) || strcasecmp( at[a].segid, p_segid) )
-			{  
-				nlipids++;
-				// a new residue. is it a lipid, or protein?
-				// for now, assume everything is going in, except water.
-				
-				lipid_start[nlipids] = a;
-				lipid_stop[nlipids] = a;
-					
-			}
-			else
-			{
-				lipid_stop[nlipids] = a;
-			}
-			strcpy( p_segid, at[a].segid ); 
-			pres = at[a].res;
-		}
-	
-		// the last "lipid" doesn't get incremented.
-		nlipids++;
-		
-		if( block->create_flip )
-		{
-			for( int a = 0; a < curNAtoms(); a++ )
-			{
-				at[a].x = -at[a].x;
-				at[a].z = -at[a].z;
-			}
-		}
-	
-		// get the bilayer center.
-	
-	#define N_BINS_MOLDIST 100
-	
-	        double best_chi2 = 1e10;
-		double wrapto = 0;
-	 
-	        double moldist[N_BINS_MOLDIST];
-	        memset( moldist, 0, sizeof(double) * N_BINS_MOLDIST );
-	
-	
-		for( int l = 0; l < nlipids; l++ )
-		{
-			for( int p = lipid_start[l]; p <= lipid_stop[l]; p++ )
-			{
-	                      double tz = at[p].z;
-	
-	                      while( tz < 0 ) tz += Lz;
-	                      while( tz >= Lz ) tz -= Lz;
-	
-	                      int zb = N_BINS_MOLDIST * tz / Lz; // this is right
-	                      if( zb < 0 ) zb = 0;
-	                      if( zb >= N_BINS_MOLDIST ) zb = N_BINS_MOLDIST-1;
-	                      moldist[zb] += 1;
-			}
-		}
-	
-	         for( int zb = 0; zb < N_BINS_MOLDIST; zb++ )
-	         {
-	                 double zv = Lz * (zb+0.5) / (double)N_BINS_MOLDIST;
-	 
-	                  int zlow  = zb- N_BINS_MOLDIST/2;
-	                  int zhigh = zlow + N_BINS_MOLDIST;
-	 
-	                  double Lzhi2 = 0;
-	                  for( int iz = zlow; iz < zhigh; iz++ )
-	                  {
-	                          double dz = Lz * (iz+0.5) / N_BINS_MOLDIST - zv;
-	 
-	                          int iiz = iz;
-	                          while( iiz < 0 ) iiz += N_BINS_MOLDIST;
-	                          while( iiz >= N_BINS_MOLDIST ) iiz -= N_BINS_MOLDIST;
-	 
-	                          Lzhi2 += moldist[iiz] * (dz) * (dz);
-	                  }
-	 
-	                  if( Lzhi2 < best_chi2 )
-	                  {
-	                          best_chi2 = Lzhi2;
-	                          wrapto = zv;
-	                  }
-	         }
-	
-	
-	
-		// wrap around z periodic dimension
-	
-		for( int l = 0; l < nlipids; l++ )
-		{
-			int midlipid = (lipid_start[l]+lipid_stop[l])/2;
-			while( at[midlipid].z - wrapto < -Lz/2 ) at[midlipid].z += Lz;
-			while( at[midlipid].z - wrapto > Lz/2 ) at[midlipid].z -= Lz;
-	
-			double lcom_z = 0;
-	
-			for( int p = lipid_start[l]; p <= lipid_stop[l]; p++ )
-			{
-				while( at[p].x - at[midlipid].x < -Lx/2 ) at[p].x += Lx;
-				while( at[p].x - at[midlipid].x >  Lx/2 ) at[p].x -= Lx;
-				
-				while( at[p].y - at[midlipid].y < -Ly/2 ) at[p].y += Ly;
-				while( at[p].y - at[midlipid].y >  Ly/2 ) at[p].y -= Ly;
-				
-				while( at[p].z - at[midlipid].z < -Lz/2 ) at[p].z += Lz;
-				while( at[p].z - at[midlipid].z >  Lz/2 ) at[p].z -= Lz;
-		
-				lcom_z += (at[p].z - wrapto);
-			}
-	
-			if( lcom_z > 0 )
-				leaflet[l] = 1;
-			else
-				leaflet[l] = -1;
-		} 
-	
-		// subtract off wrapto
-	
-		for( int a = 0; a < curNAtoms(); a++ )
-		{
-			at[a].z -= wrapto;
-//			if( at[a].atname[0] == 'N' ) printf("res %d z %lf\n", at[a].res, at[a].z );
-		}
-		// fill lipid positions
-	
-		for( int l = 0; l < nlipids; l++ )
-		{
-			lipid_xyz[3*l+0] = 0;	
-			lipid_xyz[3*l+1] = 0;	
-			lipid_xyz[3*l+2] = 0;
-		
-			for( int p = lipid_start[l]; p <= lipid_stop[l]; p++ )
-			{
-				lipid_xyz[3*l+0] += at[p].x;
-				lipid_xyz[3*l+1] += at[p].y;
-				lipid_xyz[3*l+2] += at[p].z;
-			}
-	
-			lipid_xyz[3*l+0] /= (lipid_stop[l] - lipid_start[l] + 1 );
-			lipid_xyz[3*l+1] /= (lipid_stop[l] - lipid_start[l] + 1 );
-			lipid_xyz[3*l+2] /= (lipid_stop[l] - lipid_start[l] + 1 );
-		}
-
-
-		master_nlipids[pass] = nlipids;
-	}
-
-	if( do_leaflet[0] > 0 && do_leaflet[1] == -1 )
-		do_leaflet[1] = 0;
-	else if( do_leaflet[1] > 0 && do_leaflet[0] == -1 )
-		do_leaflet[0] = 0;
 
 	int nrim = 0;
 	double *rimt = NULL;
@@ -811,9 +685,18 @@ void surface::createAllAtom( Simulation *theSimulation, parameterBlock *block, p
 	double *lower_patch_r = NULL;
 	double dz_rim = 20.0;
 
+	
+	double rimAreaAdd = 0;
+	double rimAreaSub = 0;
 
 	if( block->do_rim )
 	{
+		if( do_leaflet[2] <= 0 )
+		{
+			printf("ERROR. need to supply altPatchPDB.\n");
+			exit(1);
+		}	
+
 /*
 		// center the rim patches above the middle of the rim.
 		generateRimRing( this, rsurf, &rimt, &nrim );
@@ -824,6 +707,21 @@ void surface::createAllAtom( Simulation *theSimulation, parameterBlock *block, p
 		double *rim_pts = (double *)malloc( sizeof(double) * nrim * 3 );
 
 		get_cut_points( 2, 0, f_ring, uv_ring, rim_pts, nrim, rsurf );
+		
+		// we want to form a rim from the surface that points into our circle.	
+		// do we need to reverse the sense? if the normal points inwards, then we need to.
+
+		double nrm_at_rim[3];	
+		double p_at_rim[3];
+		evaluateRNRM( f_ring[0], uv_ring[0], uv_ring[1], p_at_rim, nrm_at_rim, rsurf );
+
+		double dp = p_at_rim[0] * nrm_at_rim[0] + p_at_rim[1] * nrm_at_rim[1] + p_at_rim[2] * nrm_at_rim[2];
+		if( dp < 0 )
+		{
+			// normal is pointing in.
+			rim_sense *= -1;
+			printf("Flipping rim sense. REMOVE THIS PRINT.\n");
+		}
 
 		for( int t = 0; t < nrim; t++ )
 		{
@@ -925,6 +823,11 @@ void surface::createAllAtom( Simulation *theSimulation, parameterBlock *block, p
 		for( int t = 0; t < nuse_cut; t++ )
 			lower_rim_patch->addFixedPoint( r_cut_lower+3*t );
 
+		// subtract out the cylindrical section:
+		rimAreaSub = R_approx * 2*M_PI * 2 * dz_rim;
+		// add in the two portions of the sphere.
+		rimAreaAdd = 2 * 4*M_PI * (R_approx - 0.5 * dz_rim) * (dz_rim);
+
 /*
 		FILE *tpsf = NULL;
 		char fname[256];
@@ -953,113 +856,20 @@ void surface::createAllAtom( Simulation *theSimulation, parameterBlock *block, p
 	}
 	// get regions of the bilayer which we will map collectively attempting to leave a minimum of seams.
 
-	int *regions_for_face = (int *)malloc( sizeof(int) * nt );
-	int *regions_for_tri = (int *)malloc( sizeof(int) * nt );
-
-	double cur_area,area0;
-	area(rsurf,-1, &cur_area,&area0);
-
-	// Expected TOTAL neutral surface area.		
-	// A0*(1 + J * PP + K * PP * PP ) 
-
-	double JZ =0;
-	double KZ =0;
-	double Z = 0;
-	for( int f = 0; f < nt; f++ )
-	{
-		double u_cen=1.0/3.0;
-		double v_cen=1.0/3.0;
-
-		double cvec1[2] = {0,0}, cvec2[2]={0,0};
-		double gv = g(f, 1.0/3.0, 1.0/3.0, rsurf );
-		double c1=0,c2=0;
-		double k;
-		double ctot = c(f,u_cen,v_cen,rsurf,&k,cvec1,cvec2,&c1,&c2);
-		
-		JZ += (c1+c2)*gv;
-		KZ += c1*c2 * gv;
-	        Z  += gv;
-	}
-
-	JZ /= Z;
-	KZ /= Z;
-
-	double PP_in   = (1-JZ*PP)*PP * exp(-block->strainInner);
-	double PP_out  = (1+JZ*PP)*PP * exp(-block->strainOuter);
-
-	double area_target_outside = area0 * (1 + JZ * PP_out + KZ * PP * PP )* exp(-0.5*block->strainOuter);
-	double area_target_inside  = area0 * (1 - JZ * PP_in + KZ * PP * PP )*exp(-0.5*block->strainInner);
-	printf("Area-midplane: %le Area_NS/PP_outside: %le\n", area0, area_target_outside );
-	printf("Area-midplane: %le Area_NS/PP_inside:  %le\n", area0, area_target_inside  );
-
-	double use_area_lower = master_Lx[0]*master_Ly[0];
-	double use_area_upper = master_Lx[1]*master_Ly[1];
-	
-	int nregions = 0;
-	if( do_leaflet[0] && do_leaflet[1] )
-		nregions = area0 / ( (use_area_lower+use_area_upper)/8);
-	else if( do_leaflet[0] )
-		nregions = area0 / ( (use_area_lower)/4);
-	else
-		nregions = area0 / ( (use_area_upper)/4);
-
-	// short circuit this and just use four triangles?
-	nregions = nt/4;
-
-//	nregions *= 2;
-	if( nregions > nt )
-		nregions = nt;	
-	//int debug_ids[3] = { 24, 26, 77 };
-	//int debug_ids[3] = { 26, 77, 100 };
-	int debug_ids[3] = { 47, 51, 117 };
-	int debug_t = -1;
-	int debug_f = -1;
-
-	for( int t = 0; t < nt; t++ )
-	{
-		int tids[3] = {theTriangles[t].ids[0],theTriangles[t].ids[1],theTriangles[t].ids[2] };
-		sort3(tids);
-
-		if( 
-			tids[0] == debug_ids[0] &&	
-			tids[1] == debug_ids[1] &&	
-			tids[2] == debug_ids[2] )	
-		{
-			debug_t = t;
-			debug_f = theTriangles[t].f;
-		}
-	}
-
-	if( nregions > nt / 2 )
-	{
-		nregions = nt;
-		for( int t = 0;  t < nt; t++ )
-		{
-			regions_for_tri[t] = t;
-			regions_for_face[theTriangles[t].f] = t;
-		}
-	}
-	else
-	{
-	// target one fourth of the area?
-
-	printf("Using %d regions.\n", nregions );
-
-	getRegions(regions_for_tri, nregions );
-
-	for( int t = 0;  t < nt; t++ )
-		regions_for_face[theTriangles[t].f] = regions_for_tri[t];
-	}
 	// Eventually I'd like to place lipids with as few seams,
 	// and as little lateral tension inhomogeneity as possible.
 	// for now I'll just put them on the faces.
 
+	if( rim_sense > 0 )
+		area_inside += rimAreaAdd + rimAreaSub;
+	else
+		area_outside += rimAreaAdd + rimAreaSub;
 
-	int cur_natoms = 0;
-	int cur_atom = 1;
-	int cur_res  = 1;
+	double area_target_outside = area_outside * (1 + JZ * PP_out + KZ * PP * PP )* exp(-0.5*block->strainOuter);
+	double area_target_inside  = area_inside * (1 - JZ * PP_in + KZ * PP * PP )*exp(-0.5*block->strainInner);
+	printf("Area-midplane: %le Area_NS/PP_outside: %le\n", area0, area_target_outside );
+	printf("Area-midplane: %le Area_NS/PP_inside:  %le\n", area0, area_target_inside  );
 
-	FILE *tempFile = fopen("temp.crd","w");
 
 
 	const char *atom_name[] = 
@@ -1171,8 +981,7 @@ void surface::createAllAtom( Simulation *theSimulation, parameterBlock *block, p
 		double max_cut[3]; // the cartesian value above which we don't use this structure
 		surface *useSurface;
 		double *rsurf;
-		int nregions;
-		int *regions_for_face;
+		surface_mask *theMask;
 		double strain;
 		int orientation; // normal in or out.
 	};
@@ -1195,14 +1004,29 @@ void surface::createAllAtom( Simulation *theSimulation, parameterBlock *block, p
 
 		passes[l].useSurface = this;
 		passes[l].rsurf = rsurf;
-		passes[l].nregions = nregions;
-		passes[l].regions_for_face = regions_for_face;
+
+		if( l == 1 )
+			passes[l].theMask = &upper_leaflet_mask; 
+		else
+			passes[l].theMask = &lower_leaflet_mask; 
 		passes[l].strain = ( l == 0 ? block->strainInner : block->strainOuter );
 		passes[l].orientation = ( l == 0 ? -1 : 1 );
 	}
 
+	surface_mask rim_mask_upper;
+	surface_mask rim_mask_lower;
+
 	if( block->do_rim )
 	{
+		if( pass_pool_id[2] < 0 )	
+		{
+			printf("Need altPatchPDB set to build hemifusion structure.\n");
+			exit(1);
+		}
+
+		rim_mask_upper.build( upper_rim_patch, upper_patch_r, getPool(pass_pool_id[2])->Lx * getPool(pass_pool_id[2])->Ly / 4 ); 
+		rim_mask_lower.build( lower_rim_patch, lower_patch_r, getPool(pass_pool_id[2])->Lx * getPool(pass_pool_id[2])->Ly / 4 ); 
+
 		for( int l = 2; l < 4; l++ )
 		{
 			passes[l].structure_take_from = 2; // this is where the "aux" structure is.
@@ -1219,34 +1043,35 @@ void surface::createAllAtom( Simulation *theSimulation, parameterBlock *block, p
 			passes[l].orientation = -1; // always use the inside of our spheres for the rims.
 	
 			// get regions for rims.
-
-			double larea,larea0;
-			passes[l].useSurface->area( passes[l].rsurf, -1, &larea, &larea0 );	
-
-			passes[l].nregions = larea / ( (use_area_upper)/4);
-			passes[l].nregions = passes[l].useSurface->nt / 4;
-			int *l_regions_for_tri = (int *)malloc( sizeof(int) * passes[l].useSurface->nt );
-			passes[l].regions_for_face= (int *)malloc( sizeof(int) * passes[l].useSurface->nt );
-
-			if( passes[l].nregions > passes[l].useSurface->nt )
-				passes[l].nregions = passes[l].useSurface->nt;	
-	
-			passes[l].useSurface->getRegions(l_regions_for_tri, passes[l].nregions );
-	
-			for( int t = 0;  t < passes[l].useSurface->nt; t++ )
-				passes[l].regions_for_face[passes[l].useSurface->theTriangles[t].f] = l_regions_for_tri[t];
-			free(l_regions_for_tri);
+		
+			if( l == 2 ) 
+				passes[l].theMask = &rim_mask_lower; 
+			else
+				passes[l].theMask = &rim_mask_upper; 
 		}		
 			
 		// now, the spatial constraints on where to use which surface.
-
-		passes[0].min_cut[0] = -1e30; // infinite in xy
-		passes[0].max_cut[0] = 1e30;
-		passes[0].min_cut[1] = -1e30;
-		passes[0].max_cut[1] = 1e30;
-		passes[0].min_cut[2] = rim_center[2] - dz_rim;
-		passes[0].max_cut[2] = rim_center[2] + dz_rim;
-
+		if( rim_sense > 0 )
+		{
+			// remove from the leaflet on the side opposite the normal.
+			
+			passes[0].min_cut[0] = -1e30; // infinite in xy
+			passes[0].max_cut[0] = 1e30;
+			passes[0].min_cut[1] = -1e30;
+			passes[0].max_cut[1] = 1e30;
+			passes[0].min_cut[2] = rim_center[2] - dz_rim;
+			passes[0].max_cut[2] = rim_center[2] + dz_rim;
+		}
+		else
+		{
+			// remove from the leaflet on the side with the normal.
+			passes[1].min_cut[0] = -1e30; // infinite in xy
+			passes[1].max_cut[0] = 1e30;
+			passes[1].min_cut[1] = -1e30;
+			passes[1].max_cut[1] = 1e30;
+			passes[1].min_cut[2] = rim_center[2] - dz_rim;
+			passes[1].max_cut[2] = rim_center[2] + dz_rim;
+		}
 		// lower rim.
 		passes[2].min_cut[0] = -1e30; // infinite in xy
 		passes[2].max_cut[0] = 1e30;
@@ -1265,8 +1090,15 @@ void surface::createAllAtom( Simulation *theSimulation, parameterBlock *block, p
 
 			
 	}
+	int cur_natoms = 0;
+	int cur_atom = 1;
+	int cur_res  = 1;
 
-	for( int pass = 0; pass < 2; pass++ )
+
+
+	double APL[4] = {0,0,0,0};
+	
+	for( int pass = 1; pass < 2; pass++ )
 	{
 
 		srand(seed); // generate the same random numbers.
@@ -1285,70 +1117,66 @@ void surface::createAllAtom( Simulation *theSimulation, parameterBlock *block, p
 		int switched = 0;
 
 		int nleaflets = 2;
-	
-#ifdef OLD // delete this.
-		for( int x_leaflet = 0; x_leaflet < 2; x_leaflet++ )
-		{
-			if( do_leaflet[x_leaflet] == 0 ) continue;
-			double strain[2] = { block->strainInner, block->strainOuter };
 
-			int *leaflet = master_leaflet[x_leaflet];
-			double *lipid_xyz = master_lipid_xyz[x_leaflet];
-			struct atom_rec *at = master_at[x_leaflet];
-			int *lipid_stop = master_lipid_stop[x_leaflet];
-			int *lipid_start = master_lipid_start[x_leaflet];
-			int nlipids = master_nlipids[x_leaflet];
-
-
-			int **local_cycles = master_cycles[x_leaflet];
-			int *local_cycle_len = master_cycle_lengths[x_leaflet];
-			int local_ncycles = master_ncycles[x_leaflet];
-			
-			int *local_bonds = master_bonds[x_leaflet];
-			int *local_nbonds = master_nbonds[x_leaflet];
-			int *local_bond_offsets = master_bond_offsets[x_leaflet];
-
-			double Lx = master_Lx[x_leaflet];
-			double Ly = master_Ly[x_leaflet];
-			double Lz = master_Lz[x_leaflet];
-#else
 		for( int tx = 0; tx < n_build_passes; tx++ )
 		{
 			surface *useSurface = passes[tx].useSurface;
 			double *rsurf = passes[tx].rsurf;
-			int nregions = passes[tx].nregions;
-			int *regions_for_face = passes[tx].regions_for_face; 
+
+			int nregions = passes[tx].theMask->nreg;
 			int x_leaflet = passes[tx].structure_take_from;
 			double the_strain = passes[tx].strain;
 
 			if( do_leaflet[x_leaflet] == 0 ) continue;
-	
-			int *leaflet = master_leaflet[x_leaflet];
-			double *lipid_xyz = master_lipid_xyz[x_leaflet];
-			struct atom_rec *at = master_at[x_leaflet];
-			int *lipid_stop = master_lipid_stop[x_leaflet];
-			int *lipid_start = master_lipid_start[x_leaflet];
-			int nlipids = master_nlipids[x_leaflet];
 
-			int **local_cycles = master_cycles[x_leaflet];
-			int *local_cycle_len = master_cycle_lengths[x_leaflet];
-			int local_ncycles = master_ncycles[x_leaflet];
-			
-			int *local_bonds = master_bonds[x_leaflet];
-			int *local_nbonds = master_nbonds[x_leaflet];
-			int *local_bond_offsets = master_bond_offsets[x_leaflet];
 
-			double Lx = master_Lx[x_leaflet];
-			double Ly = master_Ly[x_leaflet];
-			double Lz = master_Lz[x_leaflet];
-#endif
 			int *regional_face = (int *)malloc( sizeof(int) * useSurface->nt );
 			memset( regional_face, 0, sizeof(int) * useSurface->nt );
 	
 			int *tri_list = (int *)malloc( sizeof(int) * nt );
 
+			surface_mask *theMask = passes[tx].theMask; 
+
+			int *regions_for_face = theMask->reg_for_f;
+
 			for( int r = 0; r < nregions; r++ )
 			{
+				int the_pool = theMask->getPool(r);
+				const struct surface_region *region = theMask->getRegion(r);
+				
+				struct pool_structure *pool = getPool(the_pool);
+
+				int *leaflet = pool->leaflet;
+				double *lipid_xyz = pool->xyz;
+				struct atom_rec *at = pool->at;
+				int local_nat = pool->nat;
+				int *lipid_stop = pool->lipid_stop;
+				int *lipid_start = pool->lipid_start;
+				int nlipids = pool->nlipids;
+				int **local_cycles = pool->cycles;
+				int *local_cycle_len = pool->cycle_lengths;
+				int local_ncycles = pool->ncycles;
+				int flipped = region->flipped;	
+				int *local_bonds = pool->bonds;
+				int *local_nbonds = pool->nbonds;
+				int *local_bond_offsets = pool->bond_offsets;
+
+				if( flipped )
+				{
+					for( int a = 0; a < local_nat; a++ )
+					{
+						at[a].x *= -1;
+						at[a].z *= -1;
+					} 
+				}
+
+			
+				double Lx = pool->Lx;
+				double Ly = pool->Ly;
+				double Lz = pool->Lz;
+				
+				APL[tx] += Lx*Ly/(nlipids/2);
+
 				printf("DOING REGION %d\n", r );
 				int N = 0;
 		
@@ -1429,6 +1257,10 @@ void surface::createAllAtom( Simulation *theSimulation, parameterBlock *block, p
 		
 				int f = tri_list[best_x]; 
 
+				if( region->is_aligned )
+					f = region->f_align_on;	
+
+
 				// pick a lipid on the upper leaflet to put in the center of the face.
 			
 				double alpha = alpha_outside;
@@ -1436,14 +1268,23 @@ void surface::createAllAtom( Simulation *theSimulation, parameterBlock *block, p
 					alpha = alpha_inside;
 				int l_cen = rand() % nlipids;
 	
-				while( leaflet[l_cen] != passes[tx].orientation ) //(x_leaflet ? 1 : -1 ) )
+				while( leaflet[l_cen] * (flipped ? -1 : 1) != passes[tx].orientation ) //(x_leaflet ? 1 : -1 ) )
 					l_cen = rand() % nlipids; 
 	
 			
 				// loop over all lipids. if they are in the face, place them into the coord structure.
 			
-				double upper_cen[3] = { lipid_xyz[3*l_cen+0], lipid_xyz[3*l_cen+1], lipid_xyz[3*l_cen+2] };
-			
+				double upper_cen[3] = { (flipped?-1:1)*lipid_xyz[3*l_cen+0], lipid_xyz[3*l_cen+1],  (flipped?-1:1)*lipid_xyz[3*l_cen+2] };
+				const double *set_x = NULL;
+
+				if( region->is_aligned )
+				{
+					upper_cen[0] = region->com[0];
+					upper_cen[1] = region->com[1];
+					upper_cen[2] = region->com[2];
+					set_x = region->align_x_on;
+				}
+
 				// x, y to u, v'
 			
 			
@@ -1466,7 +1307,6 @@ void surface::createAllAtom( Simulation *theSimulation, parameterBlock *block, p
 				for( int dx_pbc = -del_PBC_x; dx_pbc <= del_PBC_x; dx_pbc += 1 )
 				for( int dy_pbc = -del_PBC_x; dy_pbc <= del_PBC_x; dy_pbc += 1 )
 				{
-				
 					if( leaflet[l] != leaflet[l_cen] ) continue;
 	//				if( l != l_cen ) continue;
 					// if the segment is a protein or glycosphingolipid we'll try to help the user with patch commands.
@@ -1474,8 +1314,8 @@ void surface::createAllAtom( Simulation *theSimulation, parameterBlock *block, p
 		
 					// map the r coords to u/v
 			
-					double dx = lipid_xyz[3*l+0]-upper_cen[0];
-					double dy = lipid_xyz[3*l+1]-upper_cen[1];
+					double dx =  (flipped?-1:1)*lipid_xyz[3*l+0]-upper_cen[0];
+					double dy =  lipid_xyz[3*l+1]-upper_cen[1];
 		
 					double shift[2] = {dx_pbc * Lx, dy_pbc * Ly};
 					while( dx < -Lx/2 ) {dx += Lx; shift[0] += Lx; }
@@ -1486,12 +1326,17 @@ void surface::createAllAtom( Simulation *theSimulation, parameterBlock *block, p
 					dx += dx_pbc * Lx;
 					dy += dy_pbc * Ly;
 	
-					double use_r[3] = { alpha * dx, alpha * dy, lipid_xyz[3*l+2] };
+					double use_r[3] = { alpha * dx, alpha * dy,  (flipped?-1:1)*lipid_xyz[3*l+2] };
 					double eval_cen[3];
 		
 					double spot_u = 1.0/3.0;
 					double spot_v = 1.0/3.0;
-	
+
+					if( region->is_aligned )
+					{
+						spot_u = region->u_align_on;
+						spot_v = region->v_align_on;
+					}	
 	
 					int main_f_eval = f;
 					double main_u_cen = spot_u;
@@ -1501,9 +1346,9 @@ void surface::createAllAtom( Simulation *theSimulation, parameterBlock *block, p
 					// everything must be evaluated at this spot to retain the x,y to u/v mapping.
 					// get the x/y/z coordinate system transported to the distance spot (as determined by use_r)
 					double dx_uv[2], dy_uv[2];
-					double source_r[3] = { alpha * dx, alpha * dy, lipid_xyz[3*l+2] };
-					int fout = useSurface->getCoordinateSystem( f, &spot_u, &spot_v, source_r, -the_strain, leaflet[l],
-							dx_uv, dy_uv, rsurf, regional_face, &ncrosses ); 
+					double source_r[3] = { alpha * dx, alpha * dy,  (flipped?-1:1)*lipid_xyz[3*l+2] };
+					int fout = useSurface->getCoordinateSystem( f, &spot_u, &spot_v, source_r, -the_strain, (flipped ? -1 : 1 ) *leaflet[l],
+							dx_uv, dy_uv, rsurf, regional_face, &ncrosses, set_x ); 
 					double w_use = 1.0;
 					double w_rim = 0.0;
 					double rimp[3] = {0,0,0};
@@ -1515,22 +1360,6 @@ void surface::createAllAtom( Simulation *theSimulation, parameterBlock *block, p
 						debug_mode = 1;
 					}
 
-#if 0
-					if( block->create_pore > 0 )
-					{
-						double nrm[3];
-						double rpt[3];
-		
-						useSurface->evaluateRNRM( fout, spot_u, spot_v, rpt, nrm, rsurf );
-					
-						double dr[3] = { rpt[0], rpt[1], rpt[2] };
-						useSurface->wrapPBC( dr, rsurf+3*nv );
-
-						double r = normalize(dr);
-
-						if( r < block->create_pore ) continue;
-					}
-#endif
 				
 					double test_nrm[3];
 					double test_rpt[3];
@@ -1548,63 +1377,6 @@ void surface::createAllAtom( Simulation *theSimulation, parameterBlock *block, p
 						okay = 0;
 					}
 					if( !okay ) continue;
-#if 0 // OLD, new rim system
-					if( nrim > 0 )
-					{
-						double nrm[3];
-						double rpt[3];
-		
-						evaluateRNRM( fout, spot_u, spot_v, rpt, nrm, rsurf );
-		
-						// check the distance to each triangle, see if it's less than PP.
-					
-						double testp[3] = { 
-							rpt[0] + nrm[0] * (x_leaflet ? 1 : -1 ) * PP,
-							rpt[1] + nrm[1] * (x_leaflet ? 1 : -1 ) * PP,
-							rpt[2] + nrm[2] * (x_leaflet ? 1 : -1 ) * PP };
-
-						int neart = -1;
-						double neard = 1e10;
-						double rim_fudge = 0; //PP;
-
-						for( int rt = 0; rt < nrim; rt++ )
-						{
-							double nearp[3];
-							double output[3];
-							if( nearInteriorPointOnTriangle( testp, rimt+9*rt, rimt+9*rt+3, rimt+9*rt+6, output ) )
-							{
-								double check_dr[3] = { testp[0] - output[0], testp[1] - output[1], testp[2] - output[2] };
-								double lc = normalize(check_dr);
-
-								if( lc < neard && lc < PP + rim_fudge )
-								{
-									neard = lc;
-									neart = rt;
-				
-									w_use = pow(1.0 / PP,1.0);
-									w_rim = pow(1.0 / lc,1.0);
-
-									double wsum = w_use+w_rim;
-
-									w_use /= wsum;
-									w_rim /= wsum;
-
-									rimp[0] = (output[0] - rpt[0]) * w_rim;
-									rimp[1] = (output[1] - rpt[1]) * w_rim;
-									rimp[2] = (output[2] - rpt[2]) * w_rim;
-
-									rimn[0] = 0;
-									rimn[1] = 0;
-									rimn[2] = 1;
-
-									if( testp[2] < output[2] )
-										rimn[2] = -1; 
-								}
-							}	
-						}
-
-					}			
-#endif	
 		
 					if( regions_for_face[fout] == r && ncrosses < 5)
 					{
@@ -1633,7 +1405,7 @@ void surface::createAllAtom( Simulation *theSimulation, parameterBlock *block, p
 								use_r, source_r,
 								spot_u, spot_v,
 								fout, rsurf,
-								leaflet[l],
+								(flipped ? -1 : 1 ) * leaflet[l],
 								-the_strain,
 								dx_uv, dy_uv,
 								w_use, w_rim, rimp, rimn,
@@ -1641,8 +1413,9 @@ void surface::createAllAtom( Simulation *theSimulation, parameterBlock *block, p
 								&cur_atom, &cur_natoms,
 								&placed_atoms, &nplaced, nplaced_pcut, &nplacedSpace,
 								cur_segname, &cur_segment, &cur_size, &cur_space, &cur_res, theBoxes, nx, ny, nz,
+								buildData,
 local_cycles, local_cycle_len, local_ncycles,
-local_bonds, local_nbonds, local_bond_offsets, doubleBondIndexes ) )
+local_bonds, local_nbonds, local_bond_offsets, doubleBondIndexes, region->mod_region ) )
 							{
 								if( !strncasecmp( at[lipid_start[l]].segid, "GLPA", 4) )
 									gm1_switch = 1;
@@ -1663,128 +1436,29 @@ local_bonds, local_nbonds, local_bond_offsets, doubleBondIndexes ) )
 				}
 
 				memset( regional_face, 0, sizeof(int) * useSurface->nt );
+				
+				if( flipped )
+				{
+					for( int a = 0; a < local_nat; a++ )
+					{
+						at[a].x *= -1;
+						at[a].z *= -1;
+					} 
+				}
 			}
+
+			APL[tx]/=nregions;
 
 			free(tri_list);
 			free(regional_face);
-		
-#if 0 // OLD, new rim system	
-			if( nrim > 0 )
-			{
-				if( cur_size > 0 )
-				EndSegment( charmmFile, cur_filename, cur_segment, cur_segname, &pairs, &seg_cntr, &npairs, &npair_space, 2 /* force rim */,
-					&cur_size, &cur_natoms, &cur_atom,  &cur_res, &switched, gm1_switch );
-				int alt_leaflet = 2;
 
-				int *leaflet = master_leaflet[alt_leaflet];
-				double *lipid_xyz = master_lipid_xyz[alt_leaflet];
-				struct atom_rec *at = master_at[alt_leaflet];
-				int *lipid_stop = master_lipid_stop[alt_leaflet];
-				int *lipid_start = master_lipid_start[alt_leaflet];
-				int nlipids = master_nlipids[alt_leaflet];
-				double Lx = master_Lx[alt_leaflet];
-				double Ly = master_Ly[alt_leaflet];
-				double Lz = master_Lz[alt_leaflet];
-
-				alpha = alpha_inside;
-				// put bilayer into the rim region.
-				
-				int l_cen = rand() % nlipids;
-	
-				while( leaflet[l_cen] != (x_leaflet ? 1 : -1 ) )
-					l_cen = rand() % nlipids; 
-				
-				double upper_cen[3] = { lipid_xyz[3*l_cen+0], lipid_xyz[3*l_cen+1], lipid_xyz[3*l_cen+2] };
-				
-				for( int ix = -1; ix <= 1; ix++ )
-				for( int iy = -1; iy <= 1; iy++ )
-				{
-					for( int l = 0; l < nlipids; l++ )
-					{
-						if( leaflet[l] != leaflet[l_cen] ) continue;
-	
-					// map the r coords to u/v
-			
-						double dx = lipid_xyz[3*l+0]-upper_cen[0];
-						double dy = lipid_xyz[3*l+1]-upper_cen[1];
-		
-						double shift[2] = {0,0};
-						while( dx < -Lx/2 ) {dx += Lx; shift[0] += Lx; }
-						while( dx >  Lx/2 ) {dx -= Lx; shift[0] -= Lx; }
-						while( dy < -Ly/2 ) {dy += Ly; shift[1] += Ly; }
-						while( dy >  Ly/2 ) {dy -= Ly; shift[1] -= Ly; }
-				
-						double use_r[3] = { alpha * dx + ix * Lx, alpha * dy + iy * Ly, lipid_xyz[3*l+2] };
-						double rim_dr[3] = { use_r[0] ,
-								 use_r[1] ,
-								 use_r[2]};
-	
-						double ur = sqrt(rim_dr[0]*rim_dr[0]+rim_dr[1]*rim_dr[1]+rim_dr[2]*rim_dr[2]);
-
-						if( ur < rim_extent - PP )
-						{
-							// print it out
-						
-							double wrap_to[3] = { 0,0,0};
-						
-							if( pass == 0 ) continue;	
-						
-							if( cur_size > 0 && (!strncasecmp( at[lipid_start[l]].segid, "GLP", 3) || cur_res > 50 || switched) )
-							{	
-								
-								EndSegment( charmmFile, cur_filename, cur_segment, cur_segname, &pairs, &seg_cntr, &npairs, &npair_space, x_leaflet,
-									&cur_size, &cur_natoms,&cur_atom,  &cur_res, &switched, gm1_switch );
-									
-								sprintf(cur_filename, "segment_%s%d.crd", out_in[x_leaflet], seg_cntr );
-								sprintf(cur_segname, "%s%d", out_in[x_leaflet], seg_cntr ); 
-							
-								cur_size = 0;
-								cur_natoms = 0;
-								cur_segment[0] = '\0';
-								cur_atom = 1;
-								cur_res  = 1;
-								switched=0;
-							}
-							
-							TestAddRim( this, l, lipid_start, lipid_stop, at,
-								dx, dy, lipid_xyz,
-								shift, upper_cen, rim_center,
-								alpha,
-								use_r, 
-								rsurf,
-								leaflet[l],
-								x_leaflet, total_lipid_charge,
-								&cur_atom, &cur_natoms,
-								&placed_atoms, &nplaced, nplaced_pcut, &nplacedSpace,
-								cur_segname, &cur_segment, &cur_size, &cur_space, &cur_res, theBoxes, nx, ny, nz, local_cycles, local_cycle_len, local_ncycles, local_bonds, local_nbonds, local_bond_offsets);
-						
-							if( !strncasecmp( at[lipid_start[l]].segid, "GLPA", 4) )
-								gm1_switch = 1;
-							else if( !strncasecmp( at[lipid_start[l]].segid, "GLP3", 4) )
-								gm1_switch = 3;
-							else
-								gm1_switch = 0;
-							cur_res++;
-						
-							if( cur_size > 0 && !strncasecmp( at[lipid_start[l]].segid, "GLP", 3) )
-							EndSegment( charmmFile, cur_filename, cur_segment, cur_segname, &pairs, &seg_cntr, &npairs, &npair_space, x_leaflet,
-									&cur_size, &cur_natoms,&cur_atom,  &cur_res, &switched, gm1_switch );
-						}
-					}	
-				}
-				
-				if( cur_size > 0 )
-				EndSegment( charmmFile, cur_filename, cur_segment, cur_segname, &pairs, &seg_cntr, &npairs, &npair_space, x_leaflet,
-					&cur_size, &cur_natoms, &cur_atom,  &cur_res, &switched, gm1_switch );
-			}
-#endif
 			switched = 1;
 		}
 
 		printf("Nlipids placed outside: %d nlipids placed inside: %d\n", nlipids_placed_outside, nlipids_placed_inside);
 		
-		double likely_area_covered_outside = nlipids_placed_outside * master_Lx[1] * master_Ly[1] / (1e-10 + master_nlipids[1]/2);
-		double likely_area_covered_inside = nlipids_placed_inside  * master_Lx[0] * master_Ly[0] / ( 1e-10 + master_nlipids[0]/2);
+		double likely_area_covered_outside = nlipids_placed_outside *APL[1]; //used_A[1] / (1e-10 + used_nlipids[1]/2);
+		double likely_area_covered_inside = nlipids_placed_inside* APL[0]; //used_A[0] / ( 1e-10 + used_nlipids[0]/2);
 
 		area_fraction_outside = likely_area_covered_outside / area_target_outside;
 		area_fraction_inside = likely_area_covered_inside / area_target_inside;
@@ -1813,7 +1487,11 @@ local_bonds, local_nbonds, local_bond_offsets, doubleBondIndexes ) )
 			placed_atoms[3*nplaced+1] = protein[px].y;
 			placed_atoms[3*nplaced+2] = protein[px].z;
 
-			boxit( placed_atoms+3*nplaced, nplaced, theBoxes, PBC_vec, nx, ny, nz );
+			double to_add[3] = { protein[px].x, protein[px].y, protein[px].z };
+
+			int pl = buildData->addAtom( to_add );
+
+			boxit( placed_atoms+3*pl, pl, theBoxes, PBC_vec, nx, ny, nz );
 
 			nplaced++;
 		}
@@ -2025,7 +1703,7 @@ local_bonds, local_nbonds, local_bond_offsets, doubleBondIndexes ) )
 				
 					double r_xy = sqrt(dr_cen[0]*dr_cen[0]+dr_cen[1]*dr_cen[1]);
 
-					if( dr_cen[2] <  dz_rim && dr_cen[2] - dz_rim && r_xy < rim_extent+10 )
+					if( dr_cen[2] <  dz_rim && dr_cen[2] > -dz_rim && r_xy < rim_extent+10 )
 					 	continue; 
 				}
 
@@ -2348,6 +2026,59 @@ local_bonds, local_nbonds, local_bond_offsets, doubleBondIndexes ) )
 		fprintf(charmmFile, "\n");	
 		
 	}
+	
+	// MUST follow lipids, not precede it. The lipids are counting on measuring offsets from their own zero.
+
+	for( int p = 0; p < ncomplex; p++ )
+	{
+			
+		char use_segid[256];
+		
+		if( p < 10 )
+			sprintf(use_segid, "p00%d", p );
+		else if( p < 100 )
+			sprintf(use_segid, "p0%d", p );
+		else 
+			sprintf(use_segid, "p%d", p );
+
+		fprintf(charmmFile, "open unit 10 card read name \"%s.psf\"\n", use_segid );
+
+		if( !wrote_psf )
+		{
+			fprintf(charmmFile, "read psf card unit 10\n" );	
+			wrote_psf = 1;
+		}
+		else
+			fprintf(charmmFile, "read psf card append unit 10\n" );	
+
+		fprintf(charmmFile, "close unit 10\n" );	
+		fprintf(charmmFile, "open unit 10 card read name \"%s.crd\"\n", use_segid);	
+		fprintf(charmmFile, "read coor card unit 10 resid\n" );	
+		fprintf(charmmFile, "close unit 10\n" );
+		fprintf(charmmFile, "\n");	
+
+	}
+
+	if( added_pcomplex_ions )
+	{
+		fprintf(charmmFile, "open unit 10 card read name \"%s_extra_ions.psf\"\n", block->jobName );
+
+		if( !wrote_psf )
+		{
+			fprintf(charmmFile, "read psf card unit 10\n" );	
+			wrote_psf = 1;
+		}
+		else
+			fprintf(charmmFile, "read psf card append unit 10\n" );	
+
+		fprintf(charmmFile, "close unit 10\n" );	
+		fprintf(charmmFile, "open unit 10 card read name \"%s_extra_ions.crd\"\n",block->jobName);	
+		fprintf(charmmFile, "read coor card unit 10 resid\n" );	
+		fprintf(charmmFile, "close unit 10\n" );
+		fprintf(charmmFile, "\n");	
+
+
+	}
 
 	if( wrote_water_psf )
 	{
@@ -2426,7 +2157,7 @@ local_bonds, local_nbonds, local_bond_offsets, doubleBondIndexes ) )
 	}
 	fprintf(charmmFile, "%s", charmm_footer );
 
-	free(regions_for_face);
+	//free(regions_for_face);
 	free(rsurf);
 	
 	// free up boxing info	
@@ -2441,14 +2172,14 @@ local_bonds, local_nbonds, local_bond_offsets, doubleBondIndexes ) )
 // We need to have a coordinate system that is transported smoothly from one central location
 // We also want to have a robust representation of a lipid far from that location
 // These are somewhat incompatible on a complicated surface: the coordinate system becomes non-orthogonal and may have a very different metric.
-// This function gets x and y from the principal curvatures at one face
+// This function gets x and y from the principal curvatures at one face (by default)
 // it smoothly transports the x coordinate onto the new point
 // y is then determined by orthogonality with the normal
 // this determines the xyz coordinate system mapping at the distance point where the lipid can be reconstructed.
 int surface::getCoordinateSystem( int source_f,   double *source_u,  double *source_v, 
 //				  int distance_f, double distant_u, double distant_v, 
 				  double dr[3], double strain, int leaflet,
-				  double *dx_duv, double *dy_duv, double *rsurf, int *regional_face, int *ncrosses )
+				  double *dx_duv, double *dy_duv, double *rsurf, int *regional_face, int *ncrosses, const double *set_x )
 {
 	double drdu[3]={0,0,0}, drdv[3]={0,0,0};	
 	double u_cen = *source_u;
@@ -2517,6 +2248,69 @@ int surface::getCoordinateSystem( int source_f,   double *source_u,  double *sou
 	double dp_sign = crp[0] * transp_nrm[0] + crp[1] * transp_nrm[1] + crp[2] * transp_nrm[2];
 
 	double dx[2] = { cvec1[0], cvec1[1] }; 
+	double dy[2] = { cvec2[0], cvec2[1] }; 
+
+	if( set_x )
+	{
+		dx[0] = set_x[0];
+		dx[1] = set_x[1];
+	
+		double vec_x[3] = { drdu[0] * dx[0] + drdv[0] * dx[1],
+				    drdu[1] * dx[0] + drdv[1] * dx[1],
+				    drdu[2] * dx[0] + drdv[2] * dx[1] };
+		double lv = normalize(vec_x);
+
+		// dx is now unit system.
+		dx[0] /= lv;
+		dx[1] /= lv;
+	
+		double RuRu = drdu[0]*drdu[0]+drdu[1]*drdu[1]+drdu[2]*drdu[2];
+		double RuRv = drdu[0]*drdv[0]+drdu[1]*drdv[1]+drdu[2]*drdv[2];
+		double RvRv = drdv[0]*drdv[0]+drdv[1]*drdv[1]+drdv[2]*drdv[2];
+	
+		double xu = dx[0];
+		double xv = dx[1];
+		double yu = 1;
+		double yv = (-RuRu * xu * yu - RuRv * xv * yu) / (RuRv * xu + RvRv * xv);
+
+		dy[0] = yu;
+		dy[1] = yv;		
+		double vec_y[3] = { drdu[0] * dy[0] + drdv[0] * dy[1],
+				    drdu[1] * dy[0] + drdv[1] * dy[1],
+				    drdu[2] * dy[0] + drdv[2] * dy[1] };
+		lv = normalize(vec_y);
+	
+		dy[0] /= lv;
+		dy[1] /= lv;
+
+		// already normalized.
+		lv1 = 1;
+		lv2 = 1;
+		
+		double old_c1 = c1;
+		double old_c2 = c2;
+
+		double new_vec_c1[3] = {  dx[0] * drdu[0] + dx[1] * drdv[0],
+			   		  dx[0] * drdu[1] + dx[1] * drdv[1],
+			   		  dx[0] * drdu[2] + dx[1] * drdv[2] };
+		
+		double new_vec_c2[3] = {  dy[0] * drdu[0] + dy[1] * drdv[0],
+			   		  dy[0] * drdu[1] + dy[1] * drdv[1],
+			   		  dy[0] * drdu[2] + dy[1] * drdv[2] };
+
+		double l1n = normalize(new_vec_c1);
+		double l1o = normalize(vec_c1);
+		double l2n = normalize(new_vec_c2);
+		double l2o = normalize(vec_c2);
+
+		double dp11 = new_vec_c1[0] * vec_c1[0] + new_vec_c1[1] * vec_c1[1] + new_vec_c1[2] * vec_c1[2];
+		double dp12 = new_vec_c1[0] * vec_c2[0] + new_vec_c1[1] * vec_c2[1] + new_vec_c1[2] * vec_c2[2];
+		double dp21 = new_vec_c2[0] * vec_c1[0] + new_vec_c2[1] * vec_c1[1] + new_vec_c2[2] * vec_c1[2];
+		double dp22 = new_vec_c2[0] * vec_c2[0] + new_vec_c2[1] * vec_c2[1] + new_vec_c2[2] * vec_c2[2];
+
+		c1 = old_c1 * dp11*dp11 + old_c2 * dp12 * dp12;
+		c2 = old_c1 * dp21*dp21 + old_c2 * dp22 * dp22;
+	} 
 	
 	double dc1 = dr[0] / lv1;
 	double dc2 = dr[1] / lv2;
@@ -2547,8 +2341,8 @@ int surface::getCoordinateSystem( int source_f,   double *source_u,  double *sou
 		double scale = (1+c1*use_PP) * (1+c2*use_PP);
 		z_scaled = scale * use_PP - (use_PP -z) * (1+(use_PP-z)*c1)*(1+(use_PP-z)*c2);
 	
-		du = cvec1[0] * dc1 + cvec2[0] * dc2; 
-		dv = cvec1[1] * dc1 + cvec2[1] * dc2; 
+		du = dx[0] * dc1 + dy[0] * dc2; 
+		dv = dx[1] * dc1 + dy[1] * dc2; 
 	}
 	else
 	{
@@ -2568,8 +2362,8 @@ int surface::getCoordinateSystem( int source_f,   double *source_u,  double *sou
 		//z_scaled = -scale * use_PP - (-use_PP -z) * scale1 * scale2;
 		z_scaled = -scale * use_PP - (-use_PP -z) * (1-(-use_PP-z)*c1)*(1-(-use_PP-z)*c2);
 	
-		du = cvec1[0] * dc1 + cvec2[0] * dc2; 
-		dv = cvec1[1] * dc1 + cvec2[1] * dc2; 
+		du = dx[0] * dc1 + dy[0] * dc2; 
+		dv = dx[1] * dc1 + dy[1] * dc2; 
 	}
 
 
@@ -2619,8 +2413,11 @@ int surface::getCoordinateSystem( int source_f,   double *source_u,  double *sou
 	double xv = dx[1];
 	double yu = 1;
 	double yv = (-RuRu * xu * yu - RuRv * xv * yu) / (RuRv * xu + RvRv * xv);
+
+	// reset dy.
+	dy[0] = yu;
+	dy[1] = yv;
 	
-	double dy[2] = { yu, yv };
 	double vec_y[3] = { drdu[0] * dy[0] + drdv[0] * dy[1],
 			    drdu[1] * dy[0] + drdv[1] * dy[1],
 			    drdu[2] * dy[0] + drdv[2] * dy[1] };
@@ -2841,6 +2638,8 @@ int surface::simple_evaluate_at( double eval[3], double dr[3], int f, double *u,
 //		lat_scale = mod_exp( -total_c * (use_PP-dr[2]) ); // z  is zero leads to contraction of the outer leaflet, pos curv
 		
 		double z = dr[2];
+		// this is code for the upper leaflet. 
+		// If we have positive curvature, lipids should be squeezed in laterally at the midplane (lat_scale < 0)
 		lat_scale = mod_exp( -total_c * (use_PP-z) );
 		z_scaled = z * mod_exp( -total_c * (z/2-use_PP) );
 	}
@@ -2849,8 +2648,8 @@ int surface::simple_evaluate_at( double eval[3], double dr[3], int f, double *u,
 		// these are scalings needed for displacement at the bilayer midplane to get the proper distances at the neutral surface (PP)
 		//lat_scale =  (1+ total_c * (use_PP+dr[2]))/(1-total_c*use_PP);
 		double z = dr[2];
-		lat_scale = mod_exp( total_c * (use_PP-z) );
-		z_scaled = z * mod_exp( -total_c * (z/2+use_PP) );
+		lat_scale = mod_exp( total_c * (use_PP+z) );
+		z_scaled = z * mod_exp( total_c * (-z/2-use_PP) );
 	}
 
 	if( rimp && w_use < 1.0 )
@@ -3595,7 +3394,7 @@ double mod_exp( double val )
 
 	
 int TestAdd( surface *theSurface, int l, int *lipid_start, int *lipid_stop, struct atom_rec *at, 
-	double *shift, double *upper_cen, double *add_to,
+	double *cell_shift, double *upper_cen, double *add_to,
 	double alpha,
 	double main_u_cen,
 	double main_v_cen,
@@ -3626,6 +3425,7 @@ int TestAdd( surface *theSurface, int l, int *lipid_start, int *lipid_stop, stru
 	int *cur_res,
 
 	caa_box *theBoxes, int nx, int ny, int nz,
+	aa_build_data *buildData,
 	int **local_cycles,
 	int *local_cycle_len,
 	int local_ncycles,
@@ -3633,7 +3433,8 @@ int TestAdd( surface *theSurface, int l, int *lipid_start, int *lipid_stop, stru
 	int *local_bonds,
 	int *local_nbonds,
 	int *local_bond_offsets,
-	FILE *doubleBondIndexes
+	FILE *doubleBondIndexes,
+	int is_mod // was this modified by a complex to add a protein here?
 	)
 {	
 	int pres = at[lipid_start[l]].res;
@@ -3650,8 +3451,8 @@ int TestAdd( surface *theSurface, int l, int *lipid_start, int *lipid_stop, stru
 	int toff = 0;
 	for( int xa = lipid_start[l]; xa <= lipid_stop[l]; xa++, toff++ )
 	{
-		double dx = alpha*(at[xa].x-upper_cen[0]+shift[0]);
-		double dy = alpha*(at[xa].y-upper_cen[1]+shift[1]);
+		double dx = alpha*(at[xa].x-upper_cen[0]+cell_shift[0]);
+		double dy = alpha*(at[xa].y-upper_cen[1]+cell_shift[1]);
 	
 		double use_r[3] = { dx, dy, at[xa].z };
 		double eval[3];
@@ -3662,8 +3463,10 @@ int TestAdd( surface *theSurface, int l, int *lipid_start, int *lipid_stop, stru
 	
 		double m1_r[3] = { use_r[0] - source_r[0], use_r[1] - source_r[1], use_r[2] };
 		double local_u = spot_u, local_v = spot_v;
+
+
 		theSurface->simple_evaluate_at( eval, m1_r, fout, &local_u, &local_v, rsurf, leaflet, strain, dx_uv, dy_uv, w_use, w_rim, rimp, rimn );
-	
+		
 		double tc[3] = { eval[0], eval[1], eval[2] };
 
 		if( xa > lipid_start[l] )
@@ -3702,6 +3505,10 @@ int TestAdd( surface *theSurface, int l, int *lipid_start, int *lipid_stop, stru
 		memcpy( coords, o_coords,  sizeof(double) * ( lipid_stop[l] - lipid_start[l]+1) * 3 );
 
 		double jmag = 1.5;
+
+		if( clash_iter == 0 ) jmag = 0;
+
+
 		double jiggle[3] = { 
 			jmag * 2 * (rand()/(double)RAND_MAX-0.5),
 			jmag * 2 * (rand()/(double)RAND_MAX-0.5),
@@ -3727,7 +3534,7 @@ int TestAdd( surface *theSurface, int l, int *lipid_start, int *lipid_stop, stru
 		int nclash = 0;
 
 		double *pl_atoms = *placed_atoms;
-		double clash_cutoff = 1.0;
+		double clash_cutoff = 0.5;
 
 		for( int t = 0; t < lc; t++ )
 		{
@@ -3767,7 +3574,8 @@ int TestAdd( surface *theSurface, int l, int *lipid_start, int *lipid_stop, stru
 				{
 					int p = theBoxes[nb].plist[px];
 
-					if( p >= nplaced_pcut ) continue;
+					if( p < nplaced_pcut && is_mod ) continue;
+
 					double dr[3] = { 
 						pl_atoms[3*p+0] - coords[3*t+0], 
 						pl_atoms[3*p+1] - coords[3*t+1],
@@ -3787,6 +3595,13 @@ int TestAdd( surface *theSurface, int l, int *lipid_start, int *lipid_stop, stru
 				}
 			}
 		}
+	
+		int compare_clash = buildData->nclash_aa( coords, lc, is_mod ); 
+
+		if( compare_clash != nclash )
+		{
+			printf("compare_clash: %d nclash: %d\n", compare_clash, nclash );
+		}
 
 		if( nclash > 10 )
 			clash = 1;
@@ -3795,6 +3610,24 @@ int TestAdd( surface *theSurface, int l, int *lipid_start, int *lipid_stop, stru
 
 		// now check local rings against global bonds.	
 
+		int cycle_clash_compare = 0;
+
+		for( int c = 0; c < local_ncycles && !clash; c++ )
+		{
+			int relev = 1;
+	
+			for( int xc = 0; xc < local_cycle_len[c]; xc++ )
+			{
+				if( local_cycles[c][xc] < lipid_start[l] || local_cycles[c][xc] > lipid_stop[l] )
+					relev = 0; 
+			}
+	
+			if( relev )
+			{
+				if( buildData->cycleClash( coords, lipid_start[l], local_cycles[c], local_cycle_len[c] ) )
+					cycle_clash_compare = 1;
+			}
+		}
 
 		for( int c = 0; c < local_ncycles && !clash; c++ )
 		{
@@ -3943,11 +3776,43 @@ int TestAdd( surface *theSurface, int l, int *lipid_start, int *lipid_stop, stru
 			}	
 		}
 		
+		if( clash != cycle_clash_compare )
+		{
+			printf("cycle_clash: %d compare: %d\n", clash, cycle_clash_compare );
+		}
+
 		// SECOND: check global rings against local bonds.
 		// can ring box this if it makes sense.	
 
 		if( ! clash )
 		{
+			int the_cycle = 0;
+			int the_bond_xa = 0;
+			int the_sub_bond = 0;
+			int got_miss = 0;
+		for( int pass = 0; pass < 2 && ! (pass == 1 && !got_miss); pass++ )
+		{
+			
+			for( int xa = lipid_start[l]; xa <= lipid_stop[l] && !clash; xa++, toff++ )
+			{
+				int loff = xa - lipid_start[l];
+				for( int bx = 0; bx < local_nbonds[xa] && !clash; bx++ )
+				{
+					int loff2 = local_bonds[local_bond_offsets[xa]+bx] - lipid_start[l];
+			
+					double r1[3] = { 
+						coords[3*loff+0],
+						coords[3*loff+1],
+						coords[3*loff+2] };
+					double r2[3] = { 
+						coords[3*loff2+0],
+						coords[3*loff2+1],
+						coords[3*loff2+2]  };
+	
+					if( buildData->bondClash( r1, r2 ) )
+						cycle_clash_compare = 2;
+				}
+			}	
 			for( int c = 0; c < global_ncycles && !clash; c++ )
 			{
 				double ring_com[3] = {0,0,0};
@@ -4013,7 +3878,12 @@ int TestAdd( surface *theSurface, int l, int *lipid_start, int *lipid_stop, stru
 							}
 	
 							if( box_GJK( convex_set, global_cycle_len[c], r1, r2, 0.75 ) )
+							{
+								the_cycle = c;
+								the_bond_xa = xa;
+								the_sub_bond = bx;
 								clash = 2;
+							}
 	/*
 							for( int t = 0; t < global_cycle_len[c] && !clash; t++ )
 							{
@@ -4048,6 +3918,31 @@ int TestAdd( surface *theSurface, int l, int *lipid_start, int *lipid_stop, stru
 					}	
 				}
 			}
+			if( clash && clash != cycle_clash_compare )
+			{
+				clash = 0;
+				got_miss = 1;
+				printf("second cycle_clash: %d compare: %d\n", clash, cycle_clash_compare );
+			
+				int xa = the_bond_xa;
+				int loff = xa - lipid_start[l];
+				int bx = the_sub_bond;
+
+				int loff2 = local_bonds[local_bond_offsets[xa]+bx] - lipid_start[l];
+			
+				double r1[3] = { 
+					coords[3*loff+0],
+					coords[3*loff+1],
+					coords[3*loff+2] };
+				double r2[3] = { 
+					coords[3*loff2+0],
+					coords[3*loff2+1],
+					coords[3*loff2+2]  };
+	
+				if( buildData->bondClash( r1, r2 ) )
+					cycle_clash_compare = 2;
+			}
+		}
 		}
 
 		if( !clash ) 
@@ -4070,6 +3965,9 @@ int TestAdd( surface *theSurface, int l, int *lipid_start, int *lipid_stop, stru
 	// passes:
 
 	int placed_off = *nplaced;
+			
+	buildData->addBondsInRun( placed_off, lipid_start[l], lipid_stop[l]+1, local_bonds, local_bond_offsets, local_nbonds ); 
+	buildData->addCyclesInRun( placed_off, coords, lipid_start[l], lipid_stop[l]+1, local_cycles, local_cycle_len, local_ncycles );
 
 	toff = 0;	
 	for( int xa = lipid_start[l]; xa <= lipid_stop[l]; xa++, toff++ )
@@ -4119,6 +4017,9 @@ int TestAdd( surface *theSurface, int l, int *lipid_start, int *lipid_stop, stru
 		(*placed_atoms)[3*(*nplaced)+1] = at[xa].y;
 		(*placed_atoms)[3*(*nplaced)+2] = at[xa].z;
 		
+		double to_add[3] = { at[xa].x, at[xa].y, at[xa].z };
+		int placed_at = buildData->addAtom( to_add );
+		
 		boxit( *placed_atoms+3*(*nplaced), *nplaced, theBoxes, theSurface->PBC_vec, nx, ny, nz );
 
 		(*cur_natoms)++;
@@ -4136,7 +4037,9 @@ int TestAdd( surface *theSurface, int l, int *lipid_start, int *lipid_stop, stru
 		int bond_warning = 0;
 
 		if( local_bonds )
-		{		/// add all the bonds to the global list. what a pain in the tush.
+		{	
+
+			/// add all the bonds to the global list. what a pain in the tush.
 			if( global_bonds_tot + local_nbonds[xa] >= global_bond_space  )
 			{
 				if( global_bond_space == 0 )
@@ -4234,6 +4137,7 @@ int TestAdd( surface *theSurface, int l, int *lipid_start, int *lipid_stop, stru
 				global_cycles[global_ncycles][t] = local_cycles[c][t] + placed_off - lipid_start[l]; 
 
 			global_ncycles++;
+
 		}
 	}
 
@@ -4357,6 +4261,18 @@ int TestAdd( surface *theSurface, int l, int *lipid_start, int *lipid_stop, stru
 							r2B[0],r2B[1],r2B[2], t1, t2, dr );
 #endif						
 							global_ncycles++;
+	
+							int special_cycle[4] = { xl, p, b2, p2 };		
+
+							double c_cycle[12] =
+							{
+								(*placed_atoms)[3*xl+0], (*placed_atoms)[3*xl+1], (*placed_atoms)[3*xl+2],
+								(*placed_atoms)[3*p+0], (*placed_atoms)[3*p+1], (*placed_atoms)[3*p+2],
+								(*placed_atoms)[3*b2+0], (*placed_atoms)[3*b2+1], (*placed_atoms)[3*b2+2],
+								(*placed_atoms)[3*p2+0], (*placed_atoms)[3*p2+1], (*placed_atoms)[3*p2+2]
+							};
+
+							buildData->addSpecialCycle( special_cycle, 4, c_cycle );
 						}
 					}
 				}
@@ -4429,7 +4345,8 @@ int TestAdd( surface *theSurface, int l, int *lipid_start, int *lipid_stop, stru
 
 //					if( fabs(phi) < 60.0 )
 					{
-						fprintf(doubleBondIndexes, "DIHEDRAL %d %d %d %d 500 0.0\n", b3, xl, b2, b4 );	
+						// the indices are referenced to nplaced_pcut. nplaced_pcut 
+						fprintf(doubleBondIndexes, "DIHEDRAL %d %d %d %d 500 0.0\n", b3 - nplaced_pcut, xl - nplaced_pcut, b2 - nplaced_pcut, b4 - nplaced_pcut );	
 					}
 				}
 			}
@@ -4440,160 +4357,4 @@ int TestAdd( surface *theSurface, int l, int *lipid_start, int *lipid_stop, stru
 	return 1;
 }
 						
-int TestAddRim( surface *theSurface, int l, int *lipid_start, int *lipid_stop, struct atom_rec *at, 
-	double dx, double dy,
-	double *lipid_xyz,
-	double *shift, double *upper_cen, double *rim_center,
-	double alpha,
-	double *use_r,
-	double *rsurf,
-	int leaflet,
-	int x_leaflet,
-	double *total_lipid_charge,
-	int *cur_atom,
-	int *cur_natoms,
-	double **placed_atoms,
-	int *nplaced,
-	int nplaced_pcut,
-	int *nplacedSpace,
-	char *cur_segname,
-	char **cur_segment,
-	int *cur_size,
-	int *cur_space,
-	int *cur_res,
 	
-	caa_box *theBoxes, int nx, int ny, int nz,
-
-	int **local_cycles,
-	int *local_cycle_len,
-	int local_ncycles,
-
-	int *local_bonds,
-	int *local_nbonds,
-	int *local_bond_offsets
-	)
-{
-	int pres = at[lipid_start[l]].res;
-	double wrap_to[3] = {0,0,0};
-	for( int xa = lipid_start[l]; xa <= lipid_stop[l]; xa++ )
-	{
-		if( at[xa].res != pres )
-			(*cur_res)++; 
-		pres = at[xa].res;
-	
-		double xsave = at[xa].x;
-		double ysave = at[xa].y;
-		double zsave = at[xa].z;
-		int at_save = at[xa].bead;
-		int res_save = at[xa].res;
-	
-		double use_r[3] = { dx, dy, zsave };
-	
-		at[xa].x = dx + xsave - lipid_xyz[3*l+0];
-		at[xa].y = dy + ysave - lipid_xyz[3*l+1];
-	
-		at[xa].x += rim_center[0];
-		at[xa].y += rim_center[1];
-		at[xa].z += rim_center[2];
-
-		if( xa > lipid_start[l] )
-		{
-			double dr[3] = { at[xa].x - wrap_to[0], at[xa].y - wrap_to[1], at[xa].z - wrap_to[2] };
-			theSurface->wrapPBC( dr, rsurf+3*theSurface->nv );
-	
-			at[xa].x = wrap_to[0] + dr[0];
-			at[xa].y = wrap_to[1] + dr[1];
-			at[xa].z = wrap_to[2] + dr[2];
-		}
-		else
-		{
-			wrap_to[0] = at[xa].x;
-			wrap_to[1] = at[xa].y;
-			wrap_to[2] = at[xa].z;
-		}
-	
-		at[xa].bead = *cur_atom;
-		at[xa].res  = *cur_res;
-		at[xa].segRes = *cur_res;
-
-		char temp_segid[256];
-		sprintf(temp_segid, "MEMB");
-		char *tmp = at[xa].segid;
-		at[xa].segid = cur_segname;
-	
-		if( *cur_size + 1024 > *cur_space )
-		{	
-			*cur_space += 1024;
-			(*cur_segment) = (char *)realloc( (*cur_segment), sizeof(char) * (*cur_space)  );
-		}
-
-		printSingleCRD( *cur_segment+*cur_size, at+xa );
-
-		double rxy = sqrt(at[xa].x*at[xa].x+at[xa].y*at[xa].y);
-		
-		(*cur_size) += strlen(*cur_segment+*cur_size);
-
-		if( (*nplaced) == (*nplacedSpace) )
-		{
-			(*nplacedSpace) *= 2;
-			*placed_atoms = (double *)realloc( *placed_atoms, sizeof(double)*3* (*nplacedSpace) );
-		}
-
-		(*placed_atoms)[3*(*nplaced)+0] = at[xa].x;
-		(*placed_atoms)[3*(*nplaced)+1] = at[xa].y;
-		(*placed_atoms)[3*(*nplaced)+2] = at[xa].z;
-			
-		boxit( *placed_atoms+3*(*nplaced), *nplaced, theBoxes, theSurface->PBC_vec, nx, ny, nz );
-		
-
-		(*cur_natoms)++;
-		at[xa].segid = tmp;
-		at[xa].bead = at_save;
-		at[xa].res = res_save;
-	
-		at[xa].x = xsave;
-		at[xa].y = ysave;
-		at[xa].z = zsave;
-	
-		total_lipid_charge[x_leaflet] += at[xa].charge;
-		
-		(*cur_atom)++;
-		(*nplaced)++;
-	}
-
-	return 1;
-}
-	
-void boxit( double *r_in, int index, caa_box *theBoxes, double PBC_vec[3][3], int nx, int ny, int nz ) 
-{ 
-	double r[3] = { r_in[0], r_in[1], r_in[2] };
-	
-	while( r[0] <  0 ) r[0] += PBC_vec[0][0];
-	while( r[1] <  0 ) r[1] += PBC_vec[1][1];
-	while( r[2] <  0 ) r[2] += PBC_vec[2][2];
-	while( r[0] >  PBC_vec[0][0] ) r[0] -= PBC_vec[0][0];
-	while( r[1] >  PBC_vec[1][1] ) r[1] -= PBC_vec[1][1];
-	while( r[2] >  PBC_vec[2][2] ) r[2] -= PBC_vec[2][2];
-
-	int bx = r[0] * nx / PBC_vec[0][0];
-	int by = r[1] * ny / PBC_vec[1][1];
-	int bz = r[2] * nz / PBC_vec[2][2];
-
-	if( bx >= nx ) bx -= nx;
-	if( bx < 0 ) bx += nx;
-	if( by >= ny ) by -= ny;
-	if( by < 0 ) by += ny;
-	if( bz >= nz ) bz -= nz;
-	if( bz < 0 ) bz += nz;
-
-	int b = bx*ny*nz+by*nz+bz;
-
-	if( theBoxes[b].np == theBoxes[b].npSpace )
-	{
-		theBoxes[b].npSpace *= 2;
-		theBoxes[b].plist = (int * )realloc( theBoxes[b].plist, sizeof(int) * theBoxes[b].npSpace );
-	}
-
-	theBoxes[b].plist[theBoxes[b].np] = index;
-	theBoxes[b].np += 1;
-}

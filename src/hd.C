@@ -2331,7 +2331,18 @@ int main( int argc, char **argv )
 
 	if( block.create_all_atom )
 	{
-		printf("WARNING: creating all atom from the first surface.\n");
+		FILE *tpsf = NULL;
+		char fname[256];
+		sprintf(fname, "%s_create.psf", block.jobName );
+		tpsf = fopen(fname,"w");
+		sprintf(fname, "%s_create.xyz", block.jobName );
+		theSimulation->writeLimitingSurfacePSF(tpsf);
+		fclose(tpsf);
+		FILE *tFile = fopen(fname,"w");
+		theSimulation->writeLimitingSurface(tFile);
+		fclose(tFile);
+
+		printf("Creating all atom from just the first surface.\n");
 		theSimulation->allSurfaces->theSurface->createAllAtom(  theSimulation, &block, theSimulation->allComplexes, theSimulation->ncomplex );
 	}
 /*	FILE *saveFile = fopen("file.save", "w");

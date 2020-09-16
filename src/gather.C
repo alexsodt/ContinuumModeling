@@ -12,7 +12,7 @@
 #include "input.h"
 #include "mutil.h"
 
-double Simulation::nearCurvature( double *rpt, double *c_out, double *k_out, double *dp_out, double *dz_out, int *leaflet_out )
+double Simulation::nearCurvature( double *rpt, double *c_out, double *k_out, double *dp_out, double *dz_out, int *leaflet_out, double *out_nrm )
 {
 	double **M;
 	int mlow,mhigh;
@@ -66,6 +66,10 @@ double Simulation::nearCurvature( double *rpt, double *c_out, double *k_out, dou
 			}
 			else
 				min_leaflet = 1;	 
+
+			out_nrm[0] = nrm[0];
+			out_nrm[1] = nrm[1];
+			out_nrm[2] = nrm[2];
 		}
 	}	
 
@@ -141,6 +145,11 @@ void Simulation::gather( parameterBlock *block )
 
 	printf("Starting gather.\n");
 
+	char assignmentName[256];
+
+	sprintf(assignmentName, "%s_assignment.txt", block->jobName );
+	FILE*assignmentFile = fopen(assignmentName, "w");
+
 	int nframes = io_nframes();
 	for( int f = 0; f < nframes; f++ )
 	{
@@ -155,15 +164,74 @@ void Simulation::gather( parameterBlock *block )
 		for( int ax = 0; ax < ns; ax ++ )
 		{
 			int a = io_getNSAtom(ax);
+			int astart=-1;
+			int astop=-1;
+			io_getNSAtomStartStop(ax,&astart,&astop); 
 			double r[3] = { at[a].x, at[a].y, at[a].z };
 			double cout,kout,dp_out,dz_out;
 			int leaflet_out;
-			double c = nearCurvature( r,&cout,&kout,&dp_out,&dz_out,&leaflet_out );
-			
+			double nrm[3];
+			double c = nearCurvature( r,&cout,&kout,&dp_out,&dz_out,&leaflet_out,nrm );
+	
+
+			// get nrm from polarity.
+
+			int new_leaflet_out = -1;		
+			if( astart >= 0 && astop >= 0 )
+			{
+				double polarity = 0;
+	
+				double AVP = 0;
+				for( int tx = astart; tx <= astop; tx++ )
+				{
+					double PM = -1;
+					if( at[tx].atname[0] == 'C' || at[tx].atname[0] == 'H' )
+						PM = 1;
+					AVP += PM;
+				}
+				
+				AVP /= (astop-astart+1);
+				for( int tx = astart; tx <= astop; tx++ )
+				{
+					double PM = -1;
+	
+					if( at[tx].atname[0] == 'C' || at[tx].atname[0] == 'H' )
+						PM = 1;
+					polarity += (PM-AVP) * (at[tx].x * nrm[0] + at[tx].y * nrm[1] + at[tx].z * nrm[2]);
+				}
+
+				if( polarity < 0 ) 
+					new_leaflet_out = 1;
+				else
+					new_leaflet_out = 0;
+
+			}
+			else
+			{
+			}
+
+//			printf("leaflet_out: %d new_leaflet_out: %d\n", leaflet_out, new_leaflet_out );
+
+			if( new_leaflet_out >= 0 ) 
+			{
+				if( new_leaflet_out != leaflet_out )
+				{
+					leaflet_out = new_leaflet_out;
+					cout *= -1;
+				}
+			}
+
+			if( f == 0 && assignmentFile )
+				fprintf(assignmentFile, "%s %s %d %s\n", at[a].resname, at[a].segid, at[a].res, (leaflet_out == 0 ? "lower" : "upper" ) );
+
 			fprintf(gatherFile, "%s %s %d %le %le %lf %lf %s\n", at[a].segid, at[a].resname, at[a].res, cout, kout, dp_out, dz_out, (leaflet_out == 0 ? "lower" : "upper" ) );	
 			fflush(gatherFile);
 		}	
+
+		if( f== 0 )
+			fclose(assignmentFile);
 	}	
+
 		
 	printf("Finished with gather.\n" );
 	fflush(stdout);

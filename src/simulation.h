@@ -149,7 +149,7 @@ typedef struct Simulation
 	void write_density( FILE *theFile, int nx, int  ny, int nz, int format );
 	
 	// GATHER
-	double nearCurvature(double*rpt, double *cout, double *kout, double *dp_out, double *dz_out, int *leaflet_out);
+	double nearCurvature(double*rpt, double *cout, double *kout, double *dp_out, double *dz_out, int *leaflet_out, double *nrm);
 	void gather( parameterBlock *block );
 	void loadComplexes( parameterBlock *block );
 } Simulation;

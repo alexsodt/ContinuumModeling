@@ -415,3 +415,105 @@ void printCRYST( FILE *toFile, double LX, double LY, double LZ, double alpha, do
 
 }
 
+void writeSEQRES( FILE *theFile, char *seq )
+{
+	int len = strlen(seq);
+	
+	int t = 0;
+
+	int cur_line = 1;
+	int in_line = 0;
+	char to_print[256];
+	sprintf(to_print, "%d", cur_line );
+	fprintf(theFile, "SEQRES ");
+	for( int x = 0; x < 3-strlen(to_print); x++ )
+		fprintf(theFile, " ");
+	fprintf(theFile, "%s", to_print );
+	fprintf(theFile, " A ");
+	sprintf(to_print, "%d", len );
+	for( int x = 0; x < 4-strlen(to_print); x++ )
+		fprintf(theFile, " ");
+	fprintf(theFile, "%s ", to_print );
+	cur_line++;
+	int needs_cr = 1;
+
+	while( t < len )
+	{
+		switch( seq[t] )
+		{
+			case 'A':
+				fprintf(theFile, " ALA"); break;
+			case 'C':
+				fprintf(theFile, " CYS"); break;
+			case '1':
+				fprintf(theFile, " CYSP"); break;
+			case 'D':
+				fprintf(theFile, " ASP"); break;
+			case 'E':
+				fprintf(theFile, " GLU"); break;
+			case 'F':
+				fprintf(theFile, " PHE"); break;
+			case 'G':
+				fprintf(theFile, " GLY"); break;
+			case 'H':
+				fprintf(theFile, " HSD"); break;
+			case 'I':
+				fprintf(theFile, " ILE"); break;
+			case 'K':
+				fprintf(theFile, " LYS"); break;
+			case 'L':
+				fprintf(theFile, " LEU"); break;
+			case 'M':
+				fprintf(theFile, " MET"); break;
+			case 'N':
+				fprintf(theFile, " ASN"); break;
+			case 'P':
+				fprintf(theFile, " PRO"); break;
+			case 'Q':
+				fprintf(theFile, " GLN"); break;
+			case 'R':
+				fprintf(theFile, " ARG"); break;
+			case 'S':
+				fprintf(theFile, " SER"); break;
+			case 'T':
+				fprintf(theFile, " THR"); break;
+			case 'V':
+				fprintf(theFile, " VAL"); break;
+			case 'W':
+				fprintf(theFile, " TRP"); break;
+			case 'Y':
+				fprintf(theFile, " TYR"); break;
+			default:
+				printf("ERROR unknown code '%c'.\n", seq[t] );
+				exit(1);
+				break;
+		}
+
+		in_line++;
+		t++;
+
+		if( in_line == 13 )
+		{
+			in_line = 0;
+			fprintf(theFile, "\n");
+			needs_cr = 0;
+			if( t < len )
+			{
+				sprintf(to_print, "%d", cur_line );
+				fprintf(theFile, "SEQRES ");
+				for( int x = 0; x < 3-strlen(to_print); x++ )
+					fprintf(theFile, " ");
+				fprintf(theFile, "%s", to_print );
+				fprintf(theFile, " A ");
+				sprintf(to_print, "%d", len );
+				for( int x = 0; x < 4-strlen(to_print); x++ )
+					fprintf(theFile, " ");
+				fprintf(theFile, "%s ", to_print );
+				needs_cr = 1;
+			}	
+		}		
+	}	
+
+	if( needs_cr )
+		fprintf(theFile, "\n");
+}

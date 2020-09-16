@@ -14,6 +14,9 @@
 #include "rd.h"
 #include "M_matrix.h"
 #include "maxc.h"
+#include "pdbFetch.h"
+#include "face_mask.h"
+#include "aa_build_util.h"
 
 //#define DISABLE_POINT_GRADIENT_DEBUG
 
@@ -1532,6 +1535,8 @@ pcomplex *loadComplex( const char *name )
 		the_complex = new NBAR;
 	else if( !strcasecmp( name, "syt7" ) )
 		the_complex = new syt7;
+	else if( !strcasecmp( name, "ifitm3" ) )
+		the_complex = new ifitm3;
 	else if( !strcasecmp( name, "dimer" ) )
 		the_complex = new dimer;
 	else if( !strcasecmp( name, "MAB" ) )
@@ -2649,7 +2654,6 @@ void pcomplex::uncache(void)
 	memcpy(      rall, cache_rall, sizeof(double) * 3 * nsites );
 }
 
-void pcomplex::writeStructure( Simulation *theSimulation, atom_rec **at_out, int *nat_out)
+void pcomplex::writeStructure( Simulation *theSimulation, surface_mask *upperSurfaceMask, surface_mask *lowerSurfaceMask, struct atom_rec **at, int *nat, char **seq, ion_add **ions, int *nions, aa_build_data *buildData )
 {
 }
-
