@@ -1,0 +1,22 @@
+time_step 		1e-11
+mesh 			pore.mesh
+add ifitm3 nbound 15 inside 
+do_ld 			yes
+o_lim 			10
+nsteps 			0	
+movie			yes	
+diffc			1e10
+do_bd_membrane		no
+gamma_langevin 		1000
+nmin			1	
+seed			10	
+jobname			ifitm3_build
+create_all_atom		yes
+outerKCL		150
+innerKCL		150
+innerPatchPDB           inner_L0.pdb
+innerPatchPSF           inner_L0.psf	
+outerPatchPDB           outer_L0.pdb
+outerPatchPSF           outer_L0.psf
+solvatePSF		water.psf
+solvatePDB		water.pdb	

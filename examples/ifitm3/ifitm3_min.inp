@@ -1,0 +1,14 @@
+time_step 		1e-11
+mesh 			pore.mesh
+add ifitm3 nbound 15 inside
+do_ld 			yes
+o_lim 			10
+nsteps 			0	
+movie			yes	
+diffc			1e10
+do_bd_membrane		no
+gamma_langevin 		1000
+nmin			1
+seed			9	
+jobname			ifitm3_min
+load			ifitm3_tomin.save
