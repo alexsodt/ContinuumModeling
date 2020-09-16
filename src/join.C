@@ -24,8 +24,6 @@ extern double KV_scale;
 extern double KA ;
 void fdiff_check( double *coords );
 int print_energy = 0;
-int self_join = 0;
-
 extern double tilt_scale;
 surface *upperSurface;
 surface *lowerSurface;
@@ -273,7 +271,6 @@ int main( int argc, char **argv )
 	if( argc < 7 )
 	{
 		printf("Syntax: join mesh1 vert1 mesh2 vert2 radius cyl_len [auto]\n");
-		printf("    or: join mesh1 vert1 self dx,dy,dz radius cyl_len [auto]\n");
 		printf("Auto toggles the radius until it can find a working mesh.\n");
 		return -1;
 	}
@@ -284,46 +281,14 @@ int main( int argc, char **argv )
 
 	surface *theSurface1 =(surface *)malloc( sizeof(surface) );
 	theSurface1->loadLattice( argv[1], 0. );
-
-	double join_vector[3]={0,0,0};
-
-	if( !strcasecmp( argv[3], "self" ) )
-	{
-		self_join = 1;
-	
-		char *tread = argv[4];
-
-		for( int c = 0; c < 3; c++ )
-		{
-			while( *tread != '\0' && *tread && (*tread == ',' || *tread == ' ') ) tread += 1;
-
-			join_vector[c] = atof(tread);
-
-			while( *tread != '\0' && *tread && *tread != ',' ) tread += 1;
-		}
-
-		printf("Joining along %lf %lf %lf\n", join_vector[0], join_vector[1], join_vector[2] );
-	}
+	surface *theSurface2 =(surface *)malloc( sizeof(surface) );
+	theSurface2->loadLattice( argv[3], 0. );
 
 	theSurface1->generatePlan();
+	theSurface2->generatePlan();
 
-	surface *theSurface2 = NULL;
-
-	if( !self_join )
-	{
-		theSurface2 = (surface *)malloc( sizeof(surface) );
-		theSurface2->loadLattice( argv[3], 0. );
-		theSurface2->generatePlan();
-	}
-
-	double *r1=NULL,*r2=NULL;
-
-	r1 = (double *)malloc( sizeof(double) * (3 * theSurface1->nv+3) );
-	if( !self_join )
-		r2 = (double *)malloc( sizeof(double) * (3 * theSurface2->nv+3) );
-
-	theSurface2 = theSurface1;
-	r2 = r1;
+	double *r1 = (double *)malloc( sizeof(double) * (3 * theSurface1->nv+3) );
+	double *r2 = (double *)malloc( sizeof(double) * (3 * theSurface2->nv+3) );
 
 	int auto_done = 0;
 	
@@ -342,7 +307,6 @@ int main( int argc, char **argv )
 		r1[theSurface1->nv*3] = 1.0;
 		r1[theSurface1->nv*3+1] = 1.0;
 		r1[theSurface1->nv*3+2] = 1.0;
-	
 		theSurface2->get(r2);
 		theSurface2->setg0(r2);
 		r2[theSurface2->nv*3] = 1.0;
@@ -395,8 +359,7 @@ int main( int argc, char **argv )
 			exit(1);
 	
 		}
-		int vert2 = -1;
-		if( !self_join ) vert2 = atoi(argv[4]);
+		int vert2 = atoi(argv[4]);
 	
 	
 		int *path1;
@@ -407,119 +370,130 @@ int main( int argc, char **argv )
 		printf("Getting the path to chop out of the first mesh.\n");
 		getVertPath( theSurface1, vert1, join_radius, &path1, &pathLen1, r1); 
 	
-
+	#ifdef DEBUG_1
+		printf("%d\n", theSurface1->nv );
+		printf("okay\n");	
+		for( int v = 0; v < theSurface1->nv; v++ )
+		{
+			int is_border = 0;
+	
+			for( int t = 0; t < pathLen1; t++ )
+				if( path1[t] == v )
+					is_border =1;
+	
+			if( is_border )
+				printf("O %lf %lf %lf\n", r1[3*v+0], r1[3*v+1], r1[3*v+2] );
+			else
+				printf("C %lf %lf %lf\n", r1[3*v+0], r1[3*v+1], r1[3*v+2] );
+		}
+	#endif
+	
 		// now we need a path with the same length, approx, on the opposite mesh.
 	
 		int done = 0;
-
-		if( !self_join )
-		{	
-			double scale1 = 0.5;
-			double scale2 = 1.5;
-				
-			int *path2;
-			int pathLen2;
-		
+	
+		double scale1 = 0.5;
+		double scale2 = 1.5;
+			
+		int *path2;
+		int pathLen2;
+	
+		r2[3*theSurface2->nv+0] = scale1;
+		r2[3*theSurface2->nv+1] = scale1;
+		r2[3*theSurface2->nv+2] = scale1;
+	
+	//	printf("Target is %d.\n", pathLen1 );
+	
+		printf("Getting the path to chop out of the second mesh and trying to get exactly the same length.\n");
+		getVertPath( theSurface2, vert2, join_radius, &path2, &pathLen2, r2 );
+	//	printf("scale1 path is %d.\n", pathLen2 );
+	
+		while( pathLen2 < pathLen1 )
+		{
+			free(path2);
+			scale1 *= 0.95;
 			r2[3*theSurface2->nv+0] = scale1;
 			r2[3*theSurface2->nv+1] = scale1;
 			r2[3*theSurface2->nv+2] = scale1;
-		
-		//	printf("Target is %d.\n", pathLen1 );
-		
-			printf("Getting the path to chop out of the second mesh and trying to get exactly the same length.\n");
+	
 			getVertPath( theSurface2, vert2, join_radius, &path2, &pathLen2, r2 );
-		//	printf("scale1 path is %d.\n", pathLen2 );
-		
-			while( pathLen2 < pathLen1 )
-			{
-				free(path2);
-				scale1 *= 0.95;
-				r2[3*theSurface2->nv+0] = scale1;
-				r2[3*theSurface2->nv+1] = scale1;
-				r2[3*theSurface2->nv+2] = scale1;
-		
-				getVertPath( theSurface2, vert2, join_radius, &path2, &pathLen2, r2 );
-		//		printf("new scale1 path is %d.\n", pathLen2 );
-			}
-		
+	//		printf("new scale1 path is %d.\n", pathLen2 );
+		}
+	
+		free(path2);
+	
+		r2[3*theSurface2->nv+0] = scale2;
+		r2[3*theSurface2->nv+1] = scale2;
+		r2[3*theSurface2->nv+2] = scale2;
+		getVertPath( theSurface2, vert2, join_radius, &path2, &pathLen2, r2 );
+			printf("scale2 path is %d.\n", pathLen2 );
+	
+		while( pathLen2 > pathLen1 )
+		{
 			free(path2);
-		
+			scale2 *= 1.05;
 			r2[3*theSurface2->nv+0] = scale2;
 			r2[3*theSurface2->nv+1] = scale2;
 			r2[3*theSurface2->nv+2] = scale2;
+	
 			getVertPath( theSurface2, vert2, join_radius, &path2, &pathLen2, r2 );
-				printf("scale2 path is %d.\n", pathLen2 );
+			printf("new scale2 path is %d.\n", pathLen2 );
+		}
 		
-			while( pathLen2 > pathLen1 )
-			{
-				free(path2);
-				scale2 *= 1.05;
-				r2[3*theSurface2->nv+0] = scale2;
-				r2[3*theSurface2->nv+1] = scale2;
-				r2[3*theSurface2->nv+2] = scale2;
-		
-				getVertPath( theSurface2, vert2, join_radius, &path2, &pathLen2, r2 );
-				printf("new scale2 path is %d.\n", pathLen2 );
-			}
-			
-			free(path2);
-		
-			double trial = (scale1+scale2)/2;
-			int niter=0;
-			while( !done && niter < 100 )
-			{
-				r2[3*theSurface2->nv+0] = trial;
-				r2[3*theSurface2->nv+1] = trial;
-				r2[3*theSurface2->nv+2] = trial;
-		
-				getVertPath( theSurface2, vert2, join_radius, &path2, &pathLen2, r2 );
-		
-				if( pathLen2 == pathLen1 )
-					done = 1;
-				else
-				{
-					free(path2);
-						
-				//	printf("trial: %lf scale1: %lf scale2: %lf\n", trial, scale1, scale2  );
-					if( pathLen2 > pathLen1 )
-						scale1 = trial;
-					else
-						scale2 = trial;
-		
-					trial = (scale1+scale2)/2;
-				}	
-		
-				niter++;
-			}	
-		
-			double mesh_scale_2 = trial;
-		
-			for( int i = 0; i < theSurface2->nv; i++ )
-			{
-				r2[3*i+0] *= mesh_scale_2;
-				r2[3*i+1] *= mesh_scale_2;
-				r2[3*i+2] *= mesh_scale_2;
-			}
-			r2[3*theSurface2->nv+0]=1.0;
-			r2[3*theSurface2->nv+1]=1.0;
-			r2[3*theSurface2->nv+2]=1.0;
+		free(path2);
 	
+		double trial = (scale1+scale2)/2;
+		int niter=0;
+		while( !done && niter < 100 )
+		{
+			r2[3*theSurface2->nv+0] = trial;
+			r2[3*theSurface2->nv+1] = trial;
+			r2[3*theSurface2->nv+2] = trial;
 	
-			printf("Final mesh scale %le\n", mesh_scale_2 );
-		
-			if( pathLen1 == pathLen2 )
-				printf("Successfully found two paths of %d edges to chop out.\n", pathLen1 );
+			getVertPath( theSurface2, vert2, join_radius, &path2, &pathLen2, r2 );
+	
+			if( pathLen2 == pathLen1 )
+				done = 1;
 			else
 			{
-				printf("Couldn't find a good path for the second mesh.\n");
-				exit(1);
+				free(path2);
+					
+			//	printf("trial: %lf scale1: %lf scale2: %lf\n", trial, scale1, scale2  );
+				if( pathLen2 > pathLen1 )
+					scale1 = trial;
+				else
+					scale2 = trial;
+	
+				trial = (scale1+scale2)/2;
 			}	
+	
+			niter++;
+		}	
+	
+		double mesh_scale_2 = trial;
+	
+		for( int i = 0; i < theSurface2->nv; i++ )
+		{
+			r2[3*i+0] *= mesh_scale_2;
+			r2[3*i+1] *= mesh_scale_2;
+			r2[3*i+2] *= mesh_scale_2;
 		}
+		r2[3*theSurface2->nv+0]=1.0;
+		r2[3*theSurface2->nv+1]=1.0;
+		r2[3*theSurface2->nv+2]=1.0;
+
+
+		printf("Final mesh scale %le\n", mesh_scale_2 );
+	
+		if( pathLen1 == pathLen2 )
+			printf("Successfully found two paths of %d edges to chop out.\n", pathLen1 );
 		else
 		{
-			// find the path where we meet across the PBC.
+			printf("Couldn't find a good path for the second mesh.\n");
+			exit(1);
 		}	
 		// mark ``interior'' vertices for deletion.
+	
 	
 		int *vert_color1 = (int *)malloc( sizeof(int) * theSurface1->nv );
 		int *vert_color2 = (int *)malloc( sizeof(int) * theSurface2->nv );
