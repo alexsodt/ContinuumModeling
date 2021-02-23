@@ -1,0 +1,59 @@
+This will build an all-atom or CG vesicle with a user-defined midplane radius $R$.
+The first step is to create a continuum mesh.
+Start by creating a new directory called \texttt{continuum_build}, for example.
+You will need to have your HD directory properly sourced, or you will need to use the complete path to use the \texttt{*.opt} executables.
+Enter the created directory and step-by-step execute:
+%Start with ~/HD/examples/vesicle_explicit_particle/setup.csh
+%csh setup.csh
+\begin{enumerate}
+   \item \texttt{icosahedron.opt > icos.mesh}: creates an icosahedron (20-sided object; DnD-style) mesh.
+   In this file, there is a header (line 1), the periodic cell dimensions (lines 2-4), and the positions and connectivity of the vertices (lines 5--16).
+   In lines 5--16, column 1 is the vertex index, columns 2--4 are the $(x,y,z)$ vertex positions, column 5 is the number of neighbors each vertex has, and columns 6--10 are the vertex connectivity (i.e., each icosahedron vertex is connected to five other vertices).
+   \item \texttt{subdivide.opt icos.mesh}: subdivides and creates an object with 42 vertices written to \texttt{subdiv.\{mesh,psf,xyz\}}.
+   In this particular example, the resulting structure is created by 80 triangulations on the original icosahedron surface.
+   The 80 triangulations are listed at the end of the \texttt{subdiv.mesh} file.
+   \item \texttt{subdivide.opt subdiv.mesh}: further subdivides and creates an object with 162 vertices that overwrites the previous \texttt{subdiv.\{mesh,psf,xyz\}}.
+   Plausibly, this iteration could continue -- further subdividing subdiv.mesh, but it is unnecessary here.
+   \item \texttt{min.opt subdiv.mesh}: minimizes the object following the minimization protocol described in XX.
+   Following the example, the final line of the output should be \texttt{fdf e: 3.51944878515029e+02 VE: 0.00000000000000e+00 AE: 1.38475788653209e-04 CE: 3.51944740039240e+02 INTK: 1.25671278415180e+01 (-2.000 x -2 Pi)}.
+   This creates \texttt{min.\{mesh,psf,xyz\}}.
+   Load min.psf and min.xyz into VMD to see the minimization steps.
+   The first frame of the min.xyz is the same as subdiv.xyz.
+   In VMD, you can go to Extensions$\leftarrow$Visualization$\leftarrow$Ruler (change the Ruler style to ``grid'' for easier viewing) to see that this objects initial size is \mytilde 0.7 \AA~(be sure to use orthographic view to see its width).
+   Also, look at the top of the output from min.opt.
+   You will see that the area is 6.308154e+00 \AA\textsuperscript{2} and the volume is 1.437348 \AA\textsuperscript{3}.
+   These values are determined by a radius of \mytilde 0.7 \AA.
+   \item \texttt{scale.opt min.mesh 129}: Obviously, a vesicle with a radius of 0.7 \AA is not too useful.
+   To make the vesicle larger, use \texttt{scale.opt}.
+   Here, we aim to make a vesicle with a midplane radius \mytilde 45 \AA.
+   Therefore, the scale factor is 45./0.7 = 63.
+   You can check that you have obtained the desired radius by looking at line 5 of scale.mesh.
+   The vertex coordinates should be (0,0,$R$), where $R$ is the radius.
+   In this case, the radius is \mytile45 \AA.
+   \item \texttt{mv scale.mesh sphere.mesh}: this renames the mesh file.
+\end{enumerate}
+
+With a continuum mesh created, it is now possible to graft lipids from an equilibrated bilayer onto the mesh surface.
+Remember that the mesh defines the vesicular bilayer's midplane.
+Go up a directory and create a \texttt{cg_build} directory, for example.
+Enter the new directory and step-by-step execute:
+\begin{enumerate}
+   \item It is necessary to have the crystal information (CRYST) as the PDB header.
+   This is automatically generated when using \texttt{catdcd}, for example.
+   \item Make sure that you are using the newest CHARMM or Martini force field.
+   \item \texttt{hd.opt create.inp}
+   Nlipids placed outside: 712 nlipids placed inside: 326
+   \item \texttt{charmm < create_v90_charmm.inp > create_v90_charmm.out}: CHARMM software can manage any properly formatted force field, but be sure that all topology and parameter files are read.
+   \item At last, \texttt{system.psf,crd,pdb} are generated.
+   The \texttt{crd} file is a CHARMM-style coordinate file that simply holds more position decimal points than the \texttt{pdb} and is in a different internal format.
+   \item Load \texttt{system.psf} and \texttt{system.pdb} (or \texttt{system.crd}, selecting ``CHARMM coordinates'' from the file type menu) into VMD.
+   Using orthoscopic view and the Ruler grid, you will see a vesicle with a midplane radius of \mytile45 \AA.
+   The Martini water is there in a cube with edge length of \mytilde 190 \AA.
+   Make the selection \texttt{not lipid and z < 0} to see that there is Martini water inside the vesicle as well.
+   \item This vesicle can now be simulated the package of your choosing.
+\end{enumerate}
+
+Enjoy!
+
+% catdcd -o 2mol_ps.pdb -otype pdb -first 1001 -last 1001 -s /data/beavenah/curvy_ti/build/bilayer/ps/2mol_ps/ps2pc/step5_assembly.pdb -stype pdb -xtc /data/beavenah/curvy_ti/build/bilayer/ps/2mol_ps/ps2pc/gromacs/step7_2.xtc
+%catdcd -o popc.pdb -otype pdb -first 1001 -last 1001 -s /data/beavenah/curvy_ti/build/bilayer/pc_pe/pc2pe/100mol_pc/gromacs/make_psf/reduced.pdb -stype pdb -xtc /data/beavenah/curvy_ti/build/bilayer/pc_pe/pc2pe/100mol_pc/gromacs/step7_2.xtc  
