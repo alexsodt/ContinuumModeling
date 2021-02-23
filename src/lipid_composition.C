@@ -35,7 +35,7 @@ const fixed_lipid library_fixed[] =
 	{ "PAPC",	  0, 59.0,  "C22" },
 	{ "PLPC",	  0, 59.0,  "C22" },
 	{ "SSM",  	0,   59.0,  "C1F" },
-	{ "PSM",  	0,   59.0,  "C1F" }
+	{ "PSM",  	0,   59.0,  "C1F" },
 };
 
 void dumpLibrary( void )

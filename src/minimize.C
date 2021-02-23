@@ -8,8 +8,11 @@
 #include "parallel.h"
 #include "fitRho.h"
 #include "globals.h"
+#include "clathrin.h"
 
 extern int enable_elastic_interior;
+static int min_freeze_clathrin = 0;
+static int min_z_only = 0;
 static int min_ncomplex = 0;
 static int min_nparams = 0;
 static int min_nsurfaceparams = 0;
@@ -86,6 +89,12 @@ double surface_f( double *p )
 		for( surface_record *sRec = header; sRec; sRec = sRec->next )
 			v += sRec->theSurface->rhoEnergy( p+sRec->temp_min_offset, min_simulation->PBC_vec, thick_inner, thick_outer );
 	}	
+
+	if( global_block->clathrinStructure && ! min_freeze_clathrin )
+	{
+		rotate_pts( min_simulation, p+nparams );	
+		nparams += 3;
+	}
 
 	for( surface_record *sRec = header; sRec; sRec = sRec->next )
 		v += sRec->theSurface->cutEnergy( p+sRec->temp_min_offset );
@@ -215,6 +224,19 @@ double surface_fdf( double *p, double *g)
 		}
 
 		int offset = 3; 
+
+
+		if( global_block->clathrinStructure && ! min_freeze_clathrin )
+		{
+			// when the gradient is computed it sets the frc points for subsequent iteration. we need to update the base pdb as well at this point.
+			set_saved_transform( min_simulation, p+nparams );
+			// this I'm sure hurts the BFGS. resets the angles
+			p[nparams+0] = 0;
+			p[nparams+1] = 0;
+			p[nparams+2] = 0;
+			min_simulation->clathrinGrad( g+nparams );
+			nparams += 3;
+		}
 
 		for( surface_record *sRec = header; sRec; sRec = sRec->next )
 		{
@@ -380,8 +402,18 @@ double surface_fdf( double *p, double *g)
 		g[sRec->temp_min_offset+3*sRec->theSurface->nv+0] = 0;
 		g[sRec->temp_min_offset+3*sRec->theSurface->nv+1] = 0;
 		g[sRec->temp_min_offset+3*sRec->theSurface->nv+2] = 0;
+
+		if( min_z_only )
+		{
+			for( int x = 0; x < sRec->theSurface->nv; x++ )
+			{
+				g[sRec->temp_min_offset+3*x+0] = 0;
+				g[sRec->temp_min_offset+3*x+1] = 0;
+			}
+		}
 	}
 	
+
 	if( do_freeze_membrane )
 	{
 		for( int x = 0; x < min_nsurfaceparams; x++ )
@@ -464,7 +496,7 @@ double surface_fdf( double *p, double *g)
 
 void full_fd_test( double *p )
 {
-	double deps = 1e-4;
+	double deps = 1e-7;
 
 	double *g = (double *)malloc( sizeof(double) * min_nparams );
 	memset( g, 0, sizeof(double) * min_nparams );
@@ -472,7 +504,7 @@ void full_fd_test( double *p )
 	double e0 = surface_fdf( p, g );
 	printf("Finite difference test.\n");
 
-	for( int xp = 0; xp < min_nparams; xp++ )
+	for( int xp = min_nparams-3; xp < min_nparams; xp++ )
 	{
 		double de_pm[2];
 	
@@ -529,10 +561,10 @@ void fd_test( double *p )
 	free(g);
 }
 
-void Simulation::minimize( int freeze_membrane  )
+void Simulation::minimize( int freeze_membrane, int freeze_clathrin  )
 {
 	do_freeze_membrane = freeze_membrane;
-
+	min_freeze_clathrin = freeze_clathrin;
 	int prev_enable = enable_elastic_interior; 
 
 	enable_elastic_interior = 1;
@@ -541,6 +573,8 @@ void Simulation::minimize( int freeze_membrane  )
 	min_simulation = this;
 	min_ncomplex = ncomplex;	
 	min_complexes = allComplexes;
+	min_z_only = 0;	
+	if( global_block->z_only ) min_z_only = 1;
 
 #ifdef PARALLEL
 	ParallelSyncComplexes( min_complexes, min_ncomplex );
@@ -564,6 +598,11 @@ void Simulation::minimize( int freeze_membrane  )
 		num_params += 2; // inner and outer thickness.
 #endif
 	}
+
+	if( global_block->clathrinStructure && !min_freeze_clathrin)
+		num_params += 3;
+
+
 	min_nparams = num_params;
 	
 	double *p = (double *)malloc( sizeof(double) * num_params );
@@ -614,6 +653,12 @@ void Simulation::minimize( int freeze_membrane  )
 #endif
 	}
 	
+	if( global_block->clathrinStructure && !min_freeze_clathrin )
+	{
+		p[tp] = 0; tp++;
+		p[tp] = 0; tp++;
+		p[tp] = 0; tp++;
+	}
 	// derivative might be zero (absolutely)
 
 	surface_fdf(p,g);
@@ -622,13 +667,14 @@ void Simulation::minimize( int freeze_membrane  )
 		mag_init += g[p]*g[p];
 	
 
-	int nsteps = 100;
+	int nsteps = 5;
 	
 	int use_m = nsteps;
 	if( use_m > num_params )
 		use_m = num_params;
 	double e_init = surface_f(p);
-	//full_fd_test(p);
+	if( global_block->fdiff_check )
+		full_fd_test(p);
 	printf("Entering minimize with e_init: %le\n", e_init );
 	l_bfgs_setup( use_m, num_params, p, 1.0, surface_f, surface_fdf); 
 
@@ -708,6 +754,8 @@ void surface::minimize( double *r )
 	min_nsurfaceparams = num_params;
 	min_nparams = num_params;
 	
+	min_z_only = 0;	
+	if( global_block->z_only ) min_z_only = 1;
 	double *p = (double *)malloc( sizeof(double) * num_params );
 	double *g = (double *)malloc( sizeof(double) * num_params );
 	
@@ -773,7 +821,7 @@ void surface::minimize( double *r )
 	rms = sqrt(rms);
 
 	printf("Minimize OUT: VG: %.14le VV: %.14le VA: %lf VC: %lf VV: %lf grad rms %le\n", v, e, VA, VC, VV, rms );
-
+	fflush(stdout);
 	memcpy( r, one_srec.r, sizeof(double)* 3* nv );
 
 	r[3*nv+0] = p[0];

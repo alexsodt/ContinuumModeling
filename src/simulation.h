@@ -136,7 +136,7 @@ typedef struct Simulation
 	void area_MC_move( double beta, int move_type, parameterBlock *block );
 	void writeLimitingSurfacePSF(FILE *theFile );
 	void writeLimitingSurface( FILE *tpsf );
-	void minimize( int freeze_membrane  );
+	void minimize( int freeze_membrane, int freeze_clathrin  );
 	void saveRestart( FILE *theFile, int seed ); 
 	void saveRestart( char **buf, int seed);
 	void loadRestart( FILE *loadFile, int *seed );
@@ -152,6 +152,10 @@ typedef struct Simulation
 	double nearCurvature(double*rpt, double *cout, double *kout, double *dp_out, double *dz_out, int *leaflet_out, double *nrm);
 	void gather( parameterBlock *block );
 	void loadComplexes( parameterBlock *block );
+	void setupClathrinFitter( struct parameterBlock *block );
+	void OptClathrin( void );
+	void clathrinGrad( double *g );
+	void WriteClathrin(parameterBlock *block );
 } Simulation;
 
 

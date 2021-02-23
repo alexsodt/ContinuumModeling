@@ -2656,4 +2656,8 @@ void pcomplex::uncache(void)
 
 void pcomplex::writeStructure( Simulation *theSimulation, surface_mask *upperSurfaceMask, surface_mask *lowerSurfaceMask, struct atom_rec **at, int *nat, char **seq, ion_add **ions, int *nions, aa_build_data *buildData )
 {
+
+
 }
+
+

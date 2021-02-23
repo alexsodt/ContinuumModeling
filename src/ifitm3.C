@@ -283,6 +283,78 @@ void ifitm3::writeStructure( Simulation *theSimulation,
 		surface_mask *lowerSurfaceMask, 
 		struct atom_rec **at_out, int *nat_out, char **sequence, struct ion_add **ions, int *nions, aa_build_data *buildData )
 {
+	int nsegments = 2;
+	
+	surface *theSurface;
+	double *rsurf;
+	theSimulation->fetch(sid[0],&theSurface,&rsurf);
+
+	const char *domain_names[] = { "ifitm3_helix" };
+	const char *segment_names[] = { "PROA" };
+	int segment_surface_sites[] = { 0 };
+	int segment_residues[][3] = { {9, 17,-1} };
+	int a_start = *nat_out;
+	
+	for( int seg = 0; seg < 1; seg++ )
+	{
+		struct atom_rec *at;
+		int nat;
+
+		int pool_code = pdbFetch( &at, &nat, "ifitm3_helix", domain_names[seg], addToPool );
+
+		addCurvatureOrientedPeripheralProteinHelper( theSimulation, upperSurfaceMask, lowerSurfaceMask,
+			at_out, nat_out,
+			ions, nions,	
+			pool_code,
+			segment_names[seg],
+			segment_residues[seg],	
+			segment_surface_sites[seg],
+			1, // align on neg	
+				buildData, 0 );
+	}
+
+	struct atom_rec *at = *at_out;
+	int pres = at[a_start].res;
+	
+	int seq_space = 10;
+	int nseq = 0;
+
+	char *seq = (char *)malloc( sizeof(char) * seq_space );
+
+	seq[nseq] = threeToOne( at[a_start].resname );
+	nseq++;
+
+	for( int a = a_start; a < *nat_out; a++ )
+	{
+		if( at[a].res != pres )
+		{
+			int doff = at[a].res - pres;
+
+			if( nseq-1 + doff >= seq_space )
+			{
+				seq_space *= 2;
+				seq_space += doff;	
+			
+
+				seq = (char *)realloc( seq, sizeof(char) * (seq_space+1) );
+			}
+
+			for( int t = nseq; t < nseq-1+doff; t++ )
+				seq[t] = 'X';		
+
+			nseq = nseq-1+doff;
+
+			seq[nseq] = threeToOne( at[a].resname ); 
+			nseq++;
+		}
+
+		pres = at[a].res;
+	}	
+
+	seq[nseq] = '\0';
+	*sequence = seq;
+
+/*
 	struct atom_rec *IFI = NULL;
 	int nIFI=0;
 	
@@ -472,6 +544,8 @@ void ifitm3::writeStructure( Simulation *theSimulation,
 	int flat_map = 0;
 	for( int a = 0; a < nIFI; a++ )
 	{
+		output_map[a] = -1;
+
 		if( !strcasecmp(IFI[a].segid, segid_search ) )
 		{
 			if( !strncasecmp( IFI[a].atname, "CA",2 ) && fabs(IFI[a].charge-2) < 1e-4 )
@@ -511,8 +585,8 @@ void ifitm3::writeStructure( Simulation *theSimulation,
 		}
 	}
 
-	buildData->addMappedCycles( buildData->curPlace(), pcopy, output_map, flat_map, getPool(pool_code)->cycles, getPool(pool_code)->cycle_lengths, getPool(pool_code)->ncycles ); 
-	buildData->addMappedBonds( buildData->curPlace(), output_map, flat_map, getPool(pool_code)->bonds, getPool(pool_code)->bond_offsets, getPool(pool_code)->nbonds ); 
+	buildData->addMappedCycles( buildData->curPlace(), pcopy, output_map, nIFI, getPool(pool_code)->cycles, getPool(pool_code)->cycle_lengths, getPool(pool_code)->ncycles ); 
+	buildData->addMappedBonds( buildData->curPlace(), output_map, nIFI, getPool(pool_code)->bonds, getPool(pool_code)->bond_offsets, getPool(pool_code)->nbonds ); 
 
 	free(output_map);
 	free(flat_coords);
@@ -576,7 +650,7 @@ void ifitm3::writeStructure( Simulation *theSimulation,
 				f_attach, u_attach, v_attach, 20.0, 
 					src_xy,
 					src_orientation, flipped );				 
-	
+*/	
 /*
 	printf("SEQUENCE:");
 	for( int t = 0; t < nseq; t++ )

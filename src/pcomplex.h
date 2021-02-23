@@ -15,6 +15,10 @@ struct aa_build_data;
 #define DEBUG_NO_V	1
 #define DEBUG_NO_T	2
 
+#define ALIGN_TYPE_SURF_SURF	0
+#define ALIGN_TYPE_CURVATURE	1
+#define ALIGN_TYPE_SURF_AQ	2
+
 struct pcomplex
 {
 	int disabled; //check
@@ -148,6 +152,52 @@ struct pcomplex
 
 	void cache( void);
 	void uncache(void);
+	
+
+	// for building all-atom.
+	int addPeripheralProteinHelper(Simulation *theSimulation, surface_mask *upperMask, surface_mask *lowerMask,
+		struct atom_rec **at_out,
+		int *nat_out,
+		struct ion_add **ions,
+		int *nions,
+		int pool_code, // the pool code 
+		const char *segid, // the segid of the protein to extract
+		int orient_res[3], // the residues in the protein used to define the orientation.
+		int attach_sites[2], // the sites in the complex used to define the attachment.
+		int aqueous_sites[2], // the sites in the complex used to define the attachment.
+		aa_build_data *buildData, // data structure to put build information (PSF-derived info and atom placements for detecting clashes). 
+		double noise
+		);
+	
+	int addCurvatureOrientedPeripheralProteinHelper(Simulation *theSimulation, surface_mask *upperMask, surface_mask *lowerMask,
+		struct atom_rec **at_out,
+		int *nat_out,
+		struct ion_add **ions,
+		int *nions,
+		int pool_code, // the pool code 
+		const char *segid, // the segid of the protein to extract
+		int orient_res[3], // the residues in the protein used to define the orientation.
+		int attach_site, // the site in the complex used to define the attachment.
+		int align_on_neg, // align on negative curvature?
+		aa_build_data *buildData, // data structure to put build information (PSF-derived info and atom placements for detecting clashes). 
+		double noise
+		);
+
+	int addGeneralProteinHelper(Simulation *theSimulation, surface_mask *upperMask, surface_mask *lowerMask,
+		struct atom_rec **at_out,
+		int *nat_out,
+		struct ion_add **ions,
+		int *nions,
+		int pool_code, // the pool code 
+		const char *segid, // the segid of the protein to extract
+		int orient_res[3], // the residues in the protein used to define the orientation.
+		int attach_sites[2], // the sites in the complex used to define the attachment.
+		int aqueous_sites[2], // the sites in the complex used to define the attachment.
+		int align_on_neg, // align on neg curvature
+		int align_type,
+		aa_build_data *buildData, // data structure to put build information (PSF-derived info and atom placements for detecting clashes). 
+		double noise
+		);
 };
 
 struct actin : pcomplex

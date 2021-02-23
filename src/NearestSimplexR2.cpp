@@ -34,10 +34,12 @@ Check Min_Distance::NearestSimplex()
 	double l3 = dot(simplex[1],n3);
 	double l4 = dot(simplex[2],n4);
 
-	int con1 = (k1 >= 0 && l1 <= k1) || ( k1 <= 0 && l1 >= k1 );
-	int con2 = (k2 >= 0 && l2 <= k2) || ( k2 <= 0 && l2 >= k2 );
-	int con3 = (k3 >= 0 && l3 <= k3) || ( k3 <= 0 && l3 >= k3 );
-	int con4 = (k4 >= 0 && l4 <= k4) || ( k4 <= 0 && l4 >= k4 );
+	const double eps = 1e-15;
+
+	int con1 = (k1 >= -eps && l1 <= k1+eps) || ( k1 <= eps && l1 >= k1-eps );
+	int con2 = (k2 >= -eps && l2 <= k2+eps) || ( k2 <= eps && l2 >= k2-eps );
+	int con3 = (k3 >= -eps && l3 <= k3+eps) || ( k3 <= eps && l3 >= k3-eps );
+	int con4 = (k4 >= -eps && l4 <= k4+eps) || ( k4 <= eps && l4 >= k4-eps );
 
 	if( con1 && con2 && con3 && con4 ) {
 //	if ((k1 >= 0 && l1 >= 0) || (k2 >= 0 && l2 >= 0) || (k3 >= 0 && l3 >= 0) || (k4 >= 0 && l4 >= 0)) {

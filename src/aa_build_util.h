@@ -42,6 +42,8 @@ struct aa_build_data
 
 	int curPlace(void);
 	int addAtom( double *r );
+	int checkMappedBonds( double *coords, int *map, int nmapped, int *bonds, int *bond_offsets, int *nbonds );
+	int checkMappedCycles( double *coords, int *map, int nmapped, int **cycles, int *cycle_lens, int ncycles );
 	void addMappedBonds( int offset, int *map, int nmapped, int *bonds, int *bond_offsets, int *nbonds );
 	void addBondsInRun( int offset, int a_start, int a_stop, int *bonds, int *bond_offsets, int *nbonds );
 	void addMappedCycles( int offset, double *coords, int *map, int nmap, int **cycles, int *cycle_lens, int ncycles );
@@ -50,9 +52,11 @@ struct aa_build_data
 	void setupBoxing( double PBC_in[3][3], int nx_in, int ny_in, int nz_in);
 	int cycleClash( double *coords, int a_start, int *cycle, int len );
 	int bondClash( double *r1, double *r2 );
-	int nclash_aa( double *coords, int lc, int is_mod );
-
+	int nclash_aa( double *coords, int lc, int is_mod, double cutoff=0.5 );
+	
+	int getPcut( void ) { return nplaced_pcut; }
 	void markPcut(void) { nplaced_pcut = nplaced; }
+	void addCrossedBonds( int a_start, int a_stop ); // someone please notice I restrained myself from calling this fn hot crossed bonds
 };
 
 

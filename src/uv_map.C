@@ -1734,7 +1734,7 @@ void surface::rv( int f, double u, double v, double *r, double *dr_v )
 
 int surface::nextFace( int f, double *u_in, double *v_in, double *du_in, double *dv_in, double *r, double *mom, double *coord_transform )
 {
-	if( *du_in == 0 && *dv_in == 0 )
+	if( fabs(*du_in) < 1e-14 && fabs(*dv_in) < 1e-14 )
 		return f;
 
 	int t_cur;

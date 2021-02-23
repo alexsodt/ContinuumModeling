@@ -36,6 +36,11 @@ class parameterBlock
 	double rho;
 	int shiftRho;
 
+	// special options related to clathrin-cage fitting
+	char *clathrinStructure;
+	double clathrin_force_k;
+
+
 	// gather
 	int do_gather;
 	char *dcdName;
@@ -56,6 +61,7 @@ class parameterBlock
 	int nsteps;
 	int nequil; // number of 
 	int nmin; // number of steps of minimization
+	int fdiff_check;
 
 	int minimizeResetG; // area-based viscous regularization
 
@@ -69,6 +75,10 @@ class parameterBlock
 	int lipid_mc_swap_only; // only swap lipids between the mesh (don't allow total movement of particles)
 	int npt_mc_period; // period which to do monte-carlo lipid movement
 	int cyl_tension_mc_period;
+
+	double util_value; // I am using this as a convenience for analyzing inclusion/inclusion distances.
+	double util_value2; // I am using this as a convenience for analyzing inclusion spontaneous curvature
+	
 
 	double fix_x_cut;
 	double fix_y_cut;
@@ -268,6 +278,9 @@ class parameterBlock
 	double create_pore;
 	int do_rim;
 	int perfect_solvent_tiling;
+	int analyze_pore;
+	double pore_outer_cut;
+	double pore_dz_from_center;
 
 	double shift[3];
 

@@ -4,7 +4,6 @@
 #include "aa_build_util.h"
 #include "GJK.h"
 
-double clash_cutoff = 0.5;
 
 void aa_build_data::init( void )
 {
@@ -57,6 +56,57 @@ int aa_build_data::addAtom( double *r )
 }
 
 // no requirement here for continuity, instead there is a map.
+
+int aa_build_data::checkMappedBonds( double *coords, int *map, int nmapped, int *bonds, int *bond_offsets, int *nbonds )
+{
+	int clash = 0;
+	for( int m = 0; m < nmapped; m++ )
+	{
+		if( map[m] < 0 ) continue;
+
+		for( int ax = 0; ax < nbonds[m]; ax++ )
+		{
+			int m2 = bonds[bond_offsets[m]+ax];
+	
+			if( map[m2] < 0 ) continue;
+		
+			double *r1 = coords + 3 * map[m];
+			double *r2 = coords + 3 * map[m2];
+
+			if( bondClash( r1, r2 ) )
+				clash = 1;					
+		}
+	}	
+	return clash;
+}
+
+int aa_build_data::checkMappedCycles( double *coords, int *map, int nmapped, int **cycles, int *cycle_lens, int ncycles )
+{
+	int clash = 0;
+	for( int c = 0; c < ncycles && !clash; c++ )
+	{
+		int relev = 1;
+
+		for( int x = 0; x < cycle_lens[c]; x++ )
+		{
+			if( map[cycles[c][x]] < 0 )
+				relev = 0;
+		}
+
+		if( relev )
+		{
+			int the_cycle[cycle_lens[c]];
+			double cycler[3*cycle_lens[c]];
+
+			for( int i = 0; i < cycle_lens[c]; i++ )
+				the_cycle[i] = map[cycles[c][i]];
+
+			if( cycleClash( coords, 0, the_cycle, cycle_lens[c] ) )
+				clash = 1;
+		}
+	}
+	return clash;
+} 
 
 void aa_build_data::addMappedBonds( int offset, int *map, int nmapped, int *bonds, int *bond_offsets, int *nbonds )
 {
@@ -237,10 +287,6 @@ void aa_build_data::addCyclesInRun( int offset, double *coords, int a_start, int
 			box_com[1] /= cycle_lens[c];
 			box_com[2] /= cycle_lens[c];
 
-			if( global_ncycles == 365 )
-			{
-				printf("Boxing 365.\n");
-			}
 
 			boxit( box_com, global_ncycles, cycleBoxes, PBC_vec, nx_c, ny_c, nz_c );
 			
@@ -446,6 +492,22 @@ int aa_build_data::bondClash( double *r1, double *r2 )
 					convex_set[3*t+0] = (placed_atoms)[loff1*3+0];
 					convex_set[3*t+1] = (placed_atoms)[loff1*3+1];
 					convex_set[3*t+2] = (placed_atoms)[loff1*3+2];
+					if( t > 0 )
+					{
+						double dr[3] = { convex_set[3*t+0] - convex_set[3*(t-1)+0],
+									convex_set[3*t+1] - convex_set[3*(t-1)+1],
+									convex_set[3*t+2] - convex_set[3*(t-1)+2] };
+						while( dr[0]  < -PBC_vec[0][0]/2 ) dr[0] += PBC_vec[0][0]; 
+						while( dr[1]  < -PBC_vec[1][1]/2 ) dr[1] += PBC_vec[1][1]; 
+						while( dr[2]  < -PBC_vec[2][2]/2 ) dr[2] += PBC_vec[2][2]; 
+						while( dr[0]  >  PBC_vec[0][0]/2 ) dr[0] -= PBC_vec[0][0]; 
+						while( dr[1]  >  PBC_vec[1][1]/2 ) dr[1] -= PBC_vec[1][1]; 
+						while( dr[2]  >  PBC_vec[2][2]/2 ) dr[2] -= PBC_vec[2][2];
+
+						convex_set[3*t+0] = convex_set[3*(t-1)+0] + dr[0];
+						convex_set[3*t+1] = convex_set[3*(t-1)+1] + dr[1];
+						convex_set[3*t+2] = convex_set[3*(t-1)+2] + dr[2];
+					}
 				}
 	
 				if( box_GJK( convex_set, global_cycle_len[c], r1_s, r2_s, 0.75 ) )
@@ -567,7 +629,7 @@ int aa_build_data::cycleClash( double *coords, int a_start, int *cycle, int len 
 	return clash;
 }
 
-int aa_build_data::nclash_aa( double *coords, int lc, int is_mod )
+int aa_build_data::nclash_aa( double *coords, int lc, int is_mod, double cutoff )
 {
 	int nclash = 0;
 	for( int t = 0; t < lc; t++ )
@@ -633,7 +695,7 @@ int aa_build_data::nclash_aa( double *coords, int lc, int is_mod )
 
 				double dist = normalize(dr);
 
-				if( dist < clash_cutoff )
+				if( dist < cutoff )
 					nclash++; 
 			}
 		}
@@ -711,4 +773,111 @@ void boxit( double *r_in, int index, caa_box *theBoxes, double PBC_vec[3][3], in
 	theBoxes[b].np += 1;
 }
 
+void aa_build_data::addCrossedBonds( int a_start, int a_stop ) // notice I did not call this fn hot crossed bonds
+{
+	// add crossed bonds as cycles.
+	// if three bonds cross, and it happens, it can be unbreakable.
+	// loop over the atoms we added
+	for( int xl = a_start; xl < a_stop; xl++ )
+	{	
+		int bx = (placed_atoms)[3*xl+0] * nx / PBC_vec[0][0];
+		int by = (placed_atoms)[3*xl+1] * ny / PBC_vec[1][1];
+		int bz = (placed_atoms)[3*xl+2] * nz / PBC_vec[2][2];
+				
+		double r1A[3] = { (placed_atoms)[3*xl+0], (placed_atoms)[3*xl+1],(placed_atoms)[3*xl+2]};
+				
+		// loop over nearby boxes
+		for( int dx = -1; dx <= 1 ; dx++ )
+		for( int dy = -1; dy <= 1 ; dy++ )
+		for( int dz = -1; dz <= 1 ; dz++ )
+		{
+			int n_b_x = bx + dx;
+			int n_b_y = by + dy;
+			int n_b_z = bz + dz;
+		
+			if( n_b_x >= nx ) n_b_x -= nx;
+			if( n_b_x < 0 ) n_b_x += nx;
+			if( n_b_y >= ny ) n_b_y -= ny;
+			if( n_b_y < 0 ) n_b_y += ny;
+			if( n_b_z >= nz ) n_b_z -= nz;
+			if( n_b_z < 0 ) n_b_z += nz;
+		
+			int nb = n_b_x*ny*nz+n_b_y*nz+n_b_z;
+			// loop over the atoms in the box.	
+			for( int px = 0; px < theBoxes[nb].np; px++ )
+			{
+				int p = theBoxes[nb].plist[px];
 
+				// ignore atoms of our own molecule: intramolecular bonds should all be fine on input.
+				if( p >= a_start && p < a_stop ) continue;
+	
+				double dr[3] = { 
+					(placed_atoms)[3*p+0] - r1A[0], 
+					(placed_atoms)[3*p+1] - r1A[1],
+					(placed_atoms)[3*p+2] - r1A[2] };
+		
+				double shift[3] = {0,0,0};
+				while( dr[0] + shift[0] < -PBC_vec[0][0]/2 ) shift[0] += PBC_vec[0][0]; 
+				while( dr[1] + shift[1] < -PBC_vec[1][1]/2 ) shift[1] += PBC_vec[1][1]; 
+				while( dr[2] + shift[2] < -PBC_vec[2][2]/2 ) shift[2] += PBC_vec[2][2]; 
+				while( dr[0] + shift[0] >  PBC_vec[0][0]/2 ) shift[0] -= PBC_vec[0][0]; 
+				while( dr[1] + shift[1] >  PBC_vec[1][1]/2 ) shift[1] -= PBC_vec[1][1]; 
+				while( dr[2] + shift[2] >  PBC_vec[2][2]/2 ) shift[2] -= PBC_vec[2][2];
+	
+				dr[0] += shift[0];
+				dr[1] += shift[1];
+				dr[2] += shift[2];
+				double dist = normalize(dr);
+		
+			
+				// if atom is close enough it's worth checking closely.
+				if( dist < 7.0 )
+				{
+					double r2A[3] = { (placed_atoms)[p*3+0], (placed_atoms)[p*3+1], (placed_atoms)[p*3+2] };
+
+					r2A[0] += shift[0];
+					r2A[1] += shift[1];
+					r2A[2] += shift[2];
+
+					for( int bx = 0; bx < global_nbonds[xl]; bx++ )
+					for( int px = 0; px < global_nbonds[p]; px++ )
+					{
+						int b2 = global_bonds[global_bond_offsets[xl]+bx];
+						int p2 = global_bonds[global_bond_offsets[p]+px];
+
+						if( b2 < xl || p2 < p )
+							continue;
+	
+						// no shift for r1B since it's in r1A's molecule.
+						double r1B[3] = { (placed_atoms)[3*b2+0], (placed_atoms)[3*b2+1],(placed_atoms)[3*b2+2]};
+						double r2B[3] = { (placed_atoms)[3*p2+0], (placed_atoms)[3*p2+1],(placed_atoms)[3*p2+2]};
+	
+						// PBC shift determined from first atom of other molecule.
+						r2B[0] += shift[0];
+						r2B[1] += shift[1];
+						r2B[2] += shift[2];
+			
+						double t1, t2;
+						double dr = segmentSegmentDist( r1A, r1B, r2A, r2B, &t1, &t2 );
+		
+						if( dr < 1.0 && t1 > -0.2 && t1 < 1.2 && t2 > -0.2 && t2 < 1.2 )
+						{
+							// add a cycle		
+							int special_cycle[4] = { xl, p, b2, p2 };		
+
+							double c_cycle[12] =
+							{
+								(placed_atoms)[3*xl+0], (placed_atoms)[3*xl+1], (placed_atoms)[3*xl+2],
+								(placed_atoms)[3*p+0],  (placed_atoms)[3*p+1],  (placed_atoms)[3*p+2],
+								(placed_atoms)[3*b2+0], (placed_atoms)[3*b2+1], (placed_atoms)[3*b2+2],
+								(placed_atoms)[3*p2+0], (placed_atoms)[3*p2+1], (placed_atoms)[3*p2+2]
+							};
+
+							addSpecialCycle( special_cycle, 4, c_cycle );
+						}
+					}
+				}
+			}
+		}
+	}
+}

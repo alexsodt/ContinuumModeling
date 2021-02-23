@@ -26,7 +26,7 @@ double saveTransform( double *);
 int getNPSFDihedrals( void );
 void putPSFDihedrals( int *dihe_buffer );
 void loadCRD( FILE *theFile, struct atom_rec *at);
-void loadPDB( FILE *theFile, struct atom_rec *at);
+int loadPDB( FILE *theFile, struct atom_rec *at);
 void printCRD( FILE *theFile, struct atom_rec *at, int nat);
 void printSingleCRD( FILE *theFile, struct atom_rec *at );
 void printSingleCRD( char *theString, struct atom_rec *at );

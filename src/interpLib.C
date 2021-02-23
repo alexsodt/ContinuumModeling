@@ -9406,9 +9406,12 @@ void surface::generateBorderMappings( void )
 			printf("Logical error. ids[0] should always be lowest.\n");
 			exit(1);
 		}
-	
+
+		// three triangles (going into border_tri) border this triangle.	
 		int border_tri[3];
-	
+
+		// get the indices of all our edges, including the reverse edge referenced from the opposite vertex.	
+		// the edges are sorted according to a clockwise/counterclockwise rule.
 		int edge_j_i = theVertices[i].edge_rev[edge_i_j];
 		int edge_j_l = edge_j_i-2;
 
@@ -9429,6 +9432,8 @@ void surface::generateBorderMappings( void )
 		int n = theVertices[i].edges[edge_i_n];
 		
 		theTriangles[t].edge_type = 0; // i is the lowest of all indices, j is the lowest of j, k, l
+
+		// the border tris are sorted clockwise, but to get the right face_ids we have to figure some stuff out with regards to ordering.
 
 
 		if( m < i )

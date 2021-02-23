@@ -162,6 +162,9 @@ void Simulation::loadRestart( FILE *loadFile, int *seed )
 			sprintf( buffer, "GQ %.14le\n", sRec->pp[Q] );
 		}
 	}	
+
+	for( surface_record *sRec = allSurfaces; sRec; sRec = sRec->next )
+		sRec->theSurface->put(sRec->r);
 	nr = sscanf( buffer, "seed %d",seed );
 	
 	free(buffer);

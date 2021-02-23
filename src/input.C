@@ -33,11 +33,15 @@ void setDefaults( parameterBlock *block )
 	
 	block->track_lipid_rho = NULL; 
 
+	block->clathrinStructure = NULL;
+	block->clathrin_force_k = 1.0;
 	block->fitRho = NULL;
 	block->fitCoupling = 1.0;
 	block->fitThickness = 15.0;
 
 	block->rxnDiffusionInfoName = NULL;
+
+	block->fdiff_check = 0;
 
 	block->shiftRho = 0;
 	block->qvals = NULL;
@@ -48,6 +52,12 @@ void setDefaults( parameterBlock *block )
 	block->meshName2 = NULL;
 	block->discrete_lipids = -1;
 
+	block->util_value = 30;
+	block->util_value2 = 0.1;
+
+	block->pore_dz_from_center = -1;
+	block->pore_outer_cut = -1;
+	block->analyze_pore = 0;
 	block->record_curvature = 0;
 	block->create_all_atom = 0;	
 	block->create_flip = 0;
@@ -667,6 +677,30 @@ int getInput( const char **argv, int argc, parameterBlock *block)
 				ERROR = 1;
 			}	
 		}
+		else if( !strcasecmp( word1, "z_only" ) )
+		{
+			if( !strcasecmp( word2, "TRUE" ) || !strcasecmp( word2, "yes") || !strcasecmp( word2, "on" ) )
+				block->z_only = 1;
+			else if( !strcasecmp( word2, "FALSE" ) || !strcasecmp( word2, "no") || !strcasecmp( word2, "off" ) )
+				block->z_only = 0;
+			else
+			{
+				printf("Could not interpret input line '%s'.\n", tbuf );
+				ERROR = 1;
+			}	
+		}
+		else if( !strcasecmp( word1, "fdiff_check" ) )
+		{
+			if( !strcasecmp( word2, "TRUE" ) || !strcasecmp( word2, "yes") || !strcasecmp( word2, "on" ) )
+				block->fdiff_check = 1;
+			else if( !strcasecmp( word2, "FALSE" ) || !strcasecmp( word2, "no") || !strcasecmp( word2, "off" ) )
+				block->fdiff_check = 0;
+			else
+			{
+				printf("Could not interpret input line '%s'.\n", tbuf );
+				ERROR = 1;
+			}	
+		}
 		else if( !strcasecmp( word1, "discrete_lipids" ) )
 		{
 			if( !strcasecmp( word2, "TRUE" ) || !strcasecmp( word2, "yes") || !strcasecmp( word2, "on" ) )
@@ -679,6 +713,14 @@ int getInput( const char **argv, int argc, parameterBlock *block)
 				ERROR = 1;
 			}	
 		}
+		else if( !strcasecmp( word1, "clathrinStructure" ) ) // for gathering.
+		{
+			if( block->clathrinStructure ) free(block->clathrinStructure);
+			block->clathrinStructure = (char *)malloc( sizeof(char) * (1 + strlen(word2) ) );
+			strcpy( block->clathrinStructure, word2 );
+		}
+		else if( !strcasecmp( word1, "clathrin_force_k" ) )
+			block->clathrin_force_k = atof( word2 );
 		else if( !strcasecmp( word1, "mesh2" ) )
 		{
 			if( block->meshName2 )
@@ -732,6 +774,10 @@ int getInput( const char **argv, int argc, parameterBlock *block)
 		}
 		else if( !strcasecmp( word1, "rho" ) )
 			block->rho = atof( word2 );
+		else if( !strcasecmp( word1, "util_value" ) )
+			block->util_value = atof( word2 );
+		else if( !strcasecmp( word1, "util_value2" ) )
+			block->util_value2 = atof( word2 );
 		else if( !strcasecmp( word1, "concentration" ) )
 		{
 			block->concentration = atof( word2 );
@@ -761,6 +807,8 @@ int getInput( const char **argv, int argc, parameterBlock *block)
 		}
 		else if( !strcasecmp( word1, "alpha_restraint_x" ) )
 			block->alpha_restraint_x = atof( word2 );
+		else if( !strcasecmp( word1, "alpha_restraint_y" ) )
+			block->alpha_restraint_y = atof( word2 );
 		else if( !strcasecmp( word1, "alpha_restraint_y" ) )
 			block->alpha_restraint_y = atof( word2 );
 		else if( !strcasecmp( word1, "alpha_restraint_z" ) )
@@ -1535,6 +1583,22 @@ int getInput( const char **argv, int argc, parameterBlock *block)
 		}
 		else if( !strcasecmp( word1, "create_pore" ) )
 			block->create_pore = atof( word2 );
+		else if( !strcasecmp( word1, "pore_outer_cut" ) )
+			block->pore_outer_cut = atof( word2 );
+		else if( !strcasecmp( word1, "pore_dz_from_center" ) )
+			block->pore_dz_from_center = atof( word2 );
+		else if( !strcasecmp( word1, "analyze_pore" ) )
+		{
+			if( !strcasecmp( word2, "TRUE" ) || !strcasecmp( word2, "yes") || !strcasecmp( word2, "on" ) )
+				block->analyze_pore = 1;
+			else if( !strcasecmp( word2, "FALSE" ) || !strcasecmp( word2, "no") || !strcasecmp( word2, "off" ) )
+				block->analyze_pore = 0;
+			else
+			{
+				printf("Could not interpret input line '%s'.\n", tbuf );
+				ERROR = 1;
+			}	
+		}
 		else if( !strcasecmp( word1, "create_all_atom" ) )
 		{
 			if( !strcasecmp( word2, "TRUE" ) || !strcasecmp( word2, "yes") || !strcasecmp( word2, "on" ) )
@@ -1752,12 +1816,10 @@ int getInput( const char **argv, int argc, parameterBlock *block)
 			{ 
 				uvalue = lround(value);
 				rec->nsolution = uvalue;
-			}
-			else if( !strcasecmp( word3, "coverage") ) 
 				rec->coverage = value;
+			}
 			else if( !strcasecmp( word3, "concentration") ) 
 				rec->concentration = value;
-			
 			if( nr >= 5 )
 			{
 				if( !strcasecmp( word5, "inside") ) 

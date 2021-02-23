@@ -9,6 +9,7 @@
 #include "pdbFetch.h"
 #include "face_mask.h"
 #include "aa_build_util.h"
+#include "uv_map.h"
 
 #define SQRT_SAFETY (1e-7)
 
@@ -17,21 +18,37 @@
 
 static double scale_k = 0.01;
 	
-static double attach_bond_k = 10.0 * scale_k;
-static double inter_bond_k = 10.0 * scale_k;
-static double dihedral_k = 1000.0 * scale_k;
-static double angle_k = 3000.0 * scale_k;
-static int nbonds=5;
+static double attach_bond_k = 1.0 * scale_k;
+static double attach_bond_2_k = 0.00001 * scale_k;
+static double inter_bond_k = 1.0 * scale_k;
+//static double dihedral_k = 1000.0 * scale_k;
+static double dihedral_k = 100.0 * scale_k;
+static double angle_k = 300.0 * scale_k;
+
+// if one attachment is missing these will make a better structure... just for simulation building.
+static double angle_2_k = 0.0 * scale_k;
+
+#define OLD_NRM
+
+#ifdef OLD_NRM
+static double k_nrm = 1.0;
+#else
+static double k_nrm = 1.0;
+#endif
+static double syt7_phi0 = 0; // M_PI/3; //M_PI;
+
+static int nbonds=6;
 static int nangles=6;
-static int ndihe=1;
+static int ndihe=0;
 
 
-static int bonds[5][2] = {
+static int bonds[6][2] = {
 	{0,4},
 	{1,4},
 	{2,5},
 	{3,5},
-	{4,5}
+	{4,5},
+	{0,2}
 };	
 
 static int angles[6][3] = {
@@ -43,25 +60,39 @@ static int angles[6][3] = {
 	{3,5,4}
 };
 
-static int dihedrals[1][4] = {
-	3,5,4,1
+static int dihedrals[2][4] = {
+	{ 0,4,5,2 },
+	{ 3,5,4,1 },
 };
 
+static double dihedral_target[2] = { M_PI/4, M_PI  }; 
 
 static double monomer_MW = 10*26492.14; //amu 
 static double C2_P_RADIUS = 25.0;
 static double attach_p_radius = 5.0;
 static double bond_length_attach_long = 45.0;
 static double bond_length_attach_short = 35.0;
-static double bond_length_inter = 30.0;
+static double bond_length_inter = 40.0;
+static double bond_length_inter_attach = 35.0;
 
-static double bond_k[5][2] =
+static double bond_k[6][2] =
 {
 	{ bond_length_attach_long, attach_bond_k },	
 	{ bond_length_attach_short, attach_bond_k },	
 	{ bond_length_attach_long, attach_bond_k },	
-	{ bond_length_attach_short, attach_bond_k },	
-	{ bond_length_inter, inter_bond_k }
+	{ bond_length_attach_short, attach_bond_2_k },	
+	{ bond_length_inter, inter_bond_k },
+	{ bond_length_inter_attach, inter_bond_k }
+};
+
+static double all_angle_k[6] =
+{
+	  angle_k, 
+	  angle_k, 
+	  angle_k, 
+	  angle_2_k, 
+	  angle_k, 
+	  angle_2_k 
 };
 
 void syt7::init( double *r )
@@ -81,7 +112,7 @@ void syt7::init( double *r )
 
 	alloc();
 
-	double vdw_r = 5.0;
+	double vdw_r = 25.0;
 	sigma[0] = vdw_r;
 	sigma[1] = vdw_r;
 	sigma[2] = vdw_r;
@@ -115,7 +146,7 @@ void syt7::init( Simulation *theSimulation, surface *theSurface, double *rsurf, 
 
 	alloc();
 
-	double vdw_r = 5.0;
+	double vdw_r = 25.0;
 	sigma[0] = vdw_r;
 	sigma[1] = vdw_r;
 	sigma[2] = vdw_r;
@@ -453,10 +484,15 @@ void syt7::putBonds( int *bond_list )
 
 	bond_list[8] = 4;
 	bond_list[9] = 5;
+	
+	bond_list[10] = 0;
+	bond_list[11] = 2;
 }
 
 double syt7::V( Simulation *theSimulation  )
 {
+	// normal potential? match 0-4 and 2-5 vectors to normal with angle potential
+
 	double *alphas = theSimulation->alpha;
 
 	double r[3*nsites];
@@ -520,6 +556,8 @@ double syt7::V( Simulation *theSimulation  )
 		}
 		
 		memcpy(r+4*3 , rall+4*3, sizeof(double) * 3*2 );
+		// zero nrm for aqueous
+		memset(n+4*3 , 0, sizeof(double) * 3*2 );
 	}
 	else
 	{
@@ -529,6 +567,40 @@ double syt7::V( Simulation *theSimulation  )
 
 	double pot = 0;
 
+	// normal PMF potential for 0-4 and 2-5 vectors.
+	double dr_05[3] = { r[5*3+0] - r[2*3+0], r[5*3+1] - r[2*3+1], r[5*3+2] - r[2*3+2] };
+	double dr_04[3] = { r[4*3+0] - r[0*3+0], r[4*3+1] - r[0*3+1], r[4*3+2] - r[0*3+2] };
+	double ln1 = normalize(dr_04);
+	double ln2 = normalize(dr_05);
+	double dp1 = dr_04[0] * n[0] + dr_04[1] * n[1] + dr_04[2] * n[2];
+	double dp2 = dr_05[0] * n[2*3+0] + dr_05[1] * n[2*3+1] + dr_05[2] * n[2*3+2];
+
+#ifdef OLD_NRM
+	double dp_target = cos(syt7_phi0);
+	if( is_inside )
+		dp_target *= -1;
+		
+	pot += 0.5 * k_nrm * (dp1-dp_target)*(dp1-dp_target);
+	pot += 0.5 * k_nrm * (dp2-dp_target)*(dp2-dp_target);
+
+#else
+	if( is_inside )
+	{
+		double phi1 = acos(dp1);
+		double phi2 = acos(dp2);
+	
+		pot += 0.5 * k_nrm * (phi1 - syt7_phi0) * (phi1 - syt7_phi0);
+		pot += 0.5 * k_nrm * (phi2 - syt7_phi0) * (phi2 - syt7_phi0);
+	}
+	else
+	{
+		double phi1 = acos(-dp1);
+		double phi2 = acos(-dp2);
+	
+		pot += 0.5 * k_nrm * (phi1 - syt7_phi0) * (phi1 - syt7_phi0);
+		pot += 0.5 * k_nrm * (phi2 - syt7_phi0) * (phi2 - syt7_phi0);
+	}
+#endif
 	for( int b = 0; b < nbonds; b++ )
 	{
 		int a1 = bonds[b][0];
@@ -550,6 +622,7 @@ double syt7::V( Simulation *theSimulation  )
 		int a1 = angles[a][0];
 		int a2 = angles[a][1];
 		int a3 = angles[a][2];
+		double l_angle_k = all_angle_k[a];
 
 		double dr1[3] = { r[3*a1+0] - r[3*a2+0],
 				 r[3*a1+1] - r[3*a2+1],
@@ -562,7 +635,7 @@ double syt7::V( Simulation *theSimulation  )
 
 		double dp = dr1[0]*dr2[0]+dr1[1]*dr2[1]+dr1[2]*dr2[2];
 		double nrm_dp = dp;
-		pot += 0.5 * angle_k *nrm_dp*nrm_dp;	
+		pot += 0.5 * l_angle_k *nrm_dp*nrm_dp;	
 	}
 
 	for( int d = 0; d < ndihe; d++ )
@@ -595,7 +668,7 @@ double syt7::V( Simulation *theSimulation  )
 		double dp = n1[0]*n2[0]+n1[1]*n2[1]+n1[2]*n2[2];
 		double theta = acos(dp);
 
-		pot += 0.5 * dihedral_k * (theta - M_PI) * (theta - M_PI);
+		pot += 0.5 * dihedral_k * (theta - dihedral_target[d] ) * (theta - dihedral_target[d] );
 	}	
 
 	return pot;
@@ -673,7 +746,99 @@ double syt7::grad( Simulation *theSimulation,  double *surfacer_g, double *surfa
 	}
 
 	double pot = 0;
+	
+	// normal PMF potential for 0-4 and 2-5 vectors.
+	double dr_05[3] = { r[5*3+0] - r[2*3+0], r[5*3+1] - r[2*3+1], r[5*3+2] - r[2*3+2] };
+	double dr_04[3] = { r[4*3+0] - r[0*3+0], r[4*3+1] - r[0*3+1], r[4*3+2] - r[0*3+2] };
+	double ln1 = normalize(dr_04);
+	double ln2 = normalize(dr_05);
+	double dp1 = dr_04[0] * n[0] + dr_04[1] * n[1] + dr_04[2] * n[2];
+	double dp2 = dr_05[0] * n[2*3+0] + dr_05[1] * n[2*3+1] + dr_05[2] * n[2*3+2];
 
+
+#ifdef OLD_NRM
+	double dp_target = cos(syt7_phi0);
+	if( is_inside )
+		dp_target *= -1;
+	double del1 = (dp1-dp_target);
+	double del2 = (dp2-dp_target);
+
+	pot += 0.5 * k_nrm * (del1)*(del1);
+	pot += 0.5 * k_nrm * (del2)*(del2);
+
+	for( int c1 = 0; c1 < 3; c1++ )
+	for( int c2 = 0; c2 < 3; c2++ )
+	{
+		if( c1 == c2 )
+		{
+			surfacer_g[3*4+c1] += k_nrm*(del1) * n[0*3+c2] * (1/ln1);
+			surfacer_g[3*0+c1] -= k_nrm*(del1) * n[0*3+c2] * (1/ln1);
+
+			surfacer_g[3*5+c1] += k_nrm*(del2) * n[2*3+c2] * (1/ln2);
+			surfacer_g[3*2+c1] -= k_nrm*(del2) * n[2*3+c2] * (1/ln2);
+		}
+
+		surfacer_g[3*4+c1] += k_nrm*(del1) * n[0*3+c2]*(-(dr_04[c1]*dr_04[c2]/ln1));		
+		surfacer_g[3*0+c1] -= k_nrm*(del1) * n[0*3+c2]*(-(dr_04[c1]*dr_04[c2]/ln1));		
+		surfacer_g[3*5+c1] += k_nrm*(del2) * n[2*3+c2]*(-(dr_05[c1]*dr_05[c2]/ln2));		
+		surfacer_g[3*2+c1] -= k_nrm*(del2) * n[2*3+c2]*(-(dr_05[c1]*dr_05[c2]/ln2));		
+	}
+	
+	for( int c1 = 0; c1 < 3; c1++ )
+	{
+		surfacen_g[0*3+c1] += k_nrm*(del1) * dr_04[c1];
+		surfacen_g[2*3+c1] += k_nrm*(del2) * dr_05[c1];
+	}
+#else	
+	double phi1,phi2;
+	double fsign=1;
+
+	if( is_inside )
+	{
+		phi1 = acos(dp1);
+		phi2 = acos(dp2);
+		fsign=1;
+	}
+	else
+	{
+		phi1 = acos(-dp1);
+		phi2 = acos(-dp2);
+		fsign=-1;
+	}
+
+	double del1 = (phi1-syt7_phi0);
+	double del2 = (phi2-syt7_phi0);
+
+	pot += 0.5 * k_nrm * del1*del1;
+	pot += 0.5 * k_nrm * del2*del2;
+	double phi_fac1 = fsign/sqrt(1-dp1*dp1);
+	double phi_fac2	= fsign/sqrt(1-dp2*dp2);
+
+	for( int c1 = 0; c1 < 3; c1++ )
+	for( int c2 = 0; c2 < 3; c2++ )
+	{
+		if( c1 == c2 )
+		{
+			// 
+			surfacer_g[3*4+c1] += phi_fac1*k_nrm*(del1) * n[0*3+c2] * (1/ln1);
+			surfacer_g[3*0+c1] -= phi_fac1*k_nrm*(del1) * n[0*3+c2] * (1/ln1);
+
+			surfacer_g[3*5+c1] += phi_fac2*k_nrm*(del2) * n[2*3+c2] * (1/ln2);
+			surfacer_g[3*2+c1] -= phi_fac2*k_nrm*(del2) * n[2*3+c2] * (1/ln2);
+		}
+
+		surfacer_g[3*4+c1] += phi_fac1*k_nrm*(del1) * n[0*3+c2]*(-(dr_04[c1]*dr_04[c2]/ln1));		
+		surfacer_g[3*0+c1] -= phi_fac1*k_nrm*(del1) * n[0*3+c2]*(-(dr_04[c1]*dr_04[c2]/ln1));		
+		surfacer_g[3*5+c1] += phi_fac2*k_nrm*(del2) * n[2*3+c2]*(-(dr_05[c1]*dr_05[c2]/ln2));		
+		surfacer_g[3*2+c1] -= phi_fac2*k_nrm*(del2) * n[2*3+c2]*(-(dr_05[c1]*dr_05[c2]/ln2));		
+	}
+	
+	for( int c1 = 0; c1 < 3; c1++ )
+	{
+		surfacen_g[0*3+c1] += phi_fac2*k_nrm*(del1) * dr_04[c1];
+		surfacen_g[2*3+c1] += phi_fac2*k_nrm*(del2) * dr_05[c1];
+	}
+#endif
 	for( int b = 0; b < nbonds; b++ )
 	{
 		int a1 = bonds[b][0];
@@ -705,6 +870,7 @@ double syt7::grad( Simulation *theSimulation,  double *surfacer_g, double *surfa
 		int a1 = angles[a][0];
 		int a2 = angles[a][1];
 		int a3 = angles[a][2];
+		double l_angle_k = all_angle_k[a];
 
 		double dr1[3] = { r[3*a1+0] - r[3*a2+0],
 				 r[3*a1+1] - r[3*a2+1],
@@ -719,44 +885,44 @@ double syt7::grad( Simulation *theSimulation,  double *surfacer_g, double *surfa
 
 		// numerator derivative
 
-		surfacer_g[3*a1+0] += angle_k * dp * dr2[0] / ln1;
-		surfacer_g[3*a1+1] += angle_k * dp * dr2[1] / ln1;
-		surfacer_g[3*a1+2] += angle_k * dp * dr2[2] / ln1;
+		surfacer_g[3*a1+0] += l_angle_k * dp * dr2[0] / ln1;
+		surfacer_g[3*a1+1] += l_angle_k * dp * dr2[1] / ln1;
+		surfacer_g[3*a1+2] += l_angle_k * dp * dr2[2] / ln1;
 		
-		surfacer_g[3*a2+0] += angle_k * dp * (-dr2[0]) / ln1;
-		surfacer_g[3*a2+1] += angle_k * dp * (-dr2[1]) / ln1;
-		surfacer_g[3*a2+2] += angle_k * dp * (-dr2[2]) / ln1;
+		surfacer_g[3*a2+0] += l_angle_k * dp * (-dr2[0]) / ln1;
+		surfacer_g[3*a2+1] += l_angle_k * dp * (-dr2[1]) / ln1;
+		surfacer_g[3*a2+2] += l_angle_k * dp * (-dr2[2]) / ln1;
 		
-		surfacer_g[3*a2+0] += angle_k * dp * (-dr1[0]) / ln2;
-		surfacer_g[3*a2+1] += angle_k * dp * (-dr1[1]) / ln2;
-		surfacer_g[3*a2+2] += angle_k * dp * (-dr1[2]) / ln2;
+		surfacer_g[3*a2+0] += l_angle_k * dp * (-dr1[0]) / ln2;
+		surfacer_g[3*a2+1] += l_angle_k * dp * (-dr1[1]) / ln2;
+		surfacer_g[3*a2+2] += l_angle_k * dp * (-dr1[2]) / ln2;
 		
-		surfacer_g[3*a3+0] += angle_k * dp * (dr1[0]) / ln2;
-		surfacer_g[3*a3+1] += angle_k * dp * (dr1[1]) / ln2;
-		surfacer_g[3*a3+2] += angle_k * dp * (dr1[2]) / ln2;
+		surfacer_g[3*a3+0] += l_angle_k * dp * (dr1[0]) / ln2;
+		surfacer_g[3*a3+1] += l_angle_k * dp * (dr1[1]) / ln2;
+		surfacer_g[3*a3+2] += l_angle_k * dp * (dr1[2]) / ln2;
 
 		// denominator derivative.
 		
 		double ln1_2 = ln1*ln1;
 		double ln2_2 = ln2*ln2;
 
-		surfacer_g[3*a1+0] += -angle_k * dp * dp * dr1[0] / ln1;
-		surfacer_g[3*a1+1] += -angle_k * dp * dp * dr1[1] / ln1;
-		surfacer_g[3*a1+2] += -angle_k * dp * dp * dr1[2] / ln1;
+		surfacer_g[3*a1+0] += -l_angle_k * dp * dp * dr1[0] / ln1;
+		surfacer_g[3*a1+1] += -l_angle_k * dp * dp * dr1[1] / ln1;
+		surfacer_g[3*a1+2] += -l_angle_k * dp * dp * dr1[2] / ln1;
 		
-		surfacer_g[3*a2+0] += angle_k * dp * dp * dr1[0] / ln1;
-		surfacer_g[3*a2+1] += angle_k * dp * dp * dr1[1] / ln1;
-		surfacer_g[3*a2+2] += angle_k * dp * dp * dr1[2] / ln1;
+		surfacer_g[3*a2+0] += l_angle_k * dp * dp * dr1[0] / ln1;
+		surfacer_g[3*a2+1] += l_angle_k * dp * dp * dr1[1] / ln1;
+		surfacer_g[3*a2+2] += l_angle_k * dp * dp * dr1[2] / ln1;
 		
-		surfacer_g[3*a2+0] += angle_k * dp * dp * dr2[0] / ln2;
-		surfacer_g[3*a2+1] += angle_k * dp * dp * dr2[1] / ln2;
-		surfacer_g[3*a2+2] += angle_k * dp * dp * dr2[2] / ln2;
+		surfacer_g[3*a2+0] += l_angle_k * dp * dp * dr2[0] / ln2;
+		surfacer_g[3*a2+1] += l_angle_k * dp * dp * dr2[1] / ln2;
+		surfacer_g[3*a2+2] += l_angle_k * dp * dp * dr2[2] / ln2;
 		
-		surfacer_g[3*a3+0] += -angle_k * dp * dp * dr2[0] / ln2;
-		surfacer_g[3*a3+1] += -angle_k * dp * dp * dr2[1] / ln2;
-		surfacer_g[3*a3+2] += -angle_k * dp * dp * dr2[2] / ln2;
+		surfacer_g[3*a3+0] += -l_angle_k * dp * dp * dr2[0] / ln2;
+		surfacer_g[3*a3+1] += -l_angle_k * dp * dp * dr2[1] / ln2;
+		surfacer_g[3*a3+2] += -l_angle_k * dp * dp * dr2[2] / ln2;
 
-		pot += 0.5 * angle_k * dp*dp;	
+		pot += 0.5 *l_angle_k * dp*dp;	
 	}
 
 	for( int d = 0; d < ndihe; d++ )
@@ -765,7 +931,8 @@ double syt7::grad( Simulation *theSimulation,  double *surfacer_g, double *surfa
 		int a2 = dihedrals[d][1];
 		int a3 = dihedrals[d][2];
 		int a4 = dihedrals[d][3];
-		
+		double phi0 = dihedral_target[d];		
+
 		double dr1A[3] = { r[3*a1+0] - r[3*a2+0],
 				 r[3*a1+1] - r[3*a2+1],
 				 r[3*a1+2] - r[3*a2+2] };
@@ -801,7 +968,7 @@ double syt7::grad( Simulation *theSimulation,  double *surfacer_g, double *surfa
 		normal_cp_der( r+3*a3, r+3*a2, r+3*a4, dnrm2 );
 
 		// everything prior to d(dp)/dr1
-		double base_der = dihedral_k * (theta - M_PI) * (-1 / sqrt(1-dp*dp));
+		double base_der = dihedral_k * (theta - phi0) * (-1 / sqrt(1-dp*dp));
 	
 		// everything else is d(dp)/dx_i, etc.
 		for( int pc = 0; pc < 3; pc++ )
@@ -816,7 +983,7 @@ double syt7::grad( Simulation *theSimulation,  double *surfacer_g, double *surfa
 			surfacer_g[3*a4+pc] += base_der * n1[nc] * dnrm2[nc*9+2*3+pc];
 		}
 	
-		pot += 0.5 * dihedral_k * (theta - M_PI) * (theta - M_PI);
+		pot += 0.5 * dihedral_k * (theta - phi0) * (theta - phi0);
 	}	
 
 	return pot;
@@ -832,886 +999,106 @@ void syt7::move_outside( void )
 	pcomplex::move_outside();
 }
 
-#if 0
-void syt7::writeStructure( Simulation *theSimulation, struct atom_rec **at_out, int *nat_out )
-{
-	struct atom_rec *C2A = NULL;
-	struct atom_rec *C2B = NULL;
-
-	int nC2A=0;
-	int nC2B=0;
-	int nNTH=0;	
-
-	pdbFetch( &C2A, &nC2A, "syt7", "C2A" );
-	pdbFetch( &C2B, &nC2B, "syt7", "C2B" );
-#ifdef DO_NTH	
-	struct atom_rec *NTH = NULL;
-	pdbFetch( &NTH, &nNTH, "syt7", "NTH" );
-#endif
-	double io_sign = (is_inside ? 1 : -1 );
-
-	//
-	// alignments: rotate and translate the protein to align it to the sub-sites.
-	//
-
-	//	
-	//	FIRST: C2A. match virtual sites of model to specific atoms in the pdb, then do alignment.
-	//
-	double site_offset = 20.0;
-	double virtual_site[3] = { rall[4*3+0] + 0.3 * ( rall[3]-rall[4*3+0]),
-				   rall[4*3+1] + 0.3 * ( rall[4]-rall[4*3+1]),
-				   rall[4*3+2] + 0.3 * ( rall[5]-rall[4*3+2]) };
-	double vec_1[3];
-	double virtual_site_neck[3];
-	
-	vec_1[0]= rall[0] - rall[4*3+0];
-	vec_1[1]= rall[1] - rall[4*3+1];
-	vec_1[2]= rall[2] - rall[4*3+2];
-
-	normalize(vec_1);
-
-	virtual_site_neck[0] = rall[0*3+0] - vec_1[0] * site_offset;
-	virtual_site_neck[1] = rall[0*3+1] - vec_1[1] * site_offset; 
-	virtual_site_neck[2] = rall[0*3+2] - vec_1[2] * site_offset; 
-
-	// the three "C2A" sites:
-	double C2A_align[9] = { 
-				virtual_site_neck[0], virtual_site_neck[1], virtual_site_neck[2],
-				virtual_site[0], virtual_site[1], virtual_site[2],
-				rall[4*3+0], rall[4*3+1], rall[4*3+2] };
-
-	int set_C2A[3] = {0,1,2};
-	int set_C2A_pdb[3] = {-1,-1,-1};
-	int res_C2A_pdb[3] = { 166, 185, 154 };
-	const char *at_C2A_pdb[3] = { "CA", "CA", "CA" };
-	double *pcopy = (double *)malloc( sizeof(double) * 3 * nC2A );
-
-	for( int t = 0; t < nC2A; t++ )
-	{
-		// copy the coordinates
-		pcopy[3*t+0] = C2A[t].x;
-		pcopy[3*t+1] = C2A[t].y;
-		pcopy[3*t+2] = C2A[t].z;
-		// look for the sites
-		for( int x = 0; x < 3; x++ )
-		{
-			if( res_C2A_pdb[x] == C2A[t].res && !strcasecmp( C2A[t].atname, at_C2A_pdb[x] ) )
-				set_C2A_pdb[x] = t;
-		}
-	}	
-	
-	if( set_C2A_pdb[0] < 0 || set_C2A_pdb[1] < 0 || set_C2A_pdb[2] < 0 )
-	{
-		printf("Failed to find site connections for SYT7.\n");
-		exit(1);
-	}
-	
-	alignStructuresOnAtomSet( C2A_align, set_C2A, pcopy, set_C2A_pdb, 3, nC2A ); 
-	
-	for( int t = 0; t < nC2A; t++ )
-	{
-		// copy the coordinates out
-		C2A[t].x=pcopy[3*t+0];
-		C2A[t].y=pcopy[3*t+1];
-		C2A[t].z=pcopy[3*t+2];
-	}
-
-	//
-	//	NEXT: C2B
-	//
-
-	virtual_site[0] = rall[5*3+0] + 0.3 * (rall[9]  - rall[5*3+0]);
-	virtual_site[1] = rall[5*3+1] + 0.3 * (rall[10] - rall[5*3+1]);
-	virtual_site[2] = rall[5*3+2] + 0.3 * (rall[11] - rall[5*3+2]);
-	
-	vec_1[0]= rall[2*3+0] - rall[5*3+0];
-	vec_1[1]= rall[2*3+1] - rall[5*3+1];
-	vec_1[2]= rall[2*3+2] - rall[5*3+2];
-
-	normalize(vec_1);
-
-	virtual_site_neck[0] = rall[2*3+0] - vec_1[0] * site_offset;
-	virtual_site_neck[1] = rall[2*3+1] - vec_1[1] * site_offset; 
-	virtual_site_neck[2] = rall[2*3+2] - vec_1[2] * site_offset; 
-
-	
-	// the three "C2A" sites:
-	double C2B_align[9] = { virtual_site_neck[0], virtual_site_neck[1], virtual_site_neck[2],
-				virtual_site[0], virtual_site[1], virtual_site[2],
-				rall[5*3+0], rall[5*3+1], rall[5*3+2] };
-
-	int set_C2B[3] = {0,1,2};
-	int set_C2B_pdb[3] = {-1,-1,-1};
-	int res_C2B_pdb[3] = { 297, 319, 389 };
-	const char *at_C2B_pdb[3] = { "CA", "CA", "CA" };
-
-	pcopy = (double *)realloc( pcopy, sizeof(double) * 3 * nC2B );
-
-	for( int t = 0; t < nC2B; t++ )
-	{
-		// copy the coordinates
-		pcopy[3*t+0] = C2B[t].x;
-		pcopy[3*t+1] = C2B[t].y;
-		pcopy[3*t+2] = C2B[t].z;
-		// look for the sites
-		for( int x = 0; x < 3; x++ )
-		{
-			if( res_C2B_pdb[x] == C2B[t].res && !strcasecmp( C2B[t].atname, at_C2B_pdb[x] ) )
-				set_C2B_pdb[x] = t;
-		}
-	}	
-	
-	if( set_C2B_pdb[0] < 0 || set_C2B_pdb[1] < 0 || set_C2B_pdb[2] < 0 )
-	{
-		printf("Failed to find site connections for SYT7.\n");
-		exit(1);
-	}
-	
-	alignStructuresOnAtomSet( C2B_align, set_C2B, pcopy, set_C2B_pdb, 3, nC2B ); 
-	
-	for( int t = 0; t < nC2B; t++ )
-	{
-		// copy the coordinates out
-		C2B[t].x=pcopy[3*t+0];
-		C2B[t].y=pcopy[3*t+1];
-		C2B[t].z=pcopy[3*t+2];
-	}
-
-#ifdef DO_NTH
-	//
-	// Finally: the N-terminal transmembrane helix.
-	//
-	//
-
-	// get the normal.
-
-	surface *theSurface;
-	double *rsurf;
-	theSimulation->fetch(sid[1],&theSurface,&rsurf);
-
-	double rpt[3], rnrm[3];
-	theSurface->evaluateRNRM( fs[1], puv[1*2+0], puv[1*2+1], rpt, rnrm, rsurf );	
-	
-	rnrm[0] *= io_sign;
-	rnrm[1] *= io_sign;
-	rnrm[2] *= io_sign;
-
-	virtual_site[0] = rall[3] + rnrm[0] * 12.0; 
-	virtual_site[1] = rall[4] + rnrm[1] * 12.0;
-	virtual_site[2] = rall[5] + rnrm[2] * 12.0;
-	
-	// another arbitrary site we could configure later if it matters?
-	
-	double arb[3] = { rand(), rand(), rand() };
-	normalize(arb);
-	double perp[3];
-	cross( rnrm, arb, perp );
-	normalize(perp);
-	
-	double virtual_site_2[3] = { virtual_site[0] + perp[0] *2,
-				     virtual_site[1] + perp[1] *2,
-				     virtual_site[2] + perp[2] *2 };
-
-	double NTH_align[9] = { rall[3], rall[4], rall[5],
-				virtual_site[0], virtual_site[1], virtual_site[2],
-				virtual_site_2[0], virtual_site_2[1], virtual_site_2[2],
-				 };
-
-	int set_NTH[3] = {0,1,2};
-	int set_NTH_pdb[3] = {-1,-1,-1};
-	int res_NTH_pdb[3] = { 10, 22, 23 };
-	const char *at_NTH_pdb[3] = { "CA", "CA", "CA" };
-
-	pcopy = (double *)realloc( pcopy, sizeof(double) * 3 * nNTH );
-
-	for( int t = 0; t < nNTH; t++ )
-	{
-		// copy the coordinates
-		pcopy[3*t+0] = NTH[t].x;
-		pcopy[3*t+1] = NTH[t].y;
-		pcopy[3*t+2] = NTH[t].z;
-		// look for the sites
-		for( int x = 0; x < 3; x++ )
-		{
-			if( res_NTH_pdb[x] == NTH[t].res && !strcasecmp( NTH[t].atname, at_NTH_pdb[x] ) )
-				set_NTH_pdb[x] = t;
-		}
-	}	
-	
-	if( set_NTH_pdb[0] < 0 || set_NTH_pdb[1] < 0 || set_NTH_pdb[2] < 0 )
-	{
-		printf("Failed to find site connections for SYT7.\n");
-		exit(1);
-	}
-	
-	alignStructuresOnAtomSet( NTH_align, set_NTH, pcopy, set_NTH_pdb, 3, nNTH ); 
-	
-	for( int t = 0; t < nNTH; t++ )
-	{
-		// copy the coordinates out
-		NTH[t].x=pcopy[3*t+0];
-		NTH[t].y=pcopy[3*t+1];
-		NTH[t].z=pcopy[3*t+2];
-	}
-#endif
-
-	(*at_out) = (struct atom_rec *)realloc( *at_out, sizeof(struct atom_rec) * (*nat_out + nC2A + nC2B + nNTH ) );
-
-	for( int a = 0; a < nC2A; a++ )
-	{
-		(*at_out)[*nat_out] = C2A[a];
-		(*nat_out) += 1;
-	}
-	
-	for( int a = 0; a < nC2B; a++ )
-	{
-		(*at_out)[*nat_out] = C2B[a];
-		(*nat_out) += 1;
-	}
-
-#ifdef DO_NTH	
-	for( int a = 0; a < nNTH; a++ )
-	{
-		(*at_out)[*nat_out] = NTH[a];
-		(*nat_out) += 1;
-	}
-#endif	
-	free(pcopy);	
-}
-#endif
-
-
-#ifdef NO_MEMBRANE
-void syt7::writeStructure( Simulation *theSimulation, surface_mask *upperSurfaceMask, surface_mask *lowerSurfaceMask, 
-	struct atom_rec **at_out, int *nat_out, char **sequence, struct ion_add **ions, int *nions )
-{
-	struct atom_rec *C2A = NULL;
-	struct atom_rec *C2B = NULL;
-
-	int nC2A=0;
-	int nC2B=0;
-	int nNTH=0;	
-
-	// structures loaded into the pool can be re-used and don't need to be freed here. cleanup should be through the pool mechanism.
-
-	// these are centered of the bilayer midplane.
-	int pool_code_c2a = pdbFetch( &C2A, &nC2A, "syt7", "C2A", addToPool );
-	int pool_code_c2b = pdbFetch( &C2B, &nC2B, "syt7", "C2B", addToPool );
-#ifdef DO_NTH	
-	struct atom_rec *NTH = NULL;
-	int pool_code_nth = pdbFetch( &NTH, &nNTH, "syt7", "NTH", addToPool );
-#endif
-	double io_sign = (is_inside ? 1 : -1 );
-
-	//
-	// alignments: rotate and translate the protein to align it to the sub-sites.
-	//
-
-	//	
-	//	FIRST: C2A. match virtual sites of model to specific atoms in the pdb, then do alignment.
-	//
-	double site_offset = 25.0;
-	double virtual_site[3] = { rall[4*3+0] + 0.3 * ( rall[3]-rall[4*3+0]),
-				   rall[4*3+1] + 0.3 * ( rall[4]-rall[4*3+1]),
-				   rall[4*3+2] + 0.3 * ( rall[5]-rall[4*3+2]) };
-	double vec_1[3];
-	double virtual_site_neck[3];
-	
-	vec_1[0]= rall[0] - rall[4*3+0];
-	vec_1[1]= rall[1] - rall[4*3+1];
-	vec_1[2]= rall[2] - rall[4*3+2];
-
-	normalize(vec_1);
-
-	virtual_site_neck[0] = rall[0*3+0] - vec_1[0] * site_offset;
-	virtual_site_neck[1] = rall[0*3+1] - vec_1[1] * site_offset; 
-	virtual_site_neck[2] = rall[0*3+2] - vec_1[2] * site_offset; 
-
-	// the three "C2A" sites:
-	double C2A_align[9] = { 
-				virtual_site_neck[0], virtual_site_neck[1], virtual_site_neck[2],
-				virtual_site[0], virtual_site[1], virtual_site[2],
-				rall[4*3+0], rall[4*3+1], rall[4*3+2] };
-
-	// chooses which residues to place at this site.
-	int set_C2A[3] = {0,1,2};
-	int set_C2A_pdb[3] = {-1,-1,-1};
-	int res_C2A_pdb[3] = { 166, 185, 154 };
-	const char *at_C2A_pdb[3] = { "CA", "CA", "CA" };
-	double *pcopy = (double *)malloc( sizeof(double) * 3 * nC2A );
-
-	for( int t = 0; t < nC2A; t++ )
-	{
-		// copy the coordinates
-		pcopy[3*t+0] = C2A[t].x;
-		pcopy[3*t+1] = C2A[t].y;
-		pcopy[3*t+2] = C2A[t].z;
-		// look for the sites
-		for( int x = 0; x < 3; x++ )
-		{
-			if( res_C2A_pdb[x] == C2A[t].res && !strcasecmp( C2A[t].atname, at_C2A_pdb[x] ) )
-				set_C2A_pdb[x] = t;
-		}
-	}	
-	
-	if( set_C2A_pdb[0] < 0 || set_C2A_pdb[1] < 0 || set_C2A_pdb[2] < 0 )
-	{
-		printf("Failed to find site connections for SYT7.\n");
-		exit(1);
-	}
-	
-	alignStructuresOnAtomSet( C2A_align, set_C2A, pcopy, set_C2A_pdb, 3, nC2A ); 
-	
-	for( int t = 0; t < nC2A; t++ )
-	{
-		// copy the coordinates out
-		C2A[t].x=pcopy[3*t+0];
-		C2A[t].y=pcopy[3*t+1];
-		C2A[t].z=pcopy[3*t+2];
-	}
-
-	//
-	//	NEXT: C2B
-	//
-
-	virtual_site[0] = rall[5*3+0] + 0.3 * (rall[9]  - rall[5*3+0]);
-	virtual_site[1] = rall[5*3+1] + 0.3 * (rall[10] - rall[5*3+1]);
-	virtual_site[2] = rall[5*3+2] + 0.3 * (rall[11] - rall[5*3+2]);
-	
-	vec_1[0]= rall[2*3+0] - rall[5*3+0];
-	vec_1[1]= rall[2*3+1] - rall[5*3+1];
-	vec_1[2]= rall[2*3+2] - rall[5*3+2];
-
-	normalize(vec_1);
-
-	virtual_site_neck[0] = rall[2*3+0] - vec_1[0] * site_offset;
-	virtual_site_neck[1] = rall[2*3+1] - vec_1[1] * site_offset; 
-	virtual_site_neck[2] = rall[2*3+2] - vec_1[2] * site_offset; 
-
-	
-	// the three "C2A" sites:
-	double C2B_align[9] = { virtual_site_neck[0], virtual_site_neck[1], virtual_site_neck[2],
-				virtual_site[0], virtual_site[1], virtual_site[2],
-				rall[5*3+0], rall[5*3+1], rall[5*3+2] };
-
-	int set_C2B[3] = {0,1,2};
-	int set_C2B_pdb[3] = {-1,-1,-1};
-	int res_C2B_pdb[3] = { 297, 319, 389 };
-	const char *at_C2B_pdb[3] = { "CA", "CA", "CA" };
-
-	pcopy = (double *)realloc( pcopy, sizeof(double) * 3 * nC2B );
-
-	for( int t = 0; t < nC2B; t++ )
-	{
-		// copy the coordinates
-		pcopy[3*t+0] = C2B[t].x;
-		pcopy[3*t+1] = C2B[t].y;
-		pcopy[3*t+2] = C2B[t].z;
-		// look for the sites
-		for( int x = 0; x < 3; x++ )
-		{
-			if( res_C2B_pdb[x] == C2B[t].res && !strcasecmp( C2B[t].atname, at_C2B_pdb[x] ) )
-				set_C2B_pdb[x] = t;
-		}
-	}	
-	
-	if( set_C2B_pdb[0] < 0 || set_C2B_pdb[1] < 0 || set_C2B_pdb[2] < 0 )
-	{
-		printf("Failed to find site connections for SYT7.\n");
-		exit(1);
-	}
-	
-	alignStructuresOnAtomSet( C2B_align, set_C2B, pcopy, set_C2B_pdb, 3, nC2B ); 
-	
-	for( int t = 0; t < nC2B; t++ )
-	{
-		// copy the coordinates out
-		C2B[t].x=pcopy[3*t+0];
-		C2B[t].y=pcopy[3*t+1];
-		C2B[t].z=pcopy[3*t+2];
-	}
-
-#ifdef DO_NTH
-	//
-	// Finally: the N-terminal transmembrane helix.
-	//
-	//
-
-	// get the normal.
-
-	surface *theSurface;
-	double *rsurf;
-	theSimulation->fetch(sid[1],&theSurface,&rsurf);
-
-	double rpt[3], rnrm[3];
-	theSurface->evaluateRNRM( fs[1], puv[1*2+0], puv[1*2+1], rpt, rnrm, rsurf );	
-	
-	rnrm[0] *= io_sign;
-	rnrm[1] *= io_sign;
-	rnrm[2] *= io_sign;
-
-	virtual_site[0] = rall[3] + rnrm[0] * 12.0; 
-	virtual_site[1] = rall[4] + rnrm[1] * 12.0;
-	virtual_site[2] = rall[5] + rnrm[2] * 12.0;
-	
-	// another arbitrary site we could configure later if it matters?
-	
-	double arb[3] = { rand(), rand(), rand() };
-	normalize(arb);
-	double perp[3];
-	cross( rnrm, arb, perp );
-	normalize(perp);
-	
-	double virtual_site_2[3] = { virtual_site[0] + perp[0] *2,
-				     virtual_site[1] + perp[1] *2,
-				     virtual_site[2] + perp[2] *2 };
-
-	double NTH_align[9] = { rall[3], rall[4], rall[5],
-				virtual_site[0], virtual_site[1], virtual_site[2],
-				virtual_site_2[0], virtual_site_2[1], virtual_site_2[2],
-				 };
-
-	int set_NTH[3] = {0,1,2};
-	int set_NTH_pdb[3] = {-1,-1,-1};
-	int res_NTH_pdb[3] = { 10, 22, 23 };
-	const char *at_NTH_pdb[3] = { "CA", "CA", "CA" };
-
-	pcopy = (double *)realloc( pcopy, sizeof(double) * 3 * nNTH );
-
-	for( int t = 0; t < nNTH; t++ )
-	{
-		// copy the coordinates
-		pcopy[3*t+0] = NTH[t].x;
-		pcopy[3*t+1] = NTH[t].y;
-		pcopy[3*t+2] = NTH[t].z;
-		// look for the sites
-		for( int x = 0; x < 3; x++ )
-		{
-			if( res_NTH_pdb[x] == NTH[t].res && !strcasecmp( NTH[t].atname, at_NTH_pdb[x] ) )
-				set_NTH_pdb[x] = t;
-		}
-	}	
-	
-	if( set_NTH_pdb[0] < 0 || set_NTH_pdb[1] < 0 || set_NTH_pdb[2] < 0 )
-	{
-		printf("Failed to find site connections for SYT7.\n");
-		exit(1);
-	}
-	
-	alignStructuresOnAtomSet( NTH_align, set_NTH, pcopy, set_NTH_pdb, 3, nNTH ); 
-	
-	for( int t = 0; t < nNTH; t++ )
-	{
-		// copy the coordinates out
-		NTH[t].x=pcopy[3*t+0];
-		NTH[t].y=pcopy[3*t+1];
-		NTH[t].z=pcopy[3*t+2];
-	}
-#endif
-
-	(*at_out) = (struct atom_rec *)realloc( *at_out, sizeof(struct atom_rec) * (*nat_out + nC2A + nC2B + nNTH ) );
-	
-	int a_start = *nat_out;
-
-
-	int naddSpace = *nions+10;
-
-	*ions = (ion_add *)realloc( *ions,  sizeof(ion_add) * naddSpace );
-
-	for( int a = 0; a < nC2A; a++ )
-	{
-		if( !strncasecmp( C2A[a].atname, "CA", 2 ) && fabs(C2A[a].charge-2) < 1e-4 )
-		{
-			if( *nions == naddSpace )
-			{
-				naddSpace *= 2;
-				*ions = (ion_add *)realloc( *ions, sizeof(ion_add) * naddSpace );
-			}
-
-			(*ions)[*nions].type = ION_CAL;
-			(*ions)[*nions].x = C2A[a].x;
-			(*ions)[*nions].y = C2A[a].y;
-			(*ions)[*nions].z = C2A[a].z;
-		
-			(*nions) += 1;
-		}
-		else
-		{
-			(*at_out)[*nat_out] = C2A[a];
-			(*nat_out) += 1;
-		}
-	}
-	
-	for( int a = 0; a < nC2B; a++ )
-	{
-		if( !strncasecmp( C2B[a].atname, "CA",2 ) && fabs(C2B[a].charge-2) < 1e-4 )
-		{
-			if( *nions == naddSpace )
-			{
-				naddSpace *= 2;
-				*ions = (ion_add *)realloc( *ions, sizeof(ion_add) * naddSpace );
-			}
-
-			(*ions)[*nions].type = ION_CAL;
-			(*ions)[*nions].x = C2B[a].x;
-			(*ions)[*nions].y = C2B[a].y;
-			(*ions)[*nions].z = C2B[a].z;
-		
-			(*nions) += 1;
-		}
-		else
-		{
-			(*at_out)[*nat_out] = C2B[a];
-			(*nat_out) += 1;
-		}
-	}
-
-#ifdef DO_NTH	
-	for( int a = 0; a < nNTH; a++ )
-	{
-		(*at_out)[*nat_out] = NTH[a];
-		(*nat_out) += 1;
-	}
-#endif	
-	free(pcopy);	
-
-	// write sequence
-
-	struct atom_rec *at = *at_out;
-	int pres = at[a_start].res;
-	
-	int seq_space = 10;
-	int nseq = 0;
-
-	char *seq = (char *)malloc( sizeof(char) * seq_space );
-
-	seq[nseq] = threeToOne( at[a_start].resname );
-	nseq++;
-
-	for( int a = a_start; a < *nat_out; a++ )
-	{
-		if( at[a].res != pres )
-		{
-			int doff = at[a].res - pres;
-
-			if( nseq-1 + doff >= seq_space )
-			{
-				seq_space *= 2;
-				seq_space += doff;	
-			
-
-				seq = (char *)realloc( seq, sizeof(char) * (seq_space+1) );
-			}
-
-			for( int t = nseq; t < nseq-1+doff; t++ )
-				seq[t] = 'X';		
-
-			nseq = nseq-1+doff;
-
-			seq[nseq] = threeToOne( at[a].resname ); 
-			nseq++;
-		}
-
-		pres = at[a].res;
-	}	
-
-	seq[nseq] = '\0';
-
-	const char *missing_residues="GSG";
-	int nmissing = 0;
-	int ntodo = strlen(missing_residues);
-
-	for( int t = 0; t < nseq; t++ )
-	{
-		if( seq[t] == 'X' )
-		{
-			if( nmissing >= ntodo )
-			{
-				printf("ERROR. found a missing residue but didn't have enough to insert.\n");
-				exit(1);
-			}
-
-			seq[t] = missing_residues[nmissing];
-			nmissing++;
-		}
-	}
-
-	*sequence = seq;
-/*
-	printf("SEQUENCE:");
-	for( int t = 0; t < nseq; t++ )
-		printf("%c", seq[t] );
-	printf("\n");
-*/
-}
-#endif
 
 void syt7::writeStructure( Simulation *theSimulation, surface_mask *upperSurfaceMask, surface_mask *lowerSurfaceMask, struct atom_rec **at_out, int *nat_out, char **sequence, struct ion_add **ions, int *nions, 
 	aa_build_data *buildData )
 {
-	struct atom_rec *C2A = NULL;
-	struct atom_rec *C2B = NULL;
-
-	int nC2A=0;
-	int nC2B=0;
-	int nNTH=0;	
+	int nsegments = 2;
 	
 	surface *theSurface;
 	double *rsurf;
 	theSimulation->fetch(sid[0],&theSurface,&rsurf);
-	
-	double io_sign = (is_inside ? -1 : 1 );
 
-	int flipped = is_inside;
-	//
-	// This version loads the C2A/C2B structures from the structure pool and alters the membrane to use the lipids in the vicinity of the structure.
-	// Naturally, it changes the lipid composition..
-	//
-	//
-	//
-
-	// C2A: this is the attachment point of the calcium binding loop, which we assume is the main attachment point to the planar membrane.
-	int f_attach_CBL_C2A = fs[0];
-	double u_attach_CBL_C2A = puv[2*0+0];
-	double v_attach_CBL_C2A = puv[2*0+1];
-	
-	// C2B: this is the attachment point of the calcium binding loop, which we assume is the main attachment point to the planar membrane.
-	int f_attach_CBL_C2B = fs[2];
-	double u_attach_CBL_C2B = puv[2*2+0];
-	double v_attach_CBL_C2B = puv[2*2+1];
-
-	// the orientation is determined by the second attachment point
-
-	int f_orient_C2A = fs[1];
-	double u_orient_C2A = puv[2*1+0];
-	double v_orient_C2A = puv[2*1+1];
-	
-	int f_orient_C2B = fs[3];
-	double u_orient_C2B = puv[2*3+0];
-	double v_orient_C2B = puv[2*3+1];
-
-	double r_C2A_CBL[3], nrm_C2A_CBL[3];
-	double r_C2A_ORI[3], nrm_C2A_ORI[3];
-	                                   
-	double r_C2B_CBL[3], nrm_C2B_CBL[3];
-	double r_C2B_ORI[3], nrm_C2B_ORI[3];
-
-	// r_C2A_CBL determines the attachment point, nrm_* does a vector orientation.
-	theSurface->evaluateRNRM( f_attach_CBL_C2A, u_attach_CBL_C2A, v_attach_CBL_C2A, r_C2A_CBL, nrm_C2A_CBL, rsurf );
-	theSurface->evaluateRNRM( f_attach_CBL_C2B, u_attach_CBL_C2B, v_attach_CBL_C2B, r_C2B_CBL, nrm_C2B_CBL, rsurf );
-	theSurface->evaluateRNRM( f_orient_C2A, u_orient_C2A, v_orient_C2A, r_C2A_ORI, nrm_C2A_ORI, rsurf );
-	theSurface->evaluateRNRM( f_orient_C2B, u_orient_C2B, v_orient_C2B, r_C2B_ORI, nrm_C2B_ORI, rsurf );
-
-	nrm_C2A_CBL[0] *= io_sign;
-	nrm_C2A_CBL[1] *= io_sign;
-	nrm_C2A_CBL[2] *= io_sign;
-	
-	nrm_C2B_CBL[0] *= io_sign;
-	nrm_C2B_CBL[1] *= io_sign;
-	nrm_C2B_CBL[2] *= io_sign;
-	
-	nrm_C2A_ORI[0] *= io_sign;
-	nrm_C2A_ORI[1] *= io_sign;
-	nrm_C2A_ORI[2] *= io_sign;
-	
-	nrm_C2B_ORI[0] *= io_sign;
-	nrm_C2B_ORI[1] *= io_sign;
-	nrm_C2B_ORI[2] *= io_sign;
-
-	// structures loaded into the pool can be re-used and don't need to be freed here. cleanup should be through the pool mechanism.
-	
-	// chooses which residues to place at this site.
-	
-	// these are centered at the bilayer midplane.
-	int pool_code_c2a = pdbFetch( &C2A, &nC2A, "syt7", "C2A", addToPool );
-	int pool_code_c2b = pdbFetch( &C2B, &nC2B, "syt7", "C2B", addToPool );
-
-
-	// grab PROC from Andrew Beaven's Syt7 sim.
-
-	const char *segid_search_C2B = "PROC";
-
-	int grab_C2B = 0;
-	for( int x = 0; x < nC2B; x++ )
-	{
-		if( !strcasecmp(C2B[x].segid, segid_search_C2B ) )
-			grab_C2B++;		
-	}
-	
-	// four extra coordinates for orientation purposes.
-	
-	double *pcopy = (double *)malloc( sizeof(double) * 3 * (grab_C2B+4) );
-
-	grab_C2B = 0;
-	
-	int set_C2B[3] = {0,1};
-	int set_C2B_pdb[3] = {-1,-1,-1};
-	int res_C2B_pdb[3] = { 359, 347 };
-	//int res_C2B_pdb[3] = { 327, 347 }; // this is for debuggin!!!
-	const char *at_C2B_pdb[3] = { "CA", "CA" };
-	double src_xy[2], src_orientation[2];
-
-	for( int x = 0; x < nC2B; x++ )
-	{
-		if( !strcasecmp(C2B[x].segid, segid_search_C2B ) )
-		{
-			pcopy[3*grab_C2B+0] = C2B[x].x * (flipped ? -1 : 1 );  
-			pcopy[3*grab_C2B+1] = C2B[x].y; 
-			pcopy[3*grab_C2B+2] = C2B[x].z * (flipped ? -1 : 1 ); 
-
-			for( int t = 0; t < 2; t++ )
-			{
-				if( !strcasecmp( C2B[x].atname, at_C2B_pdb[t] ) && C2B[x].res == res_C2B_pdb[t] )
-					set_C2B_pdb[t] = grab_C2B;
-			}
-			grab_C2B++;		
-		}
-	}
-	
-	
-	if( set_C2B_pdb[0] == -1 || set_C2B_pdb[1] == -1 )
-	{
-		printf("ERROR could not grab correct atoms from library PDB for Syt7 C2B.\n");
-		exit(1);
-	}
-	// sets the mid-plane position directly below the protein.
-	pcopy[3*grab_C2B+0] = pcopy[3*set_C2B_pdb[0]+0]; 	
-	pcopy[3*grab_C2B+1] = pcopy[3*set_C2B_pdb[0]+1]; 	
-	pcopy[3*grab_C2B+2] = 0; 	
-	
-	pcopy[3*(grab_C2B+1)+0] = pcopy[3*set_C2B_pdb[0]+0]; 	
-	pcopy[3*(grab_C2B+1)+1] = pcopy[3*set_C2B_pdb[0]+1]; 	
-	pcopy[3*(grab_C2B+1)+2] = (flipped ? -1 : 1) * 1; // one angstrom above, the normal	
-
-
-	double d_mod[3] = { pcopy[3*set_C2B_pdb[1]+0] - pcopy[3*set_C2B_pdb[0]+0],
-			    pcopy[3*set_C2B_pdb[1]+1] - pcopy[3*set_C2B_pdb[0]+1],
-			    0 };
-
-	normalize(d_mod);
-
-	pcopy[3*(grab_C2B+2)+0] = pcopy[3*set_C2B_pdb[0]+0] + d_mod[0]; 	
-	pcopy[3*(grab_C2B+2)+1] = pcopy[3*set_C2B_pdb[0]+1] + d_mod[1]; 	
-	pcopy[3*(grab_C2B+2)+2] = 0; // midplane	
-	
-	pcopy[3*(grab_C2B+3)+0] = pcopy[3*set_C2B_pdb[0]+0] + 1.0;	
-	pcopy[3*(grab_C2B+3)+1] = pcopy[3*set_C2B_pdb[0]+1]; 	
-	pcopy[3*(grab_C2B+3)+2] = 0; // midplane	
-	
-	// the center that gets mapped to the attachment point.
-	src_xy[0] = pcopy[3*grab_C2B+0]; 
-	src_xy[1] = pcopy[3*grab_C2B+1]; 
-
-	double r_proj[3] = { r_C2B_ORI[0] - r_C2B_CBL[0],
-			     r_C2B_ORI[1] - r_C2B_CBL[1],
-			     r_C2B_ORI[2] - r_C2B_CBL[2] };
-
-	normalize(r_proj);
-	double dp = r_proj[0] * nrm_C2B_CBL[0] + r_proj[1] * nrm_C2B_CBL[1] + r_proj[2] * nrm_C2B_CBL[2];
-
-	r_proj[0] -= dp * nrm_C2B_CBL[0];
-	r_proj[1] -= dp * nrm_C2B_CBL[1];
-	r_proj[2] -= dp * nrm_C2B_CBL[2];
-
-	normalize(r_proj);
-
-	double align_C2B[12] = {
-		r_C2B_CBL[0], r_C2B_CBL[1], r_C2B_CBL[2],
-		r_C2B_CBL[0] + nrm_C2B_CBL[0], r_C2B_CBL[1] + nrm_C2B_CBL[1], r_C2B_CBL[2] + nrm_C2B_CBL[2],
-		r_C2B_CBL[0] + r_proj[0], r_C2B_CBL[1] + r_proj[1], r_C2B_CBL[2] + r_proj[2]
-	};
-
-	int main_align_set[3] = { grab_C2B, grab_C2B+1, grab_C2B+2 };
-	int surf_align_set[3] = { 0, 1, 2 };
-
-	alignStructuresOnAtomSet( align_C2B, surf_align_set, pcopy, main_align_set, 3, grab_C2B+4 ); 
-	
-/*	for( int x = 0; x < nC2B; x++ )
-	{
-		if( !strcasecmp(C2B[x].segid, segid_search_C2B ) )
-		{
-			pcopy[3*grab_C2B+0] = C2B[x].x; 
-			pcopy[3*grab_C2B+1] = C2B[x].y; 
-			pcopy[3*grab_C2B+2] = C2B[x].z; 
-		}
-	}*/
-	double x_dir[3] = { 
-			pcopy[(grab_C2B+3)*3+0] - pcopy[(grab_C2B)*3+0],
-			pcopy[(grab_C2B+3)*3+1] - pcopy[(grab_C2B)*3+1],
-			pcopy[(grab_C2B+3)*3+2] - pcopy[(grab_C2B)*3+2] };
-
-	double drdu[3], drdv[3];
-
-	theSurface->ru( f_attach_CBL_C2B, u_attach_CBL_C2B, v_attach_CBL_C2B, rsurf, drdu ); 
-	theSurface->rv( f_attach_CBL_C2B, u_attach_CBL_C2B, v_attach_CBL_C2B, rsurf, drdv ); 
-
-	double rr = x_dir[0]*x_dir[0]+x_dir[1]*x_dir[1]+x_dir[2]*x_dir[2];
-	double ruru = drdu[0]*drdu[0]+drdu[1]*drdu[1]+drdu[2]*drdu[2];
-	double rvrv = drdv[0]*drdv[0]+drdv[1]*drdv[1]+drdv[2]*drdv[2];
-	double rurv = drdu[0]*drdv[0]+drdu[1]*drdv[1]+drdu[2]*drdv[2];
-	double rru = drdu[0]*x_dir[0]+drdu[1]*x_dir[1]+drdu[2]*x_dir[2];
-	double rrv = x_dir[0]*drdv[0]+x_dir[1]*drdv[1]+x_dir[2]*drdv[2];
-	
-
-
-	// this is the du,dv, vector that should be matched to the x-dir of the simulation
-	src_orientation[0] = -(-rrv * rurv + 2 * rru * rvrv)/(rurv*rurv-4*ruru*rvrv);
-	src_orientation[1] = -(-rru * rurv + 2 * rrv * ruru)/(rurv*rurv-4*ruru*rvrv);	
-	
-	// x_dir = ku drdu + kv drdv
-
-	int grab_C2A=0;
-	int grab_NTH=0;
-	(*at_out) = (struct atom_rec *)realloc( *at_out, sizeof(struct atom_rec) * (*nat_out + grab_C2A + grab_C2B + grab_NTH ) );
+	const char *domain_names[] = { "C2A", "C2B" };
+	const char *segment_names[] = { "PROA", "PROC" };
+	int segment_surface_sites[][2] = { {0, -1}, {2, -1} };
+	//int segment_surface_sites[][2] = { {0, 1}, {2, 3} };
+	int segment_aqueous_sites[][2] = { {4, 5}, {5, 4}  };
+	int segment_residues[][3] = {    { 227, 222, 262},
+					{ 359, 305, 267} };
 	
 	int a_start = *nat_out;
-
-	int naddSpace = *nions+10;
-
-	*ions = (ion_add *)realloc( *ions,  sizeof(ion_add) * naddSpace );
-
-	int tx = 0;
-
-	for( int a = 0; a < nC2B; a++ )
+	
+	int a_markers[2] = { 0,0};
+	double com[2][3] = { {0,0,0}, {0,0,0} };
+	int ncom[2] = {0,0};
+	for( int seg = 0; seg < 2; seg++ )
 	{
-		if( !strcasecmp(C2B[a].segid, segid_search_C2B ) )
+		a_markers[seg] = *nat_out;
+
+		struct atom_rec *at;
+		int nat;
+
+		int pool_code = pdbFetch( &at, &nat, "syt7", domain_names[seg], addToPool );
+
+		int ntries = 0;
+		double random_noise = 0.01;
+
+		int clash = 1;
+		// addPeri... returns one if there's a clash.. keep trying, injecting more noise
+		while( (clash = addPeripheralProteinHelper( theSimulation, upperSurfaceMask, lowerSurfaceMask,
+			at_out, nat_out,
+			ions, nions,	
+			pool_code,
+			segment_names[seg],
+			segment_residues[seg],	
+			segment_surface_sites[seg],	
+			segment_aqueous_sites[seg],	
+				buildData, random_noise )) && ntries < 500)
 		{
-			
-			if( !strncasecmp( C2B[a].atname, "CA",2 ) && fabs(C2B[a].charge-2) < 1e-4 )
-			{
-				if( *nions == naddSpace )
-				{
-					naddSpace *= 2;
-					*ions = (ion_add *)realloc( *ions, sizeof(ion_add) * naddSpace );
-				}
-
-				(*ions)[*nions].type = ION_CAL;
-				(*ions)[*nions].x = pcopy[3*tx+0];
-				(*ions)[*nions].y = pcopy[3*tx+1];
-				(*ions)[*nions].z = pcopy[3*tx+2];
+			// re-orient.
 		
-				(*nions) += 1;
-			}
-			else
-			{
-				(*at_out)[*nat_out] = C2B[a];
-				// the oriented structure.
-				(*at_out)[*nat_out].x = pcopy[3*tx+0];
-				(*at_out)[*nat_out].y = pcopy[3*tx+1];
-				(*at_out)[*nat_out].z = pcopy[3*tx+2];
-
-				(*nat_out) += 1;
-			}
-
-			tx++;
+			if( ntries % 5 == 0 )
+				random_noise *= 1.05;	
+			ntries++;
 		}
+
+		if( clash )
+		{
+			printf("ADD FAILED. clash.\n");
+			exit(1);
+		}
+		
+
+		for( int a = a_markers[seg]; a < *nat_out; a++ )
+		{
+			com[seg][0] += (*at_out)[a].x;
+			com[seg][1] += (*at_out)[a].y;
+			com[seg][2] += (*at_out)[a].z;
+			ncom[seg] += 1;
+		}
+	
+		com[seg][0] /= ncom[seg];
+		com[seg][1] /= ncom[seg];
+		com[seg][2] /= ncom[seg];
 	}
 
-	free(pcopy);	
 
-	// write sequence
+	double dr[3] = { com[1][0] - com[0][0], com[1][1] - com[0][1], com[1][2] - com[0][2] };
+	double put[3];
 
-	struct atom_rec *at = *at_out;
+	MinImage3D( dr, theSimulation->PBC_vec, put ); 
+
+	for( int a = a_markers[1]; a < *nat_out; a++ )
+	{
+		(*at_out)[a].x += put[0] * theSimulation->PBC_vec[0][0] + put[1] * theSimulation->PBC_vec[1][0] + put[2] * theSimulation->PBC_vec[2][0];
+		(*at_out)[a].y += put[0] * theSimulation->PBC_vec[0][1] + put[1] * theSimulation->PBC_vec[1][1] + put[2] * theSimulation->PBC_vec[2][1];
+		(*at_out)[a].z += put[0] * theSimulation->PBC_vec[0][2] + put[1] * theSimulation->PBC_vec[1][2] + put[2] * theSimulation->PBC_vec[2][2];
+	}
+
+/*	double del[3] = { 0,0,0};
+
+	while( dr[0] + del[0] > La/2 ) del[0] -= La;
+	while( dr[0] + del[0] <-La/2 ) del[0] += La;
+	while( dr[1] + del[1] > Lb/2 ) del[1] -= Lb;
+	while( dr[1] + del[1] <-Lb/2 ) del[1] += Lb;
+	while( dr[2] + del[2] > Lc/2 ) del[2] -= Lc;
+	while( dr[2] + del[2] <-Lc/2 ) del[2] += Lc;
+*/	struct atom_rec *at = *at_out;
+
+	// make sure the domains are in the same PBC
+
+
 	int pres = at[a_start].res;
 	
 	int seq_space = 10;
@@ -1732,7 +1119,6 @@ void syt7::writeStructure( Simulation *theSimulation, surface_mask *upperSurface
 			{
 				seq_space *= 2;
 				seq_space += doff;	
-			
 
 				seq = (char *)realloc( seq, sizeof(char) * (seq_space+1) );
 			}
@@ -1751,7 +1137,6 @@ void syt7::writeStructure( Simulation *theSimulation, surface_mask *upperSurface
 
 	seq[nseq] = '\0';
 
-#ifdef FOR_LATER
 	const char *missing_residues="GSG";
 	int nmissing = 0;
 	int ntodo = strlen(missing_residues);
@@ -1770,26 +1155,8 @@ void syt7::writeStructure( Simulation *theSimulation, surface_mask *upperSurface
 			nmissing++;
 		}
 	}
-#endif
 	*sequence = seq;
-	
-
-	if( io_sign > 0 )
-		upperSurfaceMask->modifyMaskWithPoolAtPoint( theSurface, rsurf, theSimulation->PBC_vec, pool_code_c2b,
-				f_attach_CBL_C2B, u_attach_CBL_C2B, v_attach_CBL_C2B, 15.0, 
-					src_xy,
-					src_orientation, flipped );				 
-	else
-		lowerSurfaceMask->modifyMaskWithPoolAtPoint( theSurface, rsurf, theSimulation->PBC_vec, pool_code_c2b,
-				f_attach_CBL_C2B, u_attach_CBL_C2B, v_attach_CBL_C2B, 15.0, 
-					src_xy,
-					src_orientation, flipped );				 
-	
-/*
-	printf("SEQUENCE:");
-	for( int t = 0; t < nseq; t++ )
-		printf("%c", seq[t] );
-	printf("\n");
-*/
 }
+
+
 

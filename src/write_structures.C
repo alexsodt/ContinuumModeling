@@ -9,7 +9,7 @@
 #include "pcomplex.h"
 #include "mutil.h"
 	
-static int plim = 1;
+static int plim = 3;
 
 void surface::writeSurface( const char *fileName)
 {
@@ -710,9 +710,23 @@ void surface::writeLimitingSurface( FILE *theFile, pcomplex **allComplexes, int 
 			double rl[3],nrm[3];
 		
 			evaluateRNRM( t, f1, f2, rl, nrm, r );
-	
-	
-			fprintf(theFile, "C %lf %lf %lf\n", rl[0], rl[1], rl[2] );
+			int spec_pt = 0;
+
+			if( t < nf_faces )
+			{
+				if( fabs(theFormulas[t*nf_g_q_p+0].c0) > 0.001 )	
+						spec_pt = 1;
+			}
+			else
+			{
+				int t_use = t - nf_faces;
+				if( fabs(theIrregularFormulas[t_use*nf_irr_pts+0].c0) > 0.001 )	
+						spec_pt = 1;
+			}
+			if( spec_pt )
+				fprintf(theFile, "N %lf %lf %lf\n", rl[0], rl[1], rl[2] );
+			else
+				fprintf(theFile, "C %lf %lf %lf\n", rl[0], rl[1], rl[2] );
 		}
 	}
 
@@ -1389,8 +1403,23 @@ void Simulation::writeLimitingSurface( FILE *theFile )
 			
 				theSurface->evaluateRNRM( t, f1, f2, rl, nrm, r );
 		
-		
-				fprintf(theFile, "C %lf %lf %lf\n", rl[0], rl[1], rl[2] );
+				int spec_pt = 0;
+	
+				if( t < theSurface->nf_faces )
+				{
+					if( fabs(theSurface->theFormulas[t*theSurface->nf_g_q_p+0].c0) > 0.001 )	
+							spec_pt = 1;
+				}
+				else
+				{
+					int t_use = t - theSurface->nf_faces;
+					if( fabs(theSurface->theIrregularFormulas[t_use*theSurface->nf_irr_pts+0].c0) > 0.001 )	
+						spec_pt = 1;
+				}
+				if( spec_pt )	
+					fprintf(theFile, "N %lf %lf %lf\n", rl[0], rl[1], rl[2] );
+				else
+					fprintf(theFile, "C %lf %lf %lf\n", rl[0], rl[1], rl[2] );
 			}
 		}
 

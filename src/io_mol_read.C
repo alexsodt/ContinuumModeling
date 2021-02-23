@@ -73,6 +73,12 @@ void io_readStructureFile( char *fileName )
 
 	FILE *theFile = fopen(fileName,"r");
 
+	if( !theFile ) 
+	{
+		printf("Couldn't open structure file '%s'.\n", fileName );
+		exit(1);
+	}
+
 	if( !strcasecmp(fileName+strlen(fileName)-3,"pdb") )
 		loadPSFfromPDB(theFile);
 	else
@@ -124,6 +130,12 @@ void io_initialize_read( char *fileName )
 		}
 
 		theFrame->file_handle = fopen(fileName,"r");
+
+		if( !theFrame->file_handle )
+		{
+			printf("Couldn't open file '%s'.\n", fileName );
+			exit(1);
+		}
 
 		if( !strcasecmp(fileName+strlen(fileName)-3,"pdb") )
 			theFrame->nframes = 1;
@@ -380,14 +392,28 @@ int addStructureToPool( const char *fileNameStruct, const char *fileNamePSF )
 		fclose(psfFile);
 	}
 	else
+	{
 		loadPSFfromPDB( structFile ); 		
-
+		if( curNAtoms() == 0 )
+		{
+			printf("ERROR. Failed to read any atoms from file '%s'.\n", fileNameStruct );
+			exit(1); 
+		}
+	}
 	int nat = curNAtoms();
+
 
 	struct atom_rec *at = (struct atom_rec *)malloc( sizeof(struct atom_rec ) * curNAtoms() );
 
 	rewind(structFile);
-	loadPDB(structFile, at ); 
+	int nread = loadPDB(structFile, at ); 
+
+	if( nread != curNAtoms() )
+	{
+		printf("ERROR reading atoms from pdb '%s'. Expected %d but found %d.\n",
+			fileNameStruct, curNAtoms(), nread );
+		exit(1);			
+	}
 
 	fclose(structFile);			
 	
@@ -605,6 +631,55 @@ int addStructureToPool( const char *fileNameStruct, const char *fileNamePSF )
 
 	for( int a = 0; a < curNAtoms(); a++ )
 		at[a].z -= wrapto;
+
+	// wrap proteins around z.
+	
+	char pseg[256] = { '\0' };
+
+	if( at[0].segid )
+		strcpy( pseg, at[0].segid );
+
+	int start_flag = 1;
+	int protein_seg_start = -1;
+	int protein_seg_stop  = -1;
+	for( int a = 0; a <= curNAtoms(); a++ )
+	{
+		if( protein_seg_start >= 0 && ( a== curNAtoms() || strcasecmp( at[a].segid, pseg)) )
+		{
+			double com_z = 0;
+
+			for( int a2 = protein_seg_start; a2 <= protein_seg_stop; a2++ )
+				com_z += at[a2].z;
+			com_z /= (protein_seg_stop-protein_seg_start+1);
+			double shift_z = 0;
+			while(com_z + shift_z < -Lz/2 ) shift_z += Lz;
+			while(com_z + shift_z >  Lz/2 ) shift_z -= Lz;
+			// this is what we're actually trying to accomplish:
+			for( int a2 = protein_seg_start; a2 <= protein_seg_stop; a2++ )
+				at[a2].z += shift_z;		
+
+			protein_seg_start=-1;
+			protein_seg_stop =-1;
+		}
+
+		if( a == curNAtoms() )
+			break;
+
+		int is_protein = !strncasecmp( at[a].segid, "PRO", 3);
+
+		// terminating a structure?
+
+		if( is_protein && (start_flag || strcasecmp(at[a].segid, pseg ) ) )
+			protein_seg_start = a;
+		else if( is_protein ) // continuation
+			protein_seg_stop = a;	
+
+		start_flag = 0;
+
+		strcpy( pseg, at[a].segid );
+	}
+
+
 	// fill lipid positions
 
 	for( int l = 0; l < nlipids; l++ )
