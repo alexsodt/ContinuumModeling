@@ -299,6 +299,9 @@ int main( int argc, char **argv )
 	if( block.fitRho )
 		theSimulation->setupDensity( block.fitRho, block.shiftRho );
 
+	if( block.clathrinStructure )
+		theSimulation->setupClathrinFitter( &block );
+
 	if( block.use_fix_x_cut ) theSimulation->allSurfaces->theSurface->setupCut( 0, block.fix_x_cut, theSimulation->allSurfaces->r ); 
 	if( block.use_fix_y_cut ) theSimulation->allSurfaces->theSurface->setupCut( 1, block.fix_y_cut, theSimulation->allSurfaces->r ); 
 	if( block.use_fix_z_cut ) theSimulation->allSurfaces->theSurface->setupCut( 2, block.fix_z_cut, theSimulation->allSurfaces->r ); 
@@ -331,6 +334,15 @@ int main( int argc, char **argv )
 	}
 	else
 		theSimulation->rd = NULL;
+
+	{
+		double rpt[3], nrm[3];
+		theSurface1->evaluateRNRM( 0, 1.0/3.0, 1.0/3.0, rpt, nrm, r1 );
+
+		printf("example R: %lf %lf %lf NRM: %lf %lf %lf\n", rpt[0], rpt[1], rpt[2], nrm[0], nrm[1], nrm[2] );
+	}
+
+
 	int nmodes = 8;
 	int nspacehk = 10;
 	int nhk = 0;
@@ -677,6 +689,7 @@ int main( int argc, char **argv )
 		}
 
 		theSimulation->loadRestart(xyzLoad,&debug_seed);
+		
 
 		if( debug_seed > 0 )	
 			use_seed = debug_seed;
@@ -727,6 +740,8 @@ int main( int argc, char **argv )
 					pp[Q] = genp;
 			}
 		}
+
+
 		int nr = fscanf( xyzLoad, "seed %d", &debug_seed );
 
 		if( nr > 0 )
@@ -832,9 +847,9 @@ int main( int argc, char **argv )
 	if( block.nmin > 0 )
 	{
 		FILE *mpsf;
-		FILE *minFile;
+		FILE *minFile = NULL;
 
-		if( par_info.my_id == BASE_TASK )
+		if( par_info.my_id == BASE_TASK && block.movie)
 		{
 			char *output_name = (char *)malloc( sizeof(char) * ( 1 + strlen(block.jobName) + strlen("minimize_.xyz") + 16 ) );
 			sprintf(output_name, "minimize_%s.psf", block.jobName );
@@ -850,15 +865,17 @@ int main( int argc, char **argv )
 		for( surface_record *sRec = theSimulation->allSurfaces; sRec; sRec = sRec->next )
 			sRec->theSurface->put(sRec->r);
 		for( int c = 0; c < theSimulation->ncomplex; c++ ) theSimulation->allComplexes[c]->refresh(theSimulation );
-		if( par_info.my_id == BASE_TASK )
+		if( par_info.my_id == BASE_TASK && minFile )
 		 	theSimulation->writeLimitingSurface(minFile );
 		for( int m = 0; m < block.nmin; m++ )
 		{
-			theSimulation->minimize(any_do_gen_q);
+			theSimulation->minimize(any_do_gen_q, m % 3 != 0 ); // second argument freezes clathrin most of the time
+//			if( block.clathrinStructure )
+//				theSimulation->OptClathrin();
 			for( surface_record *sRec = theSimulation->allSurfaces; sRec; sRec = sRec->next )
 				sRec->theSurface->put(sRec->r);
 			for( int c = 0; c < theSimulation->ncomplex; c++ ) theSimulation->allComplexes[c]->refresh(theSimulation);
-			if( par_info.my_id == BASE_TASK )
+			if( par_info.my_id == BASE_TASK && minFile )
 	 			theSimulation->writeLimitingSurface(minFile);
 
 			if(block.minimizeResetG )
@@ -867,11 +884,13 @@ int main( int argc, char **argv )
 					sRec->theSurface->setg0(sRec->r,0.1);
 			}
 		}
+		if( block.clathrinStructure )
+			theSimulation->WriteClathrin(&block);
 		if( par_info.my_id == BASE_TASK )
 		{
 			FILE *minSave = fopen("min.save","w");
 			theSimulation->saveRestart(minSave,-1);
-			fclose(minFile);
+			if( minFile ) fclose(minFile);
 		}
 		
 	}
@@ -2331,6 +2350,8 @@ int main( int argc, char **argv )
 
 	if( block.create_all_atom )
 	{
+		for( int c = 0; c < theSimulation->ncomplex; c++ ) 
+			theSimulation->allComplexes[c]->refresh(theSimulation );
 		FILE *tpsf = NULL;
 		char fname[256];
 		sprintf(fname, "%s_create.psf", block.jobName );
@@ -2345,6 +2366,20 @@ int main( int argc, char **argv )
 		printf("Creating all atom from just the first surface.\n");
 		theSimulation->allSurfaces->theSurface->createAllAtom(  theSimulation, &block, theSimulation->allComplexes, theSimulation->ncomplex );
 	}
+
+	if( block.analyze_pore )
+	{
+		printf("Analyzing the first surface present.\n");
+		double min_C[3], max_C[3], av_C[3];
+		double min_K[3], max_K[3], av_K[3];
+		double areas[3];
+		int *face_labels = (int *)malloc( sizeof(int) * theSimulation->allSurfaces->theSurface->nt );
+
+		theSimulation->allSurfaces->theSurface->GetFusionPoreRegionStats( theSimulation->allSurfaces->r, &block );
+
+	
+	}
+
 /*	FILE *saveFile = fopen("file.save", "w");
 
 	for( int x = 0; x < theSurface->nv; x++ )

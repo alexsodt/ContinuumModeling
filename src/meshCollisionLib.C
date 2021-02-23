@@ -20,8 +20,8 @@
 #define SKIP_SUPPORT_CHECK
 #define MEGA_DEL (10.0)
 
-#define USE_MAX_LEVEL 10
-#define COLLISION_LEVEL 10 
+#define USE_MAX_LEVEL 12
+#define COLLISION_LEVEL 12
 
 #define FRACTIONAL_TOLERANCE
 
@@ -1019,6 +1019,11 @@ void surface::box_system( double edge_length ) {
 	xlength = edge_length;
 	ylength = edge_length;
 	zlength = edge_length;
+
+	if( xlength <= 0 )		xlength = 1;
+	if( ylength <= 0 )		ylength = 1;
+	if( zlength <= 0 )		zlength = 1;
+
 
         xbox = factor * LA / xlength;
 	ybox = factor * LB / ylength;
