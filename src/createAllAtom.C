@@ -171,6 +171,7 @@ void surface::createAllAtom( Simulation *theSimulation, parameterBlock *block, p
 	int nprotein=0;
 	int proteinIsCRD = 0;
 	int loadProtein = 0;
+	int one_eighth = block->one_eighth;
 
 	char *doubleBondFile = (char *)malloc( sizeof(char) * (strlen(block->jobName) + 1 + strlen(".indx") ) );
 	sprintf(doubleBondFile, "%s.indx", block->jobName );
@@ -790,6 +791,14 @@ void surface::createAllAtom( Simulation *theSimulation, parameterBlock *block, p
 
 	double area_target_outside = area_outside * (1 + JZ * PP_out + KZ * PP * PP )* exp(-0.5*block->strainOuter);
 	double area_target_inside  = area_inside * (1 - JZ * PP_in + KZ * PP * PP )*exp(-0.5*block->strainInner);
+
+	if( one_eighth )
+	{
+		area_target_outside *= 0.125;
+		area_target_inside *= 0.125;
+	}
+
+
 	printf("Area-midplane: %le Area_NS/PP_outside: %le\n", area0, area_target_outside );
 	printf("Area-midplane: %le Area_NS/PP_inside:  %le\n", area0, area_target_inside  );
 
@@ -1312,7 +1321,22 @@ void surface::createAllAtom( Simulation *theSimulation, parameterBlock *block, p
 					}
 					if( !okay ) continue;
 		
-					if( regions_for_face[fout] == r && ncrosses < 5)
+					double fr_coor[3] = { test_rpt[0]/PBC_vec[0][0], test_rpt[1]/PBC_vec[1][1], test_rpt[2]/PBC_vec[2][2] };
+
+					while( fr_coor[0] < -0.5 ) fr_coor[0] += 1;
+					while( fr_coor[1] < -0.5 ) fr_coor[1] += 1;
+					while( fr_coor[2] < 0.5 ) fr_coor[2] += 1;
+					while( fr_coor[0] > 0.5 ) fr_coor[0] -= 1;
+					while( fr_coor[1] > 0.5 ) fr_coor[1] -= 1;
+					while( fr_coor[2] > 0.5 ) fr_coor[2] -= 1;
+
+					if( one_eighth )
+					{
+						if( fr_coor[0] > 0.25 || fr_coor[1] > 0.25 || fr_coor[2] > 0.25 || fr_coor[2] < -0.25 || fr_coor[0] < -0.25 || fr_coor[1] < -0.25  )
+							continue;
+					}
+
+					if( regions_for_face[fout] == r && ncrosses < 5 )
 					{
 						nlipids_placed += 1;
 						if( x_leaflet == 0 )
@@ -1488,6 +1512,13 @@ void surface::createAllAtom( Simulation *theSimulation, parameterBlock *block, p
 		int nsolvent_y = ceil(PBC_vec[1][1] / solvate_PBC[1]);
 		int nsolvent_z = ceil(PBC_vec[2][2] / solvate_PBC[2]);
 
+		if( one_eighth )
+		{
+			nsolvent_x = ceil(PBC_vec[0][0] / solvate_PBC[0] / 2);
+			nsolvent_y = ceil(PBC_vec[1][1] / solvate_PBC[1] / 2);
+			nsolvent_z = ceil(PBC_vec[2][2] / solvate_PBC[2] / 2);
+		}
+
 		// we don't want to do solvent PBC loops over the main cell. we only want to keep residues that are inside the box.
 		// make sure the interior coordinates are centered properly.
 
@@ -1626,9 +1657,18 @@ void surface::createAllAtom( Simulation *theSimulation, parameterBlock *block, p
 
 				if( ! block->perfect_solvent_tiling )
 				{
-					if( rcom[0] < -PBC_vec[0][0]/2 || rcom[0] >= PBC_vec[0][0]/2 ) continue;
-					if( rcom[1] < -PBC_vec[1][1]/2 || rcom[1] >= PBC_vec[1][1]/2 ) continue;
-					if( rcom[2] < -PBC_vec[2][2]/2 || rcom[2] >= PBC_vec[2][2]/2 ) continue;
+					if( one_eighth )
+					{
+						if( rcom[0] < -PBC_vec[0][0]/4 || rcom[0] >= PBC_vec[0][0]/4 ) continue;
+						if( rcom[1] < -PBC_vec[1][1]/4 || rcom[1] >= PBC_vec[1][1]/4 ) continue;
+						if( rcom[2] < -PBC_vec[2][2]/4 || rcom[2] >= PBC_vec[2][2]/4 ) continue;
+					}
+					else
+					{
+						if( rcom[0] < -PBC_vec[0][0]/2 || rcom[0] >= PBC_vec[0][0]/2 ) continue;
+						if( rcom[1] < -PBC_vec[1][1]/2 || rcom[1] >= PBC_vec[1][1]/2 ) continue;
+						if( rcom[2] < -PBC_vec[2][2]/2 || rcom[2] >= PBC_vec[2][2]/2 ) continue;
+					}
 				}
 			
 				if( block->do_rim )
@@ -1782,6 +1822,15 @@ void surface::createAllAtom( Simulation *theSimulation, parameterBlock *block, p
 						rp[0] = -PBC_vec[0][0]/2 + PBC_vec[0][0] * rand()/(double)RAND_MAX;
 						rp[1] = -PBC_vec[1][1]/2 + PBC_vec[1][1] * rand()/(double)RAND_MAX;
 						rp[2] = -PBC_vec[2][2]/2 + PBC_vec[2][2] * rand()/(double)RAND_MAX; 
+
+
+						if( one_eighth )
+						{
+							rp[0] = -PBC_vec[0][0]/4 + PBC_vec[0][0]/2 * rand()/(double)RAND_MAX;
+							rp[1] = -PBC_vec[1][1]/4 + PBC_vec[1][1]/2 * rand()/(double)RAND_MAX;
+							rp[2] = -PBC_vec[2][2]/4 + PBC_vec[2][2]/2 * rand()/(double)RAND_MAX; 
+						}
+
 						int bad_res = buildData->nclash_aa( rp, 1, 0, ion_cutoff ); 
 	
 		

@@ -260,6 +260,11 @@ void io_readFrame( char *fileName )
 	theFrame->populated = 1;
 }
 
+int io_nAtoms( void )
+{
+	return theFrame->natoms;
+}
+
 int io_nNSAtoms( void )
 {
 	if( !theFrame )

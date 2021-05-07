@@ -16,6 +16,7 @@ typedef struct global_boxing
 
 	void setPBC( double PBC_vec[3][3], double *alphas );
 	int addp( double *r, int pind );
+	int movep( double *r, int id, int cur_box);
 	void clearBoxing( int *list= NULL, int nclear=0 );
 	int getNearPts( double *r, int *plist, double rad_search );
 	void setup_boxing( double target_box_width, double PBC[3][3] );

@@ -734,8 +734,26 @@ void surface::writeLimitingSurface( FILE *theFile, pcomplex **allComplexes, int 
 
 	for( int c = 0; c < ncomplexes; c++ )
 	{
+		if( allComplexes[c]->nsites <= 0 ) continue;
+
+		double p_loop[3] = { allComplexes[c]->rall[0], allComplexes[c]->rall[1], allComplexes[c]->rall[2] };
+		
 		for( int p = 0; p < allComplexes[c]->nsites; p++ )
-			fprintf(theFile, "O %lf %lf %lf\n", allComplexes[c]->rall[3*p+0], allComplexes[c]->rall[3*p+1], allComplexes[c]->rall[3*p+2] );
+		{
+			char siteCode = allComplexes[c]->getSiteCode(p);
+			double dr[3] = { allComplexes[c]->rall[3*p+0] - p_loop[0],
+					 allComplexes[c]->rall[3*p+1] - p_loop[1],
+					 allComplexes[c]->rall[3*p+2] - p_loop[2] };
+				
+			double put[3];	
+			MinImage3D( dr, PBC_vec, put );
+
+
+			fprintf(theFile, "%c %lf %lf %lf\n", siteCode, 
+				p_loop[0] + dr[0],
+				p_loop[1] + dr[1],
+				p_loop[2] + dr[2] );
+		}
 	}
 	fflush(theFile);
 }
@@ -1482,10 +1500,23 @@ void Simulation::writeLimitingSurface( FILE *theFile )
 	for( int c = 0; c < ncomplex; c++ )
 	{
 		if( allComplexes[c]->disabled ) continue;
+		if( allComplexes[c]->nsites <= 0 ) continue;
 
+		double p_loop[3] = { allComplexes[c]->rall[0], allComplexes[c]->rall[1], allComplexes[c]->rall[2] };
+		
 		for( int p = 0; p < allComplexes[c]->nsites; p++ )
 		{
-			fprintf(theFile, "O %lf %lf %lf\n", allComplexes[c]->rall[3*p+0], allComplexes[c]->rall[3*p+1], allComplexes[c]->rall[3*p+2] );
+			char siteCode = allComplexes[c]->getSiteCode(p);
+			double dr[3] = { allComplexes[c]->rall[3*p+0] - p_loop[0],
+					 allComplexes[c]->rall[3*p+1] - p_loop[1],
+					 allComplexes[c]->rall[3*p+2] - p_loop[2] };
+				
+			wrapPBC( dr, alpha );
+
+			fprintf(theFile, "%c %lf %lf %lf\n", siteCode, 
+				p_loop[0] + dr[0],
+				p_loop[1] + dr[1],
+				p_loop[2] + dr[2] );
 			nsites_written++;
 		}
 	}

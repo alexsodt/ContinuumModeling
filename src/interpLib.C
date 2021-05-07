@@ -70,8 +70,8 @@ double phase2 = 0;
 #ifdef LOW_RES
 #define G_Q_P_1
 #else
-#define G_Q_P_3
-//#define G_Q_P_15
+//#define G_Q_P_3
+#define G_Q_P_15
 #endif
 //#define G_Q_P_3
 //#define G_Q_P_4
@@ -109,6 +109,11 @@ double ext_com_k = 0;
 double force_face_0 = 0;
 double ext_force_vec[3] = { 1/sqrt(3), 1/sqrt(3),1/sqrt(3) };
 
+static int fusion_pore_active = 0;
+void activateFusionPore( void )
+{
+	fusion_pore_active = 1;
+}
 
 int compare_sense( int code1, int code2 )
 {
@@ -1768,56 +1773,61 @@ void surface::finishLoad( int total_valence, int *load_tri, int nload_tri, surfa
 	}
 
 
-
-	for( int t = 0; t < nt; t++ )
-	{
-		int i = theTriangles[t].ids[0];
-		int j = theTriangles[t].ids[1];
-		int k = theTriangles[t].ids[2];
-		
-		double dr1[3] = { 
-				theVertices[i].r[0] - theVertices[j].r[0],
-				theVertices[i].r[1] - theVertices[j].r[1],
-				theVertices[i].r[2] - theVertices[j].r[2] };
-		double dr2[3] = { 
-				theVertices[k].r[0] - theVertices[j].r[0],
-				theVertices[k].r[1] - theVertices[j].r[1],
-				theVertices[k].r[2] - theVertices[j].r[2] };
-
-		double put[3] = {0,0,0};
-		MinImage3D( dr1, PBC_vec, put );
-		put[0] = 0;
-		put[1] = 0;
-		put[2] = 0;
-		MinImage3D( dr2, PBC_vec, put );
-
-		double fcom[3] = { 
-			(3*theVertices[j].r[0] + dr1[0] + dr2[0] )/3,
-			(3*theVertices[j].r[1] + dr1[1] + dr2[1] )/3,
-			(3*theVertices[j].r[2] + dr1[2] + dr2[2] )/3 };
-
-		normalize(fcom);
-		double cp[3];
-
-		cross( dr1, dr2, theTriangles[t].nrm);
-		normalize(theTriangles[t].nrm);
-		if( !(theTriangles[t].nrm[0] < 0 || theTriangles[t].nrm[0] > -2) )
+#if 0 // DELETE THIS	
+		for( int t = 0; t < nt; t++ )
 		{
-			printf("yikes.\n");
-			exit(1);
+			int i = theTriangles[t].ids[0];
+			int j = theTriangles[t].ids[1];
+			int k = theTriangles[t].ids[2];
+			
+			double dr1[3] = { 
+					theVertices[i].r[0] - theVertices[j].r[0],
+					theVertices[i].r[1] - theVertices[j].r[1],
+					theVertices[i].r[2] - theVertices[j].r[2] };
+			double dr2[3] = { 
+					theVertices[k].r[0] - theVertices[j].r[0],
+					theVertices[k].r[1] - theVertices[j].r[1],
+					theVertices[k].r[2] - theVertices[j].r[2] };
+	
+			double put[3] = {0,0,0};
+			MinImage3D( dr1, PBC_vec, put );
+			put[0] = 0;
+			put[1] = 0;
+			put[2] = 0;
+			MinImage3D( dr2, PBC_vec, put );
+	
+			double fcom[3] = { 
+				(3*theVertices[j].r[0] + dr1[0] + dr2[0] )/3,
+				(3*theVertices[j].r[1] + dr1[1] + dr2[1] )/3,
+				(3*theVertices[j].r[2] + dr1[2] + dr2[2] )/3 };
+	
+			normalize(fcom);
+			double cp[3];
+	
+			cross( dr1, dr2, theTriangles[t].nrm);
+			normalize(theTriangles[t].nrm);
+			if( !(theTriangles[t].nrm[0] < 0 || theTriangles[t].nrm[0] > -2) )
+			{
+				printf("yikes.\n");
+				exit(1);
+			}
+			theTriangles[t].dp  = fcom[0] * theTriangles[t].nrm[0];	
+			theTriangles[t].dp += fcom[1] * theTriangles[t].nrm[1];	
+			theTriangles[t].dp += fcom[2] * theTriangles[t].nrm[2];	
+	
+			theTriangles[t].sense = 0;
+	
 		}
-		theTriangles[t].dp  = fcom[0] * theTriangles[t].nrm[0];	
-		theTriangles[t].dp += fcom[1] * theTriangles[t].nrm[1];	
-		theTriangles[t].dp += fcom[2] * theTriangles[t].nrm[2];	
-
-		theTriangles[t].sense = 0;
-	}
+	constructTriangles();
+#endif
 
 	
 
-	constructTriangles();
 	int orientable_done = 0;
 	int niter = 0;
+	
+
+
 	while( !orientable_done )
 	{
 		constructTriangles();

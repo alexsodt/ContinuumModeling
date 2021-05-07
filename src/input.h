@@ -10,6 +10,7 @@ struct complex_record
 	int saddle; // move to a saddle point of the membrane
 	int positive; // move to maximize local positive curvature
 	int negative; // move to maximize local negative curvature
+	int nmer;
 	double coverage;
 	double concentration;
 
@@ -39,8 +40,14 @@ class parameterBlock
 	// special options related to clathrin-cage fitting
 	char *clathrinStructure;
 	double clathrin_force_k;
-
-
+	double clathrin_h;
+	int freeze_clathrin;
+	int recenter_clathrin;
+	int clathrin_rotor;
+	int point_lock;
+	int do_fixed_point_rho;
+	int midplane_fit;
+	int fusion_pore;
 	// gather
 	int do_gather;
 	char *dcdName;
@@ -281,6 +288,7 @@ class parameterBlock
 	int analyze_pore;
 	double pore_outer_cut;
 	double pore_dz_from_center;
+	int one_eighth; // special cubic phase build: only one eighth of system.
 
 	double shift[3];
 

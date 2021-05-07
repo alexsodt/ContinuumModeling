@@ -10,6 +10,7 @@
 #include "face_mask.h"
 #include "aa_build_util.h"
 #include "uv_map.h"
+#include "M_matrix.h"
 
 #define SQRT_SAFETY (1e-7)
 
@@ -468,7 +469,7 @@ int syt7::getNBonds( void )
 	return 5;
 }
 
-void syt7::putBonds( int *bond_list )
+void syt7::putBonds( int *bond_list, double *r, double *k)
 {
 	bond_list[0] = 0;
 	bond_list[1] = 4;
@@ -1156,6 +1157,324 @@ void syt7::writeStructure( Simulation *theSimulation, surface_mask *upperSurface
 		}
 	}
 	*sequence = seq;
+}
+
+/* this function 
+ * "gets" the coarse-grained coordinates of the observed protein from the molecular structure -- and its fit to the membrane surface.
+ *
+ * */
+
+
+void syt7::get( 
+		Simulation *theSimulation, // this is the surface/PBC
+		struct atom_rec *at,
+		int syt7_start, int syt7_stop )
+{
+	int nsegments = 2;
+	
+	surface *theSurface;
+	double *rsurf;
+	theSimulation->fetch(sid[0],&theSurface,&rsurf);
+	surface_record *sRec = theSimulation->fetch(sid[0]);
+
+	int flip_sign = sRec->gather_flip;
+
+	// how do we define the sites? we can tweak the definition here.
+	
+	// BRIDGE 263
+	
+	// Calcium binding ASPs: 166, 172, 225, 227, 233
+ 	//                         ARGs: 217
+ 	//                         LYS: 213
+
+	// Calcium binding ASPs: 297, 303, 359, 365 
+ 	//		   ARGs: 347, 390, 392                         
+
+	int npts = 6;
+	// p is where we'll put the averages of the residues below.
+	double p[npts*3]; // 
+	memset( p, 0, sizeof(double) * 3 * npts );
+	int nav[npts];
+	memset( nav, 0, sizeof(int) * npts );
+	// these are the residues we'll average over.
+	int res_av[6][9] = {
+		{166, 172, 225, 227, 233, -1},
+		{217, 213, -1 },
+		
+		{ 297, 303, 359, 365, -1 },
+		{ 347, 390, 392, -1 },
+		
+		{138,159,197,255,174,221,238,190},
+		{399,270,289,332,320,307,353,369}
+		//{139, 176, -1},
+		//{289, 354, -1}
+	};
+	
+	// for near pointing
+	double **M;
+	int mlow,mhigh;
+
+	getM( &M, &mlow, &mhigh );
+
+	// just for PBC wrapping:
+	double alphas[3] = {1,1,1};
+	int nentries[6] = { 5, 2, 2, 4, 8, 8 };
+
+
+	for( int a = syt7_start; a < syt7_stop; a++ )
+	{
+		for( int px = 0; px < npts-2; px++ )
+		{
+			for( int rx = 0; rx < nentries[px]; rx++ )
+			{
+				if( at[a].res == res_av[px][rx] )
+				{
+					if( nav[px] == 0 )
+					{
+						p[3*px+0] = at[a].x;
+						p[3*px+1] = at[a].y;
+						p[3*px+2] = at[a].z;
+					} 
+					else
+					{
+						double dr[3] = { at[a].x - p[3*px+0]/nav[px],
+								 at[a].y - p[3*px+1]/nav[px],
+								 at[a].z - p[3*px+2]/nav[px] };
+
+						theSimulation->wrapPBC(dr,alphas);
+
+						p[3*px+0] += dr[0] + p[3*px+0]/nav[px];
+						p[3*px+1] += dr[1] + p[3*px+1]/nav[px];
+						p[3*px+2] += dr[2] + p[3*px+2]/nav[px];
+					}
+
+					nav[px] += 1;
+				}	
+			}
+		}
+	}	
+	
+	int min_res[2] = { 1, 265};
+	int max_res[2] = { 266, 404 };
+	int tp = 0;
+	for( int px = 4; px <= 5; px++ )
+	{
+		for( int a = syt7_start; a < syt7_stop; a++ )
+		{
+			if( at[a].res >= min_res[tp] && at[a].res <= max_res[tp] )
+			{
+				if( nav[px] == 0 )
+				{
+					p[3*px+0] = at[a].x;
+					p[3*px+1] = at[a].y;
+					p[3*px+2] = at[a].z;
+				} 
+				else
+				{
+					double dr[3] = { at[a].x - p[3*px+0]/nav[px],
+							 at[a].y - p[3*px+1]/nav[px],
+							 at[a].z - p[3*px+2]/nav[px] };
+
+					theSimulation->wrapPBC(dr,alphas);
+
+					p[3*px+0] += dr[0] + p[3*px+0]/nav[px];
+					p[3*px+1] += dr[1] + p[3*px+1]/nav[px];
+					p[3*px+2] += dr[2] + p[3*px+2]/nav[px];
+				}
+
+				nav[px] += 1;
+			}
+		}
+	}
+
+	for( int px = 0; px < npts; px++ )
+	{
+		p[3*px+0] /= nav[px];
+		p[3*px+1] /= nav[px];
+		p[3*px+2] /= nav[px];
+	}
+
+	for( int px = 1; px < npts; px++ )
+	{
+		double dr[3] = { p[3*px+0] - p[0],
+				 p[3*px+1] - p[1],
+				 p[3*px+2] - p[2] };
+
+		theSimulation->wrapPBC(dr,alphas);
+
+		p[3*px+0] = p[0] + dr[0];
+		p[3*px+1] = p[1] + dr[1];
+		p[3*px+2] = p[2] + dr[2];
+	}
+	
+	
+	double nrm1[3],nrm2[3],nrm3[3],nrm4[4];
+	double rpt1[3],rpt2[3],rpt3[3],rpt4[4];
+
+	// find near points for the attachment sites.
+	double dist;
+	int f;
+	double col_u, col_v;
+	theSurface->nearPointOnBoxedSurface( p, &f, &col_u, &col_v, M, mlow, mhigh, &dist );					
+	double rloop[3],nloop[3];
+	theSurface->evaluateRNRM( f, col_u, col_v, rloop, nloop, rsurf );
+	theSurface->evaluateRNRM( f, col_u, col_v, rpt1, nrm1, rsurf );
+
+	if( flip_sign ) { nrm1[0] *= -1; nrm1[1] *= -1; nrm1[2] *= -1; }
+	
+	double c_vec_1_A[3];
+	double c_vec_2_A[3];
+	double c_val1_A, c_val2_A;
+	double k_A;
+	theSurface->c( f, col_u, col_v, rsurf, &k_A, c_vec_1_A, c_vec_2_A, &c_val1_A, &c_val2_A ); 
+	if( flip_sign) { c_val1_A *= -1; c_val2_A *= -1; }
+
+	for( int tp =0; tp < npts; tp++ )	
+	{
+		double dr[3];
+		dr[0] = p[3*tp+0]-rloop[0];
+		dr[1] = p[3*tp+1]-rloop[1];
+		dr[2] = p[3*tp+2]-rloop[2];
+		theSimulation->wrapPBC(dr,alphas);
+		p[3*tp+0] = rloop[0] + dr[0];
+		p[3*tp+1] = rloop[1] + dr[1];
+		p[3*tp+2] = rloop[2] + dr[2];
+	}
+
+	puv[0] = col_u;
+	puv[1] = col_v;
+	fs[0] = f;
+	theSurface->nearPointOnBoxedSurface( p+3, &f, &col_u, &col_v, M, mlow, mhigh, &dist );					
+
+	theSurface->evaluateRNRM( f, col_u, col_v, rpt2, nrm2, rsurf );
+	if( flip_sign ) { nrm2[0] *= -1; nrm2[1] *= -1; nrm2[2] *= -1; }
+	
+
+	puv[2] = col_u;
+	puv[3] = col_v;
+	fs[1] = f;
+	theSurface->nearPointOnBoxedSurface( p+6, &f, &col_u, &col_v, M, mlow, mhigh, &dist );					
+	theSurface->evaluateRNRM( f, col_u, col_v, rpt3, nrm3, rsurf );
+	if( flip_sign ) { nrm3[0] *= -1; nrm3[1] *= -1; nrm3[2] *= -1; }
+	double c_vec_1_B[3];
+	double c_vec_2_B[3];
+	double c_val1_B, c_val2_B;
+	double k_B;
+	theSurface->c( f, col_u, col_v, rsurf, &k_B, c_vec_1_B, c_vec_2_B, &c_val1_B, &c_val2_B ); 
+	if( flip_sign) { c_val1_B *= -1; c_val2_B *= -1; }
+	puv[4] = col_u;
+	puv[5] = col_v;
+	fs[2] = f;
+	theSurface->nearPointOnBoxedSurface( p+9, &f, &col_u, &col_v, M, mlow, mhigh, &dist );					
+	theSurface->evaluateRNRM( f, col_u, col_v, rpt4, nrm4, rsurf );
+	if( flip_sign ) { nrm4[0] *= -1; nrm4[1] *= -1; nrm4[2] *= -1; }
+	puv[6] = col_u;
+	puv[7] = col_v;
+	fs[3] = f;
+	
+	rall[4*3+0] = p[12];	
+	rall[4*3+1] = p[13];	
+	rall[4*3+2] = p[14];	
+	
+	rall[5*3+0] = p[15];	
+	rall[5*3+1] = p[16];		
+	rall[5*3+2] = p[17];		
+
+	double rvecA[3] = { rall[4*3+0] - p[0],
+			    rall[4*3+1] - p[1],
+			    rall[4*3+2] - p[2] };
+	double rvecB[3] = { rall[5*3+0] - p[6],
+			    rall[5*3+1] - p[7],
+			    rall[5*3+2] - p[8] };
+	normalize(rvecA);
+	normalize(rvecB);
+
+	double dpA = rvecA[0]*nrm1[0] + rvecA[1] * nrm1[1] + rvecA[2] * nrm1[2];
+	double dpB = rvecB[0]*nrm3[0] + rvecB[1] * nrm3[1] + rvecB[2] * nrm3[2];
+	
+
+	// nrm points away from syt
+	printf("SYT %d C2A_DP: %lf C2B_DP: %lf c_A: %le %le c_B: %le %le\n", my_id, dpA, dpB, c_val1_A, c_val2_A, c_val1_B, c_val2_B );
+	
+	int do_track = 1;
+
+	if( do_track )
+	{
+		int track_com[] = { 392, 390, 382, 385, 347 };
+	
+		double com_to_track[3] = {0,0,0};
+		int ntr_com=0;
+	
+		int ntr = sizeof(track_com)/sizeof(int);
+	
+		for( int a = syt7_start; a < syt7_stop; a++ )
+		{
+			for( int tx = 0; tx < ntr; tx++ )
+			{
+				if( track_com[tx] != at[a].res )
+				 	continue;
+	
+				if( ntr_com == 0 )
+				{
+					double dr[3] = { at[a].x - p[5*3+0],
+							 at[a].y - p[5*3+1],
+							 at[a].z - p[5*3+2]};
+	
+					theSimulation->wrapPBC(dr,alphas);
+	
+					com_to_track[0] += p[5*3+0] + dr[0];
+					com_to_track[1] += p[5*3+1] + dr[1];
+					com_to_track[2] += p[5*3+2] + dr[2];
+				} 
+				else
+				{
+					double dr[3] = { at[a].x - com_to_track[0]/ntr_com,
+							 at[a].y - com_to_track[1]/ntr_com,
+							 at[a].z - com_to_track[2]/ntr_com};
+	
+					theSimulation->wrapPBC(dr,alphas);
+	
+					com_to_track[0] += dr[0] + com_to_track[0]/ntr_com;
+					com_to_track[1] += dr[1] + com_to_track[1]/ntr_com;
+					com_to_track[2] += dr[2] + com_to_track[2]/ntr_com;
+				}
+	
+				ntr_com += 1;
+			}
+		}
+	
+		com_to_track[0] /= ntr_com;
+		com_to_track[1] /= ntr_com;
+		com_to_track[2] /= ntr_com;
+		
+		double dist;
+		int f;
+		double col_u, col_v;
+		theSurface->nearPointOnBoxedSurface( com_to_track, &f, &col_u, &col_v, M, mlow, mhigh, &dist );					
+		double ptr[3], nrmr[3];
+		theSurface->evaluateRNRM( f, col_u, col_v, ptr, nrmr, rsurf );
+		double vec1[3] = { com_to_track[0] - ptr[0], com_to_track[1] - ptr[1], com_to_track[2] - ptr[2] }; 
+		double vec2[3] = { com_to_track[0] - p[5*3+0], com_to_track[1] - p[5*3+1], com_to_track[2] - p[5*3+2] }; 
+		theSimulation->wrapPBC(vec1,alphas);
+		normalize(vec1);
+		normalize(vec2);
+		double dp = vec1[0]*vec2[0]+vec1[1]*vec2[1]+vec1[2]*vec2[2];
+		printf("DEL %d dist %le dp: %le\n", my_id, dist, dp );
+	}
+}
+
+
+char syt7::getSiteCode( int p )
+{
+	switch (p)
+	{
+		case 1:
+		case 3:
+			return 'N';
+
+		default:
+			return 'O';
+	}
 }
 
 

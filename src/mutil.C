@@ -1034,3 +1034,34 @@ void normal_cp_der( double *r1, double *r2, double *r3, double dnrm[27] )
 		dnrm[nc*9+p*3+pc] +=  unrm[nc] * (-1.0/2.0) * pow(l,-3.0/2.0) * d_nrm_len[p*3+pc];	 
 	}
 }
+
+void best_align( double *out_uv, double *ru, double *rv, double *target )
+{
+	double drdu[3] = { ru[0], ru[1], ru[2] };
+	double drdv[3] = { rv[0], rv[1], rv[2] };
+	double t[3] = { target[0],target[1],target[2]};
+
+	double lu = normalize(drdu);
+	double lv = normalize(drdv);
+	double lt = normalize(t);
+	double lu_lv = dot(drdu,t);
+	double lu_lt = dot(drdu,t);
+	double lv_lt = dot(drdv,t);
+	double lu_lu = 1.0, lv_lv = 1.0;
+	double rr = dot(t,t);
+
+	out_uv[0] = - rr * ( lu_lt * lu_lv - lv_lt * lv_lv) / ( lv_lt*lv_lt*lu_lu- 2 * lu_lt * lv_lt * lu_lv + lu_lt * lu_lt * lv_lv); 
+	out_uv[1] =   rr * ( lv_lt * lu_lu - lu_lt * lu_lv) / ( lv_lt*lv_lt*lu_lu- 2 * lu_lt * lv_lt * lu_lv + lu_lt * lu_lt * lv_lv); 
+
+	double un_vec[3] = { out_uv[0] * drdu[0] + out_uv[1] * drdv[0],
+			     out_uv[0] * drdu[1] + out_uv[1] * drdv[1], 
+			     out_uv[0] * drdu[2] + out_uv[1] * drdv[2] };
+
+	double ln = normalize(un_vec);
+
+	out_uv[0] /= ln;
+	out_uv[1] /= ln;
+ 
+
+}
+

@@ -109,7 +109,7 @@ int ifitm3::getNBonds( void )
 	return 0;
 }
 
-void ifitm3::putBonds( int *bond_list )
+void ifitm3::putBonds( int *bond_list, double *r, double *k )
 {
 }
 

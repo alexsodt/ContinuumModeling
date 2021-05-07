@@ -33,14 +33,19 @@ void setDefaults( parameterBlock *block )
 	
 	block->track_lipid_rho = NULL; 
 
+	block->freeze_clathrin = 0;
 	block->clathrinStructure = NULL;
 	block->clathrin_force_k = 1.0;
+	block->recenter_clathrin = 1;
+	block->clathrin_rotor = 0; // allow rotations of the clathrin cage
+	block->clathrin_h = 75;
+	block->point_lock = 1; // lock the "nearest point" before BFGS, makes it clean and fast.
 	block->fitRho = NULL;
 	block->fitCoupling = 1.0;
-	block->fitThickness = 15.0;
-
+	block->fitThickness = -1;
+	block->midplane_fit = 0;
 	block->rxnDiffusionInfoName = NULL;
-
+	block->do_fixed_point_rho = 1;
 	block->fdiff_check = 0;
 
 	block->shiftRho = 0;
@@ -193,6 +198,7 @@ void setDefaults( parameterBlock *block )
 	block->movie = 0;
 	block->debug = 0;    
 	block->sphere = 0;
+	block->fusion_pore = 1;
 	block->hours = -1; // use steps instead.
 	block->o_lim = 10000;
 
@@ -665,6 +671,30 @@ int getInput( const char **argv, int argc, parameterBlock *block)
 			block->fitRho = (char *)malloc( sizeof(char) * (1 + strlen(word2) ) );
 			strcpy( block->fitRho, word2 );
 		}
+		else if( !strcasecmp( word1, "midplane_fit" ) )
+		{
+			if( !strcasecmp( word2, "TRUE" ) || !strcasecmp( word2, "yes") || !strcasecmp( word2, "on" ) )
+				block->midplane_fit = 1;
+			else if( !strcasecmp( word2, "FALSE" ) || !strcasecmp( word2, "no") || !strcasecmp( word2, "off" ) )
+				block->midplane_fit = 0;
+			else
+			{
+				printf("Could not interpret input line '%s'.\n", tbuf );
+				ERROR = 1;
+			}	
+		}
+		else if( !strcasecmp( word1, "do_fixed_point_rho" ) )
+		{
+			if( !strcasecmp( word2, "TRUE" ) || !strcasecmp( word2, "yes") || !strcasecmp( word2, "on" ) )
+				block->do_fixed_point_rho = 1;
+			else if( !strcasecmp( word2, "FALSE" ) || !strcasecmp( word2, "no") || !strcasecmp( word2, "off" ) )
+				block->do_fixed_point_rho = 0;
+			else
+			{
+				printf("Could not interpret input line '%s'.\n", tbuf );
+				ERROR = 1;
+			}	
+		}
 		else if( !strcasecmp( word1, "shiftRho" ) )
 		{
 			if( !strcasecmp( word2, "TRUE" ) || !strcasecmp( word2, "yes") || !strcasecmp( word2, "on" ) )
@@ -713,6 +743,54 @@ int getInput( const char **argv, int argc, parameterBlock *block)
 				ERROR = 1;
 			}	
 		}
+		else if( !strcasecmp( word1, "point_lock" ) )
+		{
+			if( !strcasecmp( word2, "TRUE" ) || !strcasecmp( word2, "yes") || !strcasecmp( word2, "on" ) )
+				block->point_lock = 1;
+			else if( !strcasecmp( word2, "FALSE" ) || !strcasecmp( word2, "no") || !strcasecmp( word2, "off" ) )
+				block->point_lock = 0;
+			else
+			{
+				printf("Could not interpret input line '%s'.\n", tbuf );
+				ERROR = 1;
+			}	
+		}
+		else if( !strcasecmp( word1, "clathrin_rotor" ) )
+		{
+			if( !strcasecmp( word2, "TRUE" ) || !strcasecmp( word2, "yes") || !strcasecmp( word2, "on" ) )
+				block->clathrin_rotor = 1;
+			else if( !strcasecmp( word2, "FALSE" ) || !strcasecmp( word2, "no") || !strcasecmp( word2, "off" ) )
+				block->clathrin_rotor = 0;
+			else
+			{
+				printf("Could not interpret input line '%s'.\n", tbuf );
+				ERROR = 1;
+			}	
+		}
+		else if( !strcasecmp( word1, "recenter_clathrin" ) )
+		{
+			if( !strcasecmp( word2, "TRUE" ) || !strcasecmp( word2, "yes") || !strcasecmp( word2, "on" ) )
+				block->recenter_clathrin = 1;
+			else if( !strcasecmp( word2, "FALSE" ) || !strcasecmp( word2, "no") || !strcasecmp( word2, "off" ) )
+				block->recenter_clathrin = 0;
+			else
+			{
+				printf("Could not interpret input line '%s'.\n", tbuf );
+				ERROR = 1;
+			}	
+		}
+		else if( !strcasecmp( word1, "freeze_clathrin" ) )
+		{
+			if( !strcasecmp( word2, "TRUE" ) || !strcasecmp( word2, "yes") || !strcasecmp( word2, "on" ) )
+				block->freeze_clathrin = 1;
+			else if( !strcasecmp( word2, "FALSE" ) || !strcasecmp( word2, "no") || !strcasecmp( word2, "off" ) )
+				block->freeze_clathrin = 0;
+			else
+			{
+				printf("Could not interpret input line '%s'.\n", tbuf );
+				ERROR = 1;
+			}	
+		}
 		else if( !strcasecmp( word1, "clathrinStructure" ) ) // for gathering.
 		{
 			if( block->clathrinStructure ) free(block->clathrinStructure);
@@ -721,6 +799,8 @@ int getInput( const char **argv, int argc, parameterBlock *block)
 		}
 		else if( !strcasecmp( word1, "clathrin_force_k" ) )
 			block->clathrin_force_k = atof( word2 );
+		else if( !strcasecmp( word1, "clathrin_h" ) )
+			block->clathrin_h = atof( word2 );
 		else if( !strcasecmp( word1, "mesh2" ) )
 		{
 			if( block->meshName2 )
@@ -744,25 +824,25 @@ int getInput( const char **argv, int argc, parameterBlock *block)
 		}
 		else if( !strcasecmp( word1, "track_lipid_rho" ) )
 		{
-			free(block->track_lipid_rho);
+			if( block->track_lipid_rho )  free(block->track_lipid_rho);
 			block->track_lipid_rho = (char *)malloc( sizeof(char) * (1 + strlen(word2) ) );
 			strcpy( block->track_lipid_rho, word2 );
 		}
 		else if( !strcasecmp( word1, "betaz" ) )
 		{
-			free(block->betazFile);
+			if( block->betazFile ) free(block->betazFile);
 			block->betazFile = (char *)malloc( sizeof(char) * (1 + strlen(word2) ) );
 			strcpy( block->betazFile, word2 );
 		}
 		else if( !strcasecmp( word1, "jobname" ) )
 		{
-			free(block->jobName);
+			if( block->jobName ) free(block->jobName);
 			block->jobName = (char *)malloc( sizeof(char) * (1 + strlen(word2) ) );
 			strcpy( block->jobName, word2 );
 		}
 		else if( !strcasecmp( word1, "load" ) )
 		{
-			free(block->loadName);
+			if( block->loadName) free(block->loadName);
 			block->loadName = (char *)malloc( sizeof(char) * (1 + strlen(word2) ) );
 			strcpy( block->loadName, word2 );
 		}
@@ -1491,6 +1571,18 @@ int getInput( const char **argv, int argc, parameterBlock *block)
 			block->tachyon_collision_point[1] = atof( word2 );
 		else if( !strcasecmp( word1, "tachyon_collision_z" ) )
 			block->tachyon_collision_point[2] = atof( word2 );
+		else if( !strcasecmp( word1, "fusion_pore" ) )
+		{
+			if( !strcasecmp( word2, "TRUE" ) || !strcasecmp( word2, "yes") || !strcasecmp( word2, "on" ) )
+				block->fusion_pore = 1;
+			else if( !strcasecmp( word2, "FALSE" ) || !strcasecmp( word2, "no") || !strcasecmp( word2, "off" ) )
+				block->fusion_pore = 0;
+			else
+			{
+				printf("Could not interpret input line '%s'.\n", tbuf );
+				ERROR = 1;
+			}	
+		}
 		else if( !strcasecmp( word1, "sphere" ) )
 		{
 			if( !strcasecmp( word2, "TRUE" ) || !strcasecmp( word2, "yes") || !strcasecmp( word2, "on" ) )
@@ -1605,6 +1697,18 @@ int getInput( const char **argv, int argc, parameterBlock *block)
 				block->create_all_atom = 1;
 			else if( !strcasecmp( word2, "FALSE" ) || !strcasecmp( word2, "no") || !strcasecmp( word2, "off" ) )
 				block->create_all_atom = 0;
+			else
+			{
+				printf("Could not interpret input line '%s'.\n", tbuf );
+				ERROR = 1;
+			}	
+		}
+		else if( !strcasecmp( word1, "one_eighth" ) )
+		{
+			if( !strcasecmp( word2, "TRUE" ) || !strcasecmp( word2, "yes") || !strcasecmp( word2, "on" ) )
+				block->one_eighth = 1;
+			else if( !strcasecmp( word2, "FALSE" ) || !strcasecmp( word2, "no") || !strcasecmp( word2, "off" ) )
+				block->one_eighth = 0;
 			else
 			{
 				printf("Could not interpret input line '%s'.\n", tbuf );
@@ -1794,13 +1898,14 @@ int getInput( const char **argv, int argc, parameterBlock *block)
 			char *word4 = (char *)malloc( sizeof(char) * (strlen(buffer)+1) );	
 			char *word5 = (char *)malloc( sizeof(char) * (strlen(buffer)+1) );	
 			char *word6 = (char *)malloc( sizeof(char) * (strlen(buffer)+1) );	
+			char *word7 = (char *)malloc( sizeof(char) * (strlen(buffer)+1) );	
 
-			int nr = sscanf( buffer, "%s %s %s %s %s %s", word1, word2, word3, word4, word5, word6 );
+			int nr = sscanf( buffer, "%s %s %s %s %s %s %s", word1, word2, word3, word4, word5, word6, word7 );
 
 			if( nr < 4 )
 			{
 				printf("Syntax error in ``add'' command.\n");
-				printf("add COMPLEX nbound|nsolution|coverage|concentration value [inside|outside] [mod]\n");
+				printf("add COMPLEX nbound|nsolution|coverage|concentration value [inside|outside] [mod] [nmer]\n");
 					exit(1);
 			}
 
@@ -1837,6 +1942,7 @@ int getInput( const char **argv, int argc, parameterBlock *block)
 			rec->positive = 0;
 			rec->negative = 0;
 
+	
 			if( nr >= 6 )
 			{
 				
@@ -1846,12 +1952,20 @@ int getInput( const char **argv, int argc, parameterBlock *block)
 					rec->positive = 1;
 				else if( !strcasecmp( word6, "-") ) 
 					rec->negative = 1;
+				else if( !strcasecmp( word6, "null") )
+				{ 
+				}
 				else
 				{
 					printf("Error interpreting optional mod sub-command '%s' in command '%s'.\n", word6, buffer );
 					exit(1);
 				}
 			}
+	
+			rec->nmer = 1;
+		
+			if( nr >= 6 )
+				rec->nmer = atoi(word7);
 
 			if( fabs( value -uvalue) > 1e-10 )
 			{

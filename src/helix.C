@@ -304,7 +304,7 @@ int main( int argc, char **argv )
 	global_block = &block; //yikes
 
 	if( block.fitRho )
-		theSimulation->setupDensity( block.fitRho, block.shiftRho );
+		theSimulation->setupDensity( block.fitRho, block.shiftRho, block.do_fixed_point_rho, block.fitCoupling, block.midplane_fit );
 
 	if( block.use_fix_x_cut ) theSimulation->allSurfaces->theSurface->setupCut( 0, block.fix_x_cut, theSimulation->allSurfaces->r ); 
 	if( block.use_fix_y_cut ) theSimulation->allSurfaces->theSurface->setupCut( 1, block.fix_y_cut, theSimulation->allSurfaces->r ); 

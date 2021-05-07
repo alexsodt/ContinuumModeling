@@ -83,7 +83,7 @@ struct pcomplex
 	virtual void pfree( void );
 
 	virtual int getNBonds( void ) { return 0; };
-	virtual void putBonds( int *bond_list );
+	virtual void putBonds( int *bond_list, double *bond_r = NULL, double *bond_k = NULL );
 
 	virtual void init( Simulation *theSimulation, surface *theSurface, double *, int f, double u, double v ); 
 	virtual void init( double *r ); 
@@ -114,6 +114,8 @@ struct pcomplex
 	
 	virtual int isElastic(void) { return 0; }	
 
+	virtual char getSiteCode( int ind );
+
 	void activateBrownianDynamics(void);
 
 	void printType( char **type );
@@ -143,6 +145,10 @@ struct pcomplex
 	double local_curvature( Simulation *theSimulation);
 	void print_type( char **outp );
 	virtual void writeStructure( Simulation *theSimulation, surface_mask *upperSurfaceMask, surface_mask *lowerSurfaceMask, struct atom_rec **at, int *nat, char **seq, ion_add **ions, int *nions, aa_build_data *buildData );
+	virtual void get( 
+		Simulation *theSimulation, // this is the surface/PBC
+		struct atom_rec *at,
+		int p_start, int p_stop );
 
 
 	void disable( void) { disabled = 1; }
@@ -250,7 +256,7 @@ struct NBAR : pcomplex
 	void orient( surface *theSurface, double *rsurf );
 	
 	int getNBonds( void );
-	void putBonds( int *bond_list );
+	virtual void putBonds( int *bond_list, double *bond_r = NULL, double *bond_k = NULL );
 
 	double V( Simulation *theSimulation );
 	double grad( Simulation *theSimulation, double *surface_g, double *particle_g );
@@ -269,10 +275,43 @@ struct syt7 : pcomplex
 	void loadParams( parameterBlock *block );
 	
 	int getNBonds( void );
-	void putBonds( int *bond_list );
+	virtual void putBonds( int *bond_list, double *bond_r = NULL, double *bond_k = NULL );
 
 	double V( Simulation *theSimulation );
 	double grad( Simulation *theSimulation, double *surface_g, double *particle_g );
+	char getSiteCode( int ind);	
+	void get( 
+		Simulation *theSimulation, // this is the surface/PBC
+		struct atom_rec *at,
+		int p_start, int p_stop );
+
+	//void writeStructure( Simulation *theSimulation, struct atom_rec **at, int *nat );
+	void writeStructure( Simulation *theSimulation, surface_mask *upperSurfaceMask, surface_mask *lowerSurfaceMask, struct atom_rec **at, int *nat, char **seq, ion_add **ions, int *nions, struct aa_build_data *buildData );
+	void move_inside(void);
+	void move_outside(void);	
+};
+
+struct dynamin : pcomplex
+{
+	int nmer_saved;
+
+	void init( Simulation *theSimulation, surface *, double *rsurf, int f, double u, double v, int nmer ); 
+	void init( double *r, int nmer );
+	void bind( int f, double u, double v);
+	void unbind( void );
+	void loadParams( parameterBlock *block );
+	
+	int getNBonds( void );
+	void putBonds( int *bond_list, double *bond_r = NULL, double *bond_k = NULL );
+
+	double V( Simulation *theSimulation );
+	double grad( Simulation *theSimulation, double *surface_g, double *particle_g );
+	char getSiteCode( int ind);	
+
+	void get( 
+		Simulation *theSimulation, // this is the surface/PBC
+		struct atom_rec *at,
+		int p_start, int p_stop );
 
 	//void writeStructure( Simulation *theSimulation, struct atom_rec **at, int *nat );
 	void writeStructure( Simulation *theSimulation, surface_mask *upperSurfaceMask, surface_mask *lowerSurfaceMask, struct atom_rec **at, int *nat, char **seq, ion_add **ions, int *nions, struct aa_build_data *buildData );
@@ -290,7 +329,7 @@ struct ifitm3 : pcomplex
 	void loadParams( parameterBlock *block );
 	
 	int getNBonds( void );
-	void putBonds( int *bond_list );
+	virtual void putBonds( int *bond_list, double *bond_r = NULL, double *bond_k = NULL );
 
 	double V( Simulation *theSimulation );
 	double grad( Simulation *theSimulation, double *surface_g, double *particle_g );
@@ -310,7 +349,7 @@ struct dimer : pcomplex
 	void loadParams( parameterBlock *block );
 	
 	int getNBonds( void );
-	void putBonds( int *bond_list );
+	virtual void putBonds( int *bond_list, double *bond_r = NULL, double *bond_k = NULL );
 	
 	 void bind( int f, double u, double v );
 	 void unbind( void );
@@ -350,7 +389,7 @@ struct elasticCrowder : pcomplex
 	void move_inside( void );
 	void move_outside( void );
 	int getNBonds( void ) { return 1; }
-	void putBonds( int *bond_list );
+	virtual void putBonds( int *bond_list, double *bond_r = NULL, double *bond_k = NULL );
 	virtual double V( Simulation *theSimulation );
 	virtual double grad( Simulation *theSimulation, double *surface_g, double *particle_g );
 };

@@ -15,15 +15,17 @@
 #include "io_mol_read.h"
 #include "input.h"
 #include "mutil.h"
+#include "global_boxing.h"
 
 // fitRho globals
 double fitCoupling = 1.0;
 double fitThickness = 15.0;
+void addFixedPointsFromRho( Simulation *theSimulation, int npts, double fit_coupling, double height );
 
 // fitRho statics
 static double eps_f_min = 1.0;
 int fitRho_activated = 0;
-void Simulation::setupDensity( char *fileName, int shiftRho )
+void Simulation::setupDensity( char *fileName, int shiftRho, int use_fixed_points, double fit_coupling, int midplane_fit )
 {
 
 	FILE *rhoFile = fopen(fileName, "r");
@@ -265,7 +267,11 @@ void Simulation::setupDensity( char *fileName, int shiftRho )
 	free(buffer);	
 	
 
-	fitRho_activated = 1;
+	if( use_fixed_points )
+		addFixedPointsFromRho( this, 1000, fit_coupling, (midplane_fit ? 0 : 17.0) );
+	else
+		fitRho_activated = 1;
+
 }
 
 /* This returns the overlap energy and computes the overlap gradient of the surface with a 3d interpolated density of neutral surface atoms. */
@@ -1566,14 +1572,44 @@ int surface::get_cut_points( int cartesian_component, double value, int *f_pts, 
 	return 1;
 }
 
-void surface::addFixedPoint( double *r_fixed )
+void surface::lockPoints( void )
+{
+	double **M;
+	int mlow,mhigh;
+	getM(&M,&mlow,&mhigh);
+	
+
+	for( fixed_cut_point *aPoint = cutPoints; aPoint; aPoint = aPoint->next )
+	{
+		aPoint->is_locked = 1;
+		
+		double r_compr[3] = { aPoint->rpt[0], aPoint->rpt[1], aPoint->rpt[2] };
+
+		int f;
+		double u, v;
+		double distance;
+		nearPointOnBoxedSurface( r_compr, &f, &u, &v, M, mlow, mhigh, &distance );
+
+		aPoint->locked_f = f;
+		aPoint->locked_uv[0] = u;
+		aPoint->locked_uv[1] = v;
+	}
+}
+
+void surface::unlockPoints( void )
+{
+	for( fixed_cut_point *aPoint = cutPoints; aPoint; aPoint = aPoint->next )
+		aPoint->is_locked = 1;
+}
+
+void surface::addFixedPoint( double *r_fixed, double target_distance, double k_coupling )
 {
 	fixed_cut_point *new_point = (fixed_cut_point *)malloc( sizeof(fixed_cut_point) );
 	new_point->rpt[0] = r_fixed[0];
 	new_point->rpt[1] = r_fixed[1];
 	new_point->rpt[2] = r_fixed[2];
-	new_point->k = 10; // 10 kcal/mol/a^2
-
+	new_point->k = k_coupling; // 10 kcal/mol/a^2
+	new_point->target_distance = target_distance;
 	new_point->next = cutPoints;
 	cutPoints = new_point; 
 }
@@ -1732,19 +1768,38 @@ double surface::cutEnergy( double *r )
 
 	for( fixed_cut_point *thePt = cutPoints; thePt; thePt = thePt->next )
 	{
-		double r_compr[3] = { thePt->rpt[0], thePt->rpt[1], thePt->rpt[2] };
-
+		double dr[3];
+		double rpt[3],npt[3];
 		int f;
 		double u, v;
-		double distance;
-		nearPointOnBoxedSurface( r_compr, &f, &u, &v, M, mlow, mhigh, &distance );
+		double r_compr[3] = { thePt->rpt[0], thePt->rpt[1], thePt->rpt[2] };
 
-		double rpt[3],npt[3];
+		if( thePt->is_locked )
+		{
+			f = thePt->locked_f;
+			u = thePt->locked_uv[0];
+			v = thePt->locked_uv[1];
+		}
+		else
+		{
+
+			double distance;
+			nearPointOnBoxedSurface( r_compr, &f, &u, &v, M, mlow, mhigh, &distance );
+		}
+			
 		evaluateRNRM( f, u, v, rpt, npt, r );
 
-		double dr[3] = { rpt[0] - r_compr[0], rpt[1] - r_compr[1], rpt[2] - r_compr[2] };
+		dr[0] = rpt[0] - r_compr[0];
+		dr[1] = rpt[1] - r_compr[1];
+		dr[2] = rpt[2] - r_compr[2];
+		
+		double put[3];
 
-		cute += (thePt->k/2) * (dr[0]*dr[0]+dr[1]*dr[1]+dr[2]*dr[2]);	
+		MinImage3D(dr, PBC_vec, put );
+		double r2 = dr[0]*dr[0]+dr[1]*dr[1]+dr[2]*dr[2];
+		double xr = sqrt(r2) - thePt->target_distance; 
+
+		cute += (thePt->k/2) * (xr*xr);	
 	}
 
 	return cute;	
@@ -1765,18 +1820,34 @@ double surface::cutGrad( double *r, double *g )
 	}
 	for( fixed_cut_point *thePt = cutPoints; thePt; thePt = thePt->next )
 	{
-		double r_compr[3] = { thePt->rpt[0], thePt->rpt[1], thePt->rpt[2] };
-
+		double dr[3];
+		double rpt[3],npt[3];
 		int f;
 		double u, v;
-		double distance;
-		nearPointOnBoxedSurface( r_compr, &f, &u, &v, M, mlow, mhigh, &distance );
+		double r_compr[3] = { thePt->rpt[0], thePt->rpt[1], thePt->rpt[2] };
 
-		double rpt[3],npt[3];
+		if( thePt->is_locked )
+		{
+			f = thePt->locked_f;
+			u = thePt->locked_uv[0];
+			v = thePt->locked_uv[1];
+		}
+		else
+		{
 
+			double distance;
+			nearPointOnBoxedSurface( r_compr, &f, &u, &v, M, mlow, mhigh, &distance );
+		}
+			
 		evaluateRNRM( f, u, v, rpt, npt, r );
 
-		double dr[3] = { rpt[0] - r_compr[0], rpt[1] - r_compr[1], rpt[2] - r_compr[2] };
+		dr[0] = rpt[0] - r_compr[0];
+		dr[1] = rpt[1] - r_compr[1];
+		dr[2] = rpt[2] - r_compr[2];
+
+		double put[3];
+
+		MinImage3D(dr, PBC_vec, put );
 
 		// dr d mesh points.
 
@@ -1785,21 +1856,27 @@ double surface::cutGrad( double *r, double *g )
 		int coord_list[12+MAX_VALENCE];
 
 		get_pt_coeffs( f, u, v,	coeffs, coord_list, &ncoords ); 	
+		
+		double r =sqrt(dr[0]*dr[0]+dr[1]*dr[1]+dr[2]*dr[2]);
+		double xr = r - thePt->target_distance; 
 
 		for( int t = 0; t < ncoords; t++ )
 		{
 			int c = coord_list[t];
 
-			g[3*c+0] += (thePt->k) * dr[0] * coeffs[t];
-			g[3*c+1] += (thePt->k) * dr[1] * coeffs[t];
-			g[3*c+2] += (thePt->k) * dr[2] * coeffs[t];
+			g[3*c+0] += (thePt->k) * xr * (dr[0]/r) * coeffs[t];
+			g[3*c+1] += (thePt->k) * xr * (dr[1]/r) * coeffs[t];
+			g[3*c+2] += (thePt->k) * xr * (dr[2]/r) * coeffs[t];
 
-			thePt->frc[0] -= (thePt->k) * dr[0] * coeffs[t];	
-			thePt->frc[1] -= (thePt->k) * dr[1] * coeffs[t];	
-			thePt->frc[2] -= (thePt->k) * dr[2] * coeffs[t];	
+			thePt->frc[0] -= (thePt->k) * xr * (dr[0]/r) * coeffs[t];	
+			thePt->frc[1] -= (thePt->k) * xr * (dr[1]/r) * coeffs[t];	
+			thePt->frc[2] -= (thePt->k) * xr * (dr[2]/r) * coeffs[t];	
 		}
 
-		cute += (thePt->k/2) * (dr[0]*dr[0]+dr[1]*dr[1]+dr[2]*dr[2]);	
+		// k/2 (r-r0)^2
+
+
+		cute += (thePt->k/2) * (xr*xr);	
 	}
 
 	return cute;
@@ -2589,6 +2666,232 @@ void surface::GetFusionPoreRegionStats( double *rsurf, parameterBlock *block )
 	}
 	fclose(orderFile);
 }
+
+#define MONTE_CARLO_PLACEMENT	0
+
+
+void addFixedPointsFromRho( Simulation *theSimulation, int npts, double fit_coupling, double height)
+{
+	surface *theSurface =theSimulation->allSurfaces->theSurface;
+	double *rsurf = theSimulation->allSurfaces->r;	
+
+	// distributes fixed points throughout a density.	
+
+	int algorithm = MONTE_CARLO_PLACEMENT;
+	
+	double *rpts = (double *)malloc( sizeof(double) * 3 * npts );
+
+	double La = theSimulation->PBC_vec[0][0];
+	double Lb = theSimulation->PBC_vec[1][1];
+	double Lc = theSimulation->PBC_vec[2][2];
+
+	double rho_max=0;
+
+	for( double fx = 0; fx < 1.0; fx += 0.05 )
+	for( double fy = 0; fy < 1.0; fy += 0.05 )
+	for( double fz = 0; fz < 1.0; fz += 0.05 )
+	{
+		double rh = eval_rho(fx,fy,fz);
+
+		if( rh > rho_max )
+			rho_max = rh;
+	}
+
+	double kT = rho_max*6; 
+
+	if( algorithm == MONTE_CARLO_PLACEMENT )
+	{	
+		double pp_weight     = 0.01;
+		for( int i = 0; i < npts; i++ )
+		{
+			double fA = (double)rand()/(double)RAND_MAX;
+			double fB = (double)rand()/(double)RAND_MAX;
+			double fC = (double)rand()/(double)RAND_MAX;
+	
+			rpts[3*i+0] = fA;
+			rpts[3*i+1] = fB;
+			rpts[3*i+2] = fC;
+		}
+	
+		double Atot,area0;
+		theSurface->area( rsurf, -1, &Atot, &area0 );
+
+		double AperP = (2*Atot)/npts;
+
+		double sigma_max = 3*sqrt(AperP/M_PI);
+		double sigma = sigma_max;
+		double sigmaS = sigma/Lc;
+		global_boxing *theBoxing = (global_boxing *)malloc( sizeof(global_boxing) );
+		double PBC[3][3] = { {1,0,0},{0,1,0},{0,0,1}};
+		theBoxing->setup_boxing( sigmaS, PBC );
+
+		int n_outer = 50;
+		int n_inner = 10000;	
+
+		double move_dist = 30.0 / Lc;
+		double move_dist_init = move_dist;
+		int *boxforp = (int *)malloc( sizeof(int) * npts );	
+		for( int p = 0; p < npts; p++ )
+			boxforp[p] = theBoxing->addp( rpts+3*p, p ); 
+		int *nearList = (int *)malloc( sizeof(int) * npts );
+
+		printf("Starting Monte Carlo.\n");
+
+		sigma = 0.001;
+		sigmaS = sigma/Lc;
+
+		for( int o = 0; o < n_outer; o++ )
+		{
+			double nacc = 0;
+			double nrej = 0;
+	
+			for( int i = 0; i < n_inner; i++ )
+			{
+				for( int p = 0; p < npts; p++ )
+				{
+					double opt[3] = { rpts[3*p+0], rpts[3*p+1], rpts[3*p+2] };
+					
+					int np = theBoxing->getNearPts( rpts+3*p, nearList, sigmaS );
+
+					double dE = 0;
+	
+					for( int px = 0; px < np; px++ )
+					{
+						int p2 = nearList[px];
+						
+						if( p2 == p ) continue;
+
+						double dr[3] = { rpts[3*p+0] - rpts[3*p2+0], rpts[3*p+1] - rpts[3*p2+1], rpts[3*p+2] - rpts[3*p2+2] };
+
+						while( dr[0] < -0.5 ) dr[0] += 1;
+						while( dr[1] < -0.5 ) dr[1] += 1;
+						while( dr[2] < -0.5 ) dr[2] += 1;
+
+						while( dr[0] >  0.5 ) dr[0] -= 1;
+						while( dr[1] >  0.5 ) dr[1] -= 1;
+						while( dr[2] >  0.5 ) dr[2] -= 1;
+
+						dr[0] *= La;
+						dr[1] *= Lb;
+						dr[2] *= Lc;
+
+						double lr = sqrt(dr[0]*dr[0]+dr[1]*dr[1]+dr[2]*dr[2]);
+
+						if( lr < sigma )
+							dE -= pp_weight*(pow(1.0 / lr,4) - pow(1.0 / sigma,4));	
+					}	
+
+					double rho_val_1 = eval_rho(rpts[3*p+0],rpts[3*p+1],rpts[3*p+2]);			
+		
+					// sign is + here because we want negative rho.
+					dE += rho_val_1;
+
+					double dr[3] = { move_dist * 2*(rand()/(double)RAND_MAX-0.5),
+							 move_dist * 2*(rand()/(double)RAND_MAX-0.5),
+							 move_dist * 2*(rand()/(double)RAND_MAX-0.5) };
+
+					rpts[3*p+0] += dr[0];						
+					rpts[3*p+1] += dr[1];						
+					rpts[3*p+2] += dr[2];			
+
+
+					if( rpts[3*p+0] < 0 ) rpts[3*p+0] += 1.0;
+					if( rpts[3*p+1] < 0 ) rpts[3*p+1] += 1.0;
+					if( rpts[3*p+2] < 0 ) rpts[3*p+2] += 1.0;
+
+					if( rpts[3*p+0] > 1 ) rpts[3*p+0] -= 1.0;
+					if( rpts[3*p+1] > 1 ) rpts[3*p+1] -= 1.0;
+					if( rpts[3*p+2] > 1 ) rpts[3*p+2] -= 1.0;
+					double rho_val_2 = eval_rho(rpts[3*p+0],rpts[3*p+1],rpts[3*p+2]);			
+
+					dE -= rho_val_2;
+
+					np = theBoxing->getNearPts( rpts+3*p, nearList, sigmaS );
+					for( int px = 0; px < np; px++ )
+					{
+						int p2 = nearList[px];
+
+						if( p2 == p ) continue;
+
+						double dr[3] = { rpts[3*p+0] - rpts[3*p2+0], rpts[3*p+1] - rpts[3*p2+1], rpts[3*p+2] - rpts[3*p2+2] };
+
+						while( dr[0] < -0.5 ) dr[0] += 1;
+						while( dr[1] < -0.5 ) dr[1] += 1;
+						while( dr[2] < -0.5 ) dr[2] += 1;
+
+						while( dr[0] >  0.5 ) dr[0] -= 1;
+						while( dr[1] >  0.5 ) dr[1] -= 1;
+						while( dr[2] >  0.5 ) dr[2] -= 1;
+
+						dr[0] *= La;
+						dr[1] *= Lb;
+						dr[2] *= Lc;
+
+						double lr = sqrt(dr[0]*dr[0]+dr[1]*dr[1]+dr[2]*dr[2]);
+
+						if( lr < sigma )
+							dE += pp_weight*(pow(sigma / lr,4) - pow(sigma / sigma,4));	
+					}
+
+//					printf("Moving from %lf %lf %lf to %lf %lf %lf (%lf to %lf) dE: %lf\n",
+//						opt[0],opt[1],opt[2],rpts[3*p+0],rpts[3*p+1],rpts[3*p+2], rho_val_1, rho_val_2, dE );
+
+					double pr = exp(-dE/kT);
+					double rn = (double)rand()/(double)RAND_MAX;
+					if( rn > pr  )
+					{
+						nrej++;
+						rpts[3*p+0] = opt[0];
+						rpts[3*p+1] = opt[1];
+						rpts[3*p+2] = opt[2];
+					}
+					else
+					{
+						nacc++;
+						boxforp[p] = theBoxing->movep( rpts+3*p, p, boxforp[p] );
+					}
+				}
+			}
+			double facc = nacc / (double)(nacc+nrej);
+
+			if( facc< 0.3 )
+				move_dist *= 0.75;
+			else if( facc > 0.7 && move_dist < move_dist_init )
+				move_dist *= 0.75;
+
+			printf("facc: %lf move_dist: %lf kT: %lf sigmaS: %lf\n", facc, move_dist, kT, sigmaS );
+			kT *= exp(-6./n_outer);
+
+			sigma = sigma_max*exp(-2.*(n_outer-o)/n_outer);
+			sigmaS = sigma/Lc;
+		}
+		printf("Done with Monte Carlo.\n");
+
+		printf("%d\n", npts );
+		printf("Monte carlo fixed points.\n");
+		for( int p = 0; p < npts; p++ )
+			printf("C %lf %lf %lf\n", rpts[3*p+0]*La, rpts[3*p+1]*Lb, rpts[3*p+2]*Lc );
+
+		for( int p = 0; p < npts; p++ )
+		{
+			double rho_val = eval_rho( rpts[3*p+0], rpts[3*p+1], rpts[3*p+2] );
+
+			if( rho_val > 0.4 * rho_max )
+			{
+				double rp[3] = { rpts[3*p+0]*La, rpts[3*p+1]*Lb, rpts[3*p+2]*Lc  };
+				theSurface->addFixedPoint( rp, height, fit_coupling );
+			}
+		}
+	}
+	else
+	{
+		printf("Unknown placement algorithm.\n");
+		exit(1);
+	}
+} 
+
+ 
+
 
 
 

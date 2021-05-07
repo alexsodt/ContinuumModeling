@@ -11,7 +11,7 @@
 
 static double *r_transform = NULL;
 int ntransform = 0;
-
+int do_rotor = 0;
 
 void Simulation::setupClathrinFitter( struct parameterBlock *block )
 {
@@ -23,6 +23,9 @@ void Simulation::setupClathrinFitter( struct parameterBlock *block )
 		printf("Clathrin fitting requires a clathrinStructure specified.\n");
 		exit(1);
 	}
+	if( block->clathrin_rotor )
+		do_rotor = 1;
+
 
 	surface *mainSurface = allSurfaces->theSurface;
 
@@ -101,7 +104,7 @@ void Simulation::setupClathrinFitter( struct parameterBlock *block )
 			double dr[3] = { avp[0] - com[0], avp[1] - com[1], avp[2] - com[2] };
 			double l = normalize(dr);
 
-			double h = l + 50.0;
+			double h = l + block->clathrin_h;
 			
 			if( npts == nspace )
 			{
@@ -172,31 +175,38 @@ void Simulation::setupClathrinFitter( struct parameterBlock *block )
 	cross( av_norm, z_axis, ortho );
 	normalize(ortho);
 
-	double h = 75.0;
+	double h = block->clathrin_h;
 
 	for( int p = 0; p < npts; p++ )
 	{
-		rpts[3*p+0] -= rc[0];
-		rpts[3*p+1] -= rc[1];
-		rpts[3*p+2] -= rc[2];
-
+		if(  block->recenter_clathrin )
+		{
+			rpts[3*p+0] -= rc[0];
+			rpts[3*p+1] -= rc[1];
+			rpts[3*p+2] -= rc[2];
+		}
 		rpts[3*p+0] += nrms[3*p+0] * h; 
 		rpts[3*p+1] += nrms[3*p+1] * h; 
 		rpts[3*p+2] += nrms[3*p+2] * h; 
 	}
 
-	for( int p = 0; p < nat; p++ )
+	if(  block->recenter_clathrin )
 	{
-		oset[3*p+0] -= rc[0];
-		oset[3*p+1] -= rc[1];
-		oset[3*p+2] -= rc[2];
+		for( int p = 0; p < nat; p++ )
+		{
+			oset[3*p+0] -= rc[0];
+			oset[3*p+1] -= rc[1];
+			oset[3*p+2] -= rc[2];
+		}
 	}
 
 	double origin[3]={0,0,0};
 
-	rotateArbitrary( rpts, ortho, origin, npts, acos(av_norm[2]) ); 
-	rotateArbitrary( oset, ortho, origin, nat, acos(av_norm[2]) ); 
-
+	if(  block->recenter_clathrin )
+	{
+		rotateArbitrary( rpts, ortho, origin, npts, acos(av_norm[2]) ); 
+		rotateArbitrary( oset, ortho, origin, nat, acos(av_norm[2]) ); 
+	}
 	FILE *outputCheck = fopen("clathrin_check.xyz","w");
 
 	for( int i = 0; i < nat; i++ )
@@ -214,9 +224,12 @@ void Simulation::setupClathrinFitter( struct parameterBlock *block )
 	ntransform = nat;
 	fclose(outputCheck);
 
+	printf("rtransform0: %lf %lf %lf\n", r_transform[0], r_transform[1], r_transform[2] );
+
 	for( int p = 0; p < npts; p++ )
 	{	
-		fixed_cut_point *new_point = (fixed_cut_point*)malloc( sizeof(fixed_cut_point) );
+		mainSurface->addFixedPoint( rpts+3*p, 0, block->clathrin_force_k );
+/*		fixed_cut_point *new_point = (fixed_cut_point*)malloc( sizeof(fixed_cut_point) );
 		new_point->rpt[0] = rpts[3*p+0]; 
 		new_point->rpt[1] = rpts[3*p+1]; 
 		new_point->rpt[2] = rpts[3*p+2]; 
@@ -227,16 +240,18 @@ void Simulation::setupClathrinFitter( struct parameterBlock *block )
 
 		printf("rp: %lf %lf %lf\n", rpts[3*p+0], rpts[3*p+1], rpts[3*p+2] );
 		new_point->k = block->clathrin_force_k;
+		new_point->
 
 		new_point->next = mainSurface->cutPoints;
 		mainSurface->cutPoints = new_point; 
+*/
 	}
 }
 
 static double *rpos_0;
 static double rcom_rot[3];
 
-double rotate_pts( Simulation *theSimulation, double *eval_at )
+double rotate_pts( Simulation *theSimulation, double *eval_at, double dcom[3])
 {
 	surface *mainSurface = theSimulation->allSurfaces->theSurface;
 	double *main_surface_r = theSimulation->allSurfaces->r;	
@@ -265,15 +280,15 @@ double rotate_pts( Simulation *theSimulation, double *eval_at )
 		dr2[1] = -sin(rotor[2]) * dr[0] + cos(rotor[2]) * dr[1];
 		dr2[2] = dr[2];
 
-		thePt->rpt[0] = rcom_rot[0] + dr2[0];
-		thePt->rpt[1] = rcom_rot[1] + dr2[1];
-		thePt->rpt[2] = rcom_rot[2] + dr2[2];
+		thePt->rpt[0] = rcom_rot[0] + dr2[0] + dcom[0];
+		thePt->rpt[1] = rcom_rot[1] + dr2[1] + dcom[1];
+		thePt->rpt[2] = rcom_rot[2] + dr2[2] + dcom[2];
 		
 	}
 
 }
 
-void set_saved_transform( Simulation *theSimulation, double rotor[3] )
+void set_saved_transform( Simulation *theSimulation, double rotor[3], double dcom[3] )
 {
 	for( int t = 0; t < ntransform; t++ )
 	{
@@ -295,21 +310,27 @@ void set_saved_transform( Simulation *theSimulation, double rotor[3] )
 		dr2[1] = -sin(rotor[2]) * dr[0] + cos(rotor[2]) * dr[1];
 		dr2[2] = dr[2];
 	
-		r_transform[3*t+0] = rcom_rot[0] + dr2[0];
-		r_transform[3*t+1] = rcom_rot[1] + dr2[1];
-		r_transform[3*t+2] = rcom_rot[2] + dr2[2];
+		r_transform[3*t+0] = rcom_rot[0] + dr2[0] + dcom[0];
+		r_transform[3*t+1] = rcom_rot[1] + dr2[1] + dcom[1];
+		r_transform[3*t+2] = rcom_rot[2] + dr2[2] + dcom[2];
 	}
+	
+
+	
+	
+	
 }
 
-double rot_fenergy( Simulation *theSimulation, double rotor_g[3], double lambda, int apply_transform )
+double rot_fenergy( Simulation *theSimulation, double rotor_g[6], double lambda, int apply_transform )
 {
 	surface *mainSurface = theSimulation->allSurfaces->theSurface;
 	double *main_surface_r = theSimulation->allSurfaces->r;	
 	double frot = 0;
 
 	double rotor[3] = { -lambda * rotor_g[0], -lambda * rotor_g[1], -lambda * rotor_g[2] };
+	double dcom[3] = { -lambda * rotor_g[3], -lambda * rotor_g[4], - lambda * rotor_g[5] };
+	rotate_pts( theSimulation, rotor, dcom );
 
-	rotate_pts( theSimulation, rotor );
 
 	if( apply_transform )
 	{
@@ -333,10 +354,11 @@ double rot_fenergy( Simulation *theSimulation, double rotor_g[3], double lambda,
 			dr2[1] = -sin(rotor[2]) * dr[0] + cos(rotor[2]) * dr[1];
 			dr2[2] = dr[2];
 	
-			r_transform[3*t+0] = rcom_rot[0] + dr2[0];
-			r_transform[3*t+1] = rcom_rot[1] + dr2[1];
-			r_transform[3*t+2] = rcom_rot[2] + dr2[2];
+			r_transform[3*t+0] = dcom[0] + rcom_rot[0] + dr2[0];
+			r_transform[3*t+1] = dcom[1] + rcom_rot[1] + dr2[1];
+			r_transform[3*t+2] = dcom[2] + rcom_rot[2] + dr2[2];
 		}
+	
 
 		return 0;	
 	}
@@ -424,6 +446,17 @@ void Simulation::clathrinGrad( double *g )
 		rpos_0[ind*3+0] = rpt[0];
 		rpos_0[ind*3+1] = rpt[1];
 		rpos_0[ind*3+2] = rpt[2];
+
+		g[3] += thePt->frc[0]; 
+		g[4] += thePt->frc[1]; 
+		g[5] += thePt->frc[2]; 
+	}
+
+	if( !do_rotor )
+	{
+		g[0] = 0;
+		g[1] = 0;
+		g[2] = 0;
 	}
 }
 
@@ -434,7 +467,7 @@ void Simulation::OptClathrin( void )
 
 	// optimize the rotation of the clathrin surface with the membrane fixed.	
 
-	double g[3] = {0,0,0}; // phi, theta, rho 
+	double g[6] = {0,0,0,0,0,0}; // phi, theta, rho 
 	// rho is the rotation around the x axis.
 	// phi is the rotation around the y axis.
 	// theta is the rotation around the z axis.

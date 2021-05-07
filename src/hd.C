@@ -117,6 +117,9 @@ int main( int argc, char **argv )
 
 	srand(block.random_seed);
 	if( !rng_x ) init_random(block.random_seed);
+
+	if( block.fusion_pore )
+		activateFusionPore();
 	/* copy parameters */
 
 	int collect_hk = block.collect_hk;	
@@ -297,7 +300,7 @@ int main( int argc, char **argv )
 	global_block = &block; //yikes
 
 	if( block.fitRho )
-		theSimulation->setupDensity( block.fitRho, block.shiftRho );
+		theSimulation->setupDensity( block.fitRho, block.shiftRho, block.do_fixed_point_rho, block.fitCoupling, block.midplane_fit );
 
 	if( block.clathrinStructure )
 		theSimulation->setupClathrinFitter( &block );
@@ -869,7 +872,13 @@ int main( int argc, char **argv )
 		 	theSimulation->writeLimitingSurface(minFile );
 		for( int m = 0; m < block.nmin; m++ )
 		{
-			theSimulation->minimize(any_do_gen_q, m % 3 != 0 ); // second argument freezes clathrin most of the time
+			if( block.point_lock )
+			{
+				for( surface_record *sRec = theSimulation->allSurfaces; sRec; sRec = sRec->next )
+					sRec->theSurface->lockPoints();
+			}
+
+			theSimulation->minimize(any_do_gen_q, block.freeze_clathrin ); // second argument freezes clathrin most of the time
 //			if( block.clathrinStructure )
 //				theSimulation->OptClathrin();
 			for( surface_record *sRec = theSimulation->allSurfaces; sRec; sRec = sRec->next )
@@ -881,8 +890,9 @@ int main( int argc, char **argv )
 			if(block.minimizeResetG )
 			{
 				for( surface_record *sRec = theSimulation->allSurfaces; sRec; sRec = sRec->next )
-					sRec->theSurface->setg0(sRec->r,0.1);
+					sRec->theSurface->setg0(sRec->r,0.05);
 			}
+			fflush(stdout);
 		}
 		if( block.clathrinStructure )
 			theSimulation->WriteClathrin(&block);
@@ -895,11 +905,12 @@ int main( int argc, char **argv )
 		
 	}
 
+
+#ifdef DENSITY_FOR_EM
 	FILE *densFile = fopen("density.txt","w");
-
 	theSimulation->write_density( densFile, 100, 100, 100, 0 );
-
 	fclose(densFile);
+#endif
 
 	if( block.do_gather )
 		theSimulation->gather(&block);

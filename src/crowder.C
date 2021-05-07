@@ -57,7 +57,7 @@ void elasticCrowder::init( Simulation *theSimulation, surface *theSurface, doubl
 	
 } 
 
-void elasticCrowder::putBonds( int *list )
+void elasticCrowder::putBonds( int *list, double *r, double *k)
 {
 	list[0] = 0;
 	list[1]  =1;

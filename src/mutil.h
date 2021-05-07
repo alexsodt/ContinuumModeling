@@ -35,5 +35,7 @@ void fillcpder( double *der, double *dr,
 		);
 void fillcp( double *der, double *r );
 
+// given drdu and drdv, find {u,v} pair that aligns along target, normalized.
+void best_align( double *out_uv, double *ru, double *rv, double *target );
 
 #endif

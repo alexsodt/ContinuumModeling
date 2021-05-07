@@ -1535,6 +1535,8 @@ pcomplex *loadComplex( const char *name )
 		the_complex = new NBAR;
 	else if( !strcasecmp( name, "syt7" ) )
 		the_complex = new syt7;
+	else if( !strcasecmp( name, "dynamin" ) )
+		the_complex = new dynamin;
 	else if( !strcasecmp( name, "ifitm3" ) )
 		the_complex = new ifitm3;
 	else if( !strcasecmp( name, "dimer" ) )
@@ -1702,7 +1704,10 @@ void Simulation::loadComplexes( parameterBlock *block )
 
 			pcomplex *prot = loadComplex( rec->name );
 			prot->loadParams(block);
-			prot->init(tp); 
+			if( !strcasecmp( rec->name, "dynamin" ) )
+				((dynamin *)prot)->init(tp, rec->nmer ); 				 
+			else
+				prot->init(tp); 				 
 		
 			if( ncomplex  == nspace )
 			{
@@ -1748,7 +1753,10 @@ void Simulation::loadComplexes( parameterBlock *block )
 			else
 				prot->move_outside();
 
-			prot->init(this, theSurface, rsurf, f,u,v); 				 
+			if( !strcasecmp( rec->name, "dynamin" ) )
+				((dynamin *)prot)->init(this, theSurface, rsurf, f,u,v, rec->nmer ); 				 
+			else
+				prot->init(this, theSurface, rsurf, f,u,v); 				 
 
 			for( int t = 0; t < prot->nattach; t++ )
 				prot->sid[t] = baseRec->id; 
@@ -1933,7 +1941,7 @@ double pcomplex::T( Simulation *theSimulation, int subp)
 	return T;
 }
 
-void pcomplex::putBonds( int *bond_list )
+void pcomplex::putBonds( int *bond_list, double *len, double *k )
 {
 }
 
@@ -2659,5 +2667,19 @@ void pcomplex::writeStructure( Simulation *theSimulation, surface_mask *upperSur
 
 
 }
+
+char pcomplex::getSiteCode( int p )
+{
+	return 'O';
+}
+	
+void pcomplex::get( 
+		Simulation *theSimulation, // this is the surface/PBC
+		struct atom_rec *at,
+		int p_start, int p_stop )
+{
+	
+}
+
 
 

@@ -25,14 +25,26 @@
 
 #define FRACTIONAL_TOLERANCE
 
+// OLD VALUES
+#if 1 
+  #ifdef FRACTIONAL_TOLERANCE
+  #define FRAC_TOL      0.0025
+  #define EXTREME_R	(1e-6)
+  #else
+  //#define RADIUS_TOL    (1)
+  #define RADIUS_TOL    (1e-3)
+  #endif
+#else
 #ifdef FRACTIONAL_TOLERANCE
-#define FRAC_TOL      0.0025
-#define EXTREME_R	(1e-6)
+#define FRAC_TOL      0.0000025
+#define EXTREME_R	(1e-9)
 #else
 //#define RADIUS_TOL    (1)
-#define RADIUS_TOL    (1e-3)
+#define RADIUS_TOL    (1e-6)
 #endif
 
+
+#endif
 extern "C" int convex_hull( double *pts, int npts, const char *unique );
 bool gjk_algorithm( double *r1, int nv1, double *r2, int nv2 );
 bool linear_collision_worker(double* r1, int nv1, double* pt1, double *pt2, double *pt,  double radius);

@@ -10,6 +10,7 @@
 #include "globals.h"
 #include "clathrin.h"
 
+
 extern int enable_elastic_interior;
 static int min_freeze_clathrin = 0;
 static int min_z_only = 0;
@@ -18,6 +19,7 @@ static int min_nparams = 0;
 static int min_nsurfaceparams = 0;
 static int do_freeze_membrane = 0;
 static pcomplex **min_complexes;
+static int fix_thickness = 0;
 extern double VA,VC;
 double VV = 0;
 extern double water_KV;
@@ -92,8 +94,8 @@ double surface_f( double *p )
 
 	if( global_block->clathrinStructure && ! min_freeze_clathrin )
 	{
-		rotate_pts( min_simulation, p+nparams );	
-		nparams += 3;
+		rotate_pts( min_simulation, p+nparams, p + nparams+3 );	
+		nparams += 6;
 	}
 
 	for( surface_record *sRec = header; sRec; sRec = sRec->next )
@@ -225,17 +227,19 @@ double surface_fdf( double *p, double *g)
 
 		int offset = 3; 
 
-
 		if( global_block->clathrinStructure && ! min_freeze_clathrin )
 		{
 			// when the gradient is computed it sets the frc points for subsequent iteration. we need to update the base pdb as well at this point.
-			set_saved_transform( min_simulation, p+nparams );
+			set_saved_transform( min_simulation, p+nparams, p+nparams+3 );
 			// this I'm sure hurts the BFGS. resets the angles
 			p[nparams+0] = 0;
 			p[nparams+1] = 0;
 			p[nparams+2] = 0;
+			p[nparams+3] = 0;
+			p[nparams+4] = 0;
+			p[nparams+5] = 0;
 			min_simulation->clathrinGrad( g+nparams );
-			nparams += 3;
+			nparams += 6;
 		}
 
 		for( surface_record *sRec = header; sRec; sRec = sRec->next )
@@ -249,8 +253,15 @@ double surface_fdf( double *p, double *g)
 
 
 			if(do_rho )
+			{
 				v += sRec->theSurface->rhoGrad( p+offset, g+offset, min_simulation->PBC_vec, thick_inner, thick_outer, rho_g_i, rho_g_o );
 
+				if( fix_thickness )
+				{
+					*rho_g_i = 0;
+					*rho_g_o = 0;
+				}
+			}
 			v += sRec->theSurface->cutGrad( p+offset, g+offset );
 			offset += sRec->theSurface->nv*3+3;
 		}
@@ -496,7 +507,7 @@ double surface_fdf( double *p, double *g)
 
 void full_fd_test( double *p )
 {
-	double deps = 1e-7;
+	double deps = 1e-8;
 
 	double *g = (double *)malloc( sizeof(double) * min_nparams );
 	memset( g, 0, sizeof(double) * min_nparams );
@@ -504,7 +515,7 @@ void full_fd_test( double *p )
 	double e0 = surface_fdf( p, g );
 	printf("Finite difference test.\n");
 
-	for( int xp = min_nparams-3; xp < min_nparams; xp++ )
+	for( int xp  = 0; xp < min_nparams; xp++ )
 	{
 		double de_pm[2];
 	
@@ -518,7 +529,7 @@ void full_fd_test( double *p )
 
 			p[xp] -= deps * (im == 0 ? 1 : -1);	
 		}
-	
+
 		double fr_error = fabs(((de_pm[0]-de_pm[1])/(2*deps) - g[xp])/((de_pm[0]-de_pm[1])/(2*deps)));	
 	
 		if( fabs( (de_pm[0]-de_pm[1])/(2*deps) - g[xp]) > 1e-5 && fr_error > 1e-5 )
@@ -576,6 +587,11 @@ void Simulation::minimize( int freeze_membrane, int freeze_clathrin  )
 	min_z_only = 0;	
 	if( global_block->z_only ) min_z_only = 1;
 
+	if( global_block->fitThickness >= 0 ) {
+		fix_thickness = 1;
+		cur_rho_thickness[0] = global_block->fitThickness;
+		cur_rho_thickness[1] = global_block->fitThickness;
+	}
 #ifdef PARALLEL
 	ParallelSyncComplexes( min_complexes, min_ncomplex );
 #endif
@@ -600,7 +616,7 @@ void Simulation::minimize( int freeze_membrane, int freeze_clathrin  )
 	}
 
 	if( global_block->clathrinStructure && !min_freeze_clathrin)
-		num_params += 3;
+		num_params += 6;
 
 
 	min_nparams = num_params;
@@ -658,6 +674,9 @@ void Simulation::minimize( int freeze_membrane, int freeze_clathrin  )
 		p[tp] = 0; tp++;
 		p[tp] = 0; tp++;
 		p[tp] = 0; tp++;
+		p[tp] = 0; tp++;
+		p[tp] = 0; tp++;
+		p[tp] = 0; tp++;
 	}
 	// derivative might be zero (absolutely)
 
@@ -667,7 +686,7 @@ void Simulation::minimize( int freeze_membrane, int freeze_clathrin  )
 		mag_init += g[p]*g[p];
 	
 
-	int nsteps = 5;
+	int nsteps = 50;
 	
 	int use_m = nsteps;
 	if( use_m > num_params )

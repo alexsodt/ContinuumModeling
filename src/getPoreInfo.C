@@ -199,6 +199,7 @@ int main( int argc, char **argv )
 	for( int zb = 0; zb < nz; zb++ )
 	{
 	        double zv = Lc * (zb+0.5) / (double)nz;
+//		printf("zv: %lf rho: %lf\n", zv, rho_z[zb] );
 	
 	         int zlow  = zb- nz/2;
 	         int zhigh = zlow + nz;
@@ -221,6 +222,7 @@ int main( int argc, char **argv )
 	                 wrapto = zv;
 	         }
 	}
+//	printf("wrapto: %lf\n",wrapto );
 	
 	double com[3] = {0,0,0};
 	double ncom[3] = {0,0,0};

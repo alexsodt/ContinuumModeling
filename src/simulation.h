@@ -140,7 +140,7 @@ typedef struct Simulation
 	void saveRestart( FILE *theFile, int seed ); 
 	void saveRestart( char **buf, int seed);
 	void loadRestart( FILE *loadFile, int *seed );
-	void setupDensity( char*fileName, int shiftRho );
+	void setupDensity( char*fileName, int shiftRho, int use_fixed_points, double fit_coupling, int midplane_fit );
 	void rhoShifter( double *rho, int nx, int ny, int nz );
 
 	int AddComplex( pcomplex *addMe );	

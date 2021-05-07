@@ -214,7 +214,7 @@ int NBAR::getNBonds( void )
 	return 2;
 }
 
-void NBAR::putBonds( int *bond_list )
+void NBAR::putBonds( int *bond_list, double *r, double *k)
 {
 	bond_list[0] = 0;
 	bond_list[1] = 1;

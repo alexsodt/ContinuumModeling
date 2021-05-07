@@ -152,6 +152,57 @@ int global_boxing::addp( double *r, int id )
 	return box;
 }
 
+int global_boxing::movep( double *r, int id, int cur_box)
+{
+	int gotit=0;
+	static int warned=0;
+	for( int t = 0; t < boxes[cur_box].np; t++ )
+	{
+		if( boxes[cur_box].plist[t] == id )
+		{
+			gotit=1;
+			boxes[cur_box].plist[t] = boxes[cur_box].plist[boxes[cur_box].np-1];
+			boxes[cur_box].np-=1;
+			break;
+		}
+	}
+
+	if( !gotit && warned < 10 )
+	{
+		warned++;
+		printf("WARNING: didn't get it.\n");
+	}
+
+	double tr[3] = { r[0], r[1],r[2] };
+
+	while( tr[0] < 0 ) tr[0] += PBC[0][0]; 
+	while( tr[1] < 0 ) tr[1] += PBC[1][1]; 
+	while( tr[2] < 0 ) tr[2] += PBC[2][2]; 
+	while( tr[0] > PBC[0][0] ) tr[0] -= PBC[0][0]; 
+	while( tr[1] > PBC[1][1] ) tr[1] -= PBC[1][1]; 
+	while( tr[2] > PBC[2][2] ) tr[2] -= PBC[2][2]; 
+
+	int bx = nx * (tr[0] / PBC[0][0]);
+	if( bx >= nx ) bx -= nx;
+	int by = ny * (tr[1] / PBC[1][1]);
+	if( by >= ny ) by -= ny;
+	int bz = nz * (tr[2] / PBC[2][2]);
+	if( bz >= nz ) bz -= nz;
+
+	int box = (bx * ny + by) * nz + bz;
+	
+	if( boxes[box].np >= boxes[box].npspace )
+	{
+		boxes[box].npspace *= 2;
+		boxes[box].plist = (int *)realloc( boxes[box].plist, sizeof(int) * boxes[box].npspace );
+	}
+	
+	boxes[box].plist[boxes[box].np] = id;
+	boxes[box].np++;
+
+	return box;
+}
+
 
 
 void global_boxing::clearBoxing( int *list, int nclear)

@@ -11,6 +11,8 @@
 #include "io_mol_read.h"
 #include "input.h"
 #include "mutil.h"
+#include "pcomplex.h"
+#include <math.h>
 
 double Simulation::nearCurvature( double *rpt, double *c_out, double *k_out, double *dp_out, double *dz_out, int *leaflet_out, double *out_nrm )
 {
@@ -99,29 +101,60 @@ void Simulation::gather( parameterBlock *block )
 			sum_g += g;
 		}
 
-		av_c /= sum_g;
-		av_k /= sum_g;
-		printf("Surface %d has <c> %lf <k> %lf ", sRec->id, av_c, av_k );
-		if( av_c < 0 )
-			printf("(flipping).\n");
-		else
-			printf("(not flipping).\n");
+		double chi_check = -av_k / (8*M_PI);
+	
+		printf("K_tot: %lf\n", av_k );	
+		if( fabs(chi_check-1) < 0.05 )
+	 	{
+			printf("Fusion pore detected. Setting sign...");
+			double rpt[3], rnrm[3];
+			sRec->theSurface->evaluateRNRM( 0, 1.0/3.0, 1.0/3.0, rpt, rnrm, sRec->r );
 
-		if( av_c < 0 )
-			sRec->gather_flip = 1;
-		else
 			sRec->gather_flip = 0;
+
+			if( fabs(rnrm[2]) > 0.7 )
+			{  
+				if( rnrm[2] < -0.7 && rpt[2] < 0 )
+					sRec->gather_flip  = 1;
+				else if( rnrm[2] > 0.7 && rpt[2] > 0 )
+					sRec->gather_flip  = 1;
+			}
+			else 
+			{
+				double dp = rpt[0] * rnrm[0] + rpt[1] * rnrm[1] + rpt[2] * rnrm[2];
+
+				if( dp < 0 )
+					sRec->gather_flip = 1;
+			}
+			if( sRec->gather_flip )
+				printf("Flipping.\n");
+			else
+				printf("Not flipping.\n");
+		}
+		else
+		{	
+
+			av_c /= sum_g;
+			av_k /= sum_g;
+			printf("Surface %d has <c> %lf <k> %lf ", sRec->id, av_c, av_k );
+	
+	
+			if( av_c < 0 )
+				printf("(flipping).\n");
+			else
+				printf("(not flipping).\n");
+	
+			if( av_c < 0 )
+				sRec->gather_flip = 1;
+			else
+				sRec->gather_flip = 0;
+		}
 	}	
 
 
         char *gathered = (char *)malloc( sizeof(char) * (1+strlen(block->jobName) + strlen("_gathered.xyz")) );
 	sprintf(gathered, "%s_gathered.xyz", block->jobName );
 	FILE *gatheredXYZ = fopen(gathered,"w");
-	if( gatheredXYZ )		
-	{
-		writeLimitingSurface(gatheredXYZ);
-		fclose(gatheredXYZ);
-	}
 	if( !block->structureName )
 	{
 		printf("Gathering requires a structure (e.g., PSF) file.\n");
@@ -227,12 +260,56 @@ void Simulation::gather( parameterBlock *block )
 			fprintf(gatherFile, "%s %s %d %le %le %lf %lf %s\n", at[a].segid, at[a].resname, at[a].res, cout, kout, dp_out, dz_out, (leaflet_out == 0 ? "lower" : "upper" ) );	
 			fflush(gatherFile);
 		}	
+		
+		if( ncomplex > 0 )
+		{
+			int cur_complex = 0;
 
+			int a = 0;
+			char pseg[256];
+
+			pseg[0] = '\0';
+
+			int nat = io_nAtoms();
+			int seg_start = 0;
+			
+			for( int a = 0; a <= nat; a++ )
+			{
+				if( a == nat || strcasecmp(at[a].segid, pseg ) )
+				{
+					int seg_stop = a-1;
+
+					// a new segment, is it a protein?
+					if( strlen(pseg)>1 && pseg[0] == 'P' && pseg[1] >= '0' && pseg[1] <= '9' )
+					{
+						if( cur_complex  < ncomplex )
+						{
+							allComplexes[cur_complex]->get( this, at, seg_start, seg_stop ); 
+							allComplexes[cur_complex]->refresh(this);
+							cur_complex++;
+						}
+					}
+
+					seg_start = a;
+
+					if( a < nat )
+						strcpy( pseg, at[a].segid );
+				}
+					 
+			}
+		}
 		if( f== 0 )
 			fclose(assignmentFile);
+		if( gatheredXYZ )		
+			writeLimitingSurface(gatheredXYZ);
 	}	
 
-		
+	if( gatheredXYZ )
+	{
+		fclose(gatheredXYZ);
+		gatheredXYZ=NULL;
+	}	
+	
 	printf("Finished with gather.\n" );
 	fflush(stdout);
 } 

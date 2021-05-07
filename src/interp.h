@@ -29,6 +29,7 @@ struct srd_integrator;
 
 int bmap( int i, int j );
 int loadLattice( const char *fileName, double noise );
+void activateFusionPore( void );
 
 // the derivatives.
 
@@ -41,6 +42,12 @@ typedef struct fixed_cut_point
 	double k; // force constant.
 	double rpt[3];
 	double frc[3]; // this is the force on the point due to the constraint
+
+	int is_locked;	// you can lock the constraint point onto a particular point on the surface.
+	int locked_f;
+	double locked_uv[2]; // makes minimization much faster without having to find the near pt.
+	double target_distance;
+
 	struct fixed_cut_point *next;
 } fixed_cut_point;
 
@@ -383,13 +390,15 @@ struct surface
 	int origPlanarHarmonicModes( double *ro, int mode_x, int mode_y, int mode_min, int mode_max, double **gen_transform, double **output_qvals, double **scaling_factors );
 
 	int setupCut( int cartesian_component, double value, double *r);
+	void lockPoints( void );
+	void unlockPoints( void );
 	double cutEnergy( double *r );
 	double cutGrad( double *r, double *g );
 	int get_cut_points( int cartesian_component, double value, int *f, double *uv, double *rall, int n_cut_points, double *r, int *nconvex, double *center, int use_center, int reduce_convex );
 	void spread_evenly_at_cut( double val, int cartesian_comp, int *f_pts, double *uv_pts, double *rall, double *r, int n_cut_points, double *center, int use_center  );
 	void fit_to_circle( int cartesian_component,  double r_off, int *f_pts, double *uv_pts, double *rall, double *r, int np, double *center, int use_center  );
 	void mc_cut_worker( double value, int cartesian_component, double r_value, int *f_pts, double *uv_pts, double *rall, double * r, int n_cut_points, double *center, int use_center  );
-	void addFixedPoint( double *r_fixed );
+	void addFixedPoint( double *r_fixed, double target_distance = 0, double k_coupling=10 );
 	void GetFusionPoreRegionStats( double *r, parameterBlock *theBlock );
 	// THESE SHOULD EVENTUALLY BE DELETED	
 	void addParticleToFace( int f, int pid, double c0, double p_area );
