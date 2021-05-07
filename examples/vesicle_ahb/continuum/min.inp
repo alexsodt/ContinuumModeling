@@ -1,0 +1,6 @@
+mesh subdiv.mesh
+#nmin 3
+#nsteps 0
+#o_lim 1
+#time_step 1e-20
+#seed 2
