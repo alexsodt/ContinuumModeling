@@ -54,6 +54,73 @@ char threeToOne( const char *code )
         exit(1);
 }
 
+int genFetch( char **patch_out, const char *dir, const char *file, const char *ext )
+{
+	int lenLIB = strlen(libDir);
+	int lenDir = strlen(dir);
+	int lenFile = strlen(file);
+	int lenTot = lenLIB + lenDir + lenFile + strlen(ext) + 256;
+
+	char fileName[lenTot];
+	sprintf(fileName, "%s/%s/%s.%s", libDir, dir, file, ext );
+
+	FILE * theFile = fopen(fileName,"r");
+
+	if( !theFile )
+	{
+		printf("Couldn't open file '%s' from patchFetch.\n", fileName );
+		exit(1);
+	}
+	
+	fseek(theFile, 0, SEEK_END );
+	int size = ftell(theFile)+1;
+	rewind(theFile);	
+	*patch_out = (char *)malloc( sizeof(char) * (1 + size) );
+	int t = 0;
+
+	while( !feof(theFile) && t < size)
+	{
+		if( t < size )
+		{
+			(*patch_out)[t] = fgetc(theFile);
+			if( !feof(theFile ) )
+				t++;
+			(*patch_out)[t] = '\0';
+		}
+	}
+
+	return 1;
+}
+
+
+int patchFetch( char **patch_out, const char *dir, const char *file )
+{
+	genFetch( patch_out, dir, file, "patch" );
+}
+
+int rtfFetch( char **rtf_out, const char *dir, const char*file )
+{
+	genFetch( rtf_out, dir, file, "str" );
+}
+
+void processPatch( const char *patch, FILE *write_to, const char *segid )
+{
+	const char *cue_string = "REPLACE_SEGMENT";
+	int len = strlen(patch);
+	int lenseg = strlen(cue_string);
+
+	for ( int s = 0; s < len; s++ )
+	{
+		if( !strncasecmp( patch+s, cue_string, lenseg) )
+		{
+			fprintf(write_to, "%s", segid );
+			s += lenseg-1;
+		}
+		else
+			fputc(patch[s], write_to );
+	}
+}
+ 
 
 int pdbFetch( struct atom_rec **out_pdb, int *nout, const char *dir, const char *file, int addToPool )
 {

@@ -39,8 +39,9 @@ void ifitm3::init( double *r )
 
 // initialize the BAR domain on the membrane.
 
-void ifitm3::init( Simulation *theSimulation, surface *theSurface, double *rsurf, int f, double u, double v )
+void ifitm3::init( Simulation *theSimulation, surface *theSurface, double *rsurf, int f, double u, double v, int nmer )
 {
+	nmer_saved = nmer;
 	// assume for now this is one of the points on the membrane neck.
 
 	base_init();
@@ -281,8 +282,10 @@ void ifitm3::move_outside( void )
 void ifitm3::writeStructure( Simulation *theSimulation, 
 		surface_mask *upperSurfaceMask, 
 		surface_mask *lowerSurfaceMask, 
-		struct atom_rec **at_out, int *nat_out, char **sequence, struct ion_add **ions, int *nions, aa_build_data *buildData )
+		struct atom_rec **at_out, int *nat_out, char ***sequence, int *nseq_out, int **seq_at_array, char ***patches, struct ion_add **ions,  int *nions, aa_build_data *buildData, int *build_type)
 {
+	*build_type = BUILD_SEQUENCE;
+
 	int nsegments = 2;
 	
 	surface *theSurface;
@@ -350,10 +353,17 @@ void ifitm3::writeStructure( Simulation *theSimulation,
 
 		pres = at[a].res;
 	}	
-
+	
 	seq[nseq] = '\0';
-	*sequence = seq;
+	*sequence = (char **)malloc( sizeof(char *) * 1 );
+	*nseq_out = 1;
+	(*sequence)[0] = seq;
 
+	*seq_at_array = (int *)malloc( sizeof(int) * 1 );
+	(*seq_at_array)[0] = 0; // where it starts.
+
+	*patches = (char **)malloc( sizeof(char *) * 1 );
+	(*patches)[0] = NULL;
 /*
 	struct atom_rec *IFI = NULL;
 	int nIFI=0;

@@ -1035,33 +1035,3999 @@ void normal_cp_der( double *r1, double *r2, double *r3, double dnrm[27] )
 	}
 }
 
-void best_align( double *out_uv, double *ru, double *rv, double *target )
+void cp_der_dot( double *v1, double *v2, double *der, double *dot )
+{
+	memset( der, 0, sizeof(double) * 36 );
+
+	double kx = dot[0];
+	double ky = dot[1];
+	double kz = dot[2];
+
+	// d/drx
+	der[0*6+0] = 0;	der[0*6+1] = 0;	der[0*6+2] = 0;	        der[0*6+3] = 0;   der[0*6+4] = kz;  der[0*6+5] = -ky;
+	der[1*6+0] = 0;	der[1*6+1] = 0;	der[1*6+2] = 0;	        der[1*6+3] = -kz; der[1*6+4] = 0;   der[1*6+5] = kx;
+	der[2*6+0] = 0;	der[2*6+1] = 0;	der[2*6+2] = 0;	        der[2*6+3] = ky;  der[2*6+4] = -kx; der[2*6+5] = 0;
+	der[3*6+0] = 0;	der[3*6+1] = -kz;  der[3*6+2] = ky;     der[3*6+3] = 0;   der[3*6+4] = 0;   der[3*6+5] = 0;
+	der[4*6+0] = kz;  der[4*6+1] = 0;  der[4*6+2] = -kx;	der[4*6+3] = 0;   der[4*6+4] = 0;   der[4*6+5] = 0;
+	der[5*6+0] = -ky; der[5*6+1] = kx; der[5*6+2] = 0;	der[5*6+3] = 0;   der[5*6+4] = 0;   der[5*6+5] = 0;
+}
+
+void best_align( double *out_uv, double *ru, double *rv, double *target, int do_nrm )
 {
 	double drdu[3] = { ru[0], ru[1], ru[2] };
 	double drdv[3] = { rv[0], rv[1], rv[2] };
 	double t[3] = { target[0],target[1],target[2]};
 
-	double lu = normalize(drdu);
-	double lv = normalize(drdv);
-	double lt = normalize(t);
-	double lu_lv = dot(drdu,t);
+	//double lu = normalize(drdu);
+//	double lv = normalize(drdv);
+//	double lt = normalize(t);
+	
+	double lu_lv = dot(drdu,drdv);
 	double lu_lt = dot(drdu,t);
 	double lv_lt = dot(drdv,t);
-	double lu_lu = 1.0, lv_lv = 1.0;
+	double lu_lu = dot(drdu,drdu), lv_lv = dot(drdv,drdv);
 	double rr = dot(t,t);
 
-	out_uv[0] = - rr * ( lu_lt * lu_lv - lv_lt * lv_lv) / ( lv_lt*lv_lt*lu_lu- 2 * lu_lt * lv_lt * lu_lv + lu_lt * lu_lt * lv_lv); 
-	out_uv[1] =   rr * ( lv_lt * lu_lu - lu_lt * lu_lv) / ( lv_lt*lv_lt*lu_lu- 2 * lu_lt * lv_lt * lu_lv + lu_lt * lu_lt * lv_lv); 
+	out_uv[0] = (lv_lt * lu_lv - lu_lt * lv_lv)/(lu_lv * lu_lv - lu_lu * lv_lv);
+	out_uv[1] = (lu_lt * lu_lv - lv_lt * lu_lu)/(lu_lv * lu_lv - lu_lu * lv_lv);
 
-	double un_vec[3] = { out_uv[0] * drdu[0] + out_uv[1] * drdv[0],
-			     out_uv[0] * drdu[1] + out_uv[1] * drdv[1], 
-			     out_uv[0] * drdu[2] + out_uv[1] * drdv[2] };
+//	out_uv[0] = - rr * ( lv_lt * lu_lv - lu_lt * lv_lv) / ( lv_lt*lv_lt*lu_lu- 2 * lu_lt * lv_lt * lu_lv + lu_lt * lu_lt * lv_lv); 
+//	out_uv[1] =   rr * ( lv_lt * lu_lu - lu_lt * lu_lv) / ( lv_lt*lv_lt*lu_lu- 2 * lu_lt * lv_lt * lu_lv + lu_lt * lu_lt * lv_lv); 
 
-	double ln = normalize(un_vec);
+	double un_vec[3] = { out_uv[0] *  drdu[0] + out_uv[1] *  drdv[0],
+			     out_uv[0] *  drdu[1] + out_uv[1] *  drdv[1], 
+			     out_uv[0] *  drdu[2] + out_uv[1] *  drdv[2] };
+	
+	if( do_nrm )
+	{
+		double ln = normalize(un_vec);
 
-	out_uv[0] /= ln;
-	out_uv[1] /= ln;
- 
+		out_uv[0] /= ln;
+		out_uv[1] /= ln;
+ 	}
 
+}
+
+void brute_force_dihedral( double *r1, double *r2, double *r3, double *r4, double *der_d_th)
+{
+	double r1x = r1[0];
+	double r1y = r1[1];
+	double r1z = r1[2];
+	double r2x = r2[0];
+	double r2y = r2[1];
+	double r2z = r2[2];
+	double r3x = r3[0];
+	double r3y = r3[1];
+	double r3z = r3[2];
+	double r4x = r4[0];
+	double r4y = r4[1];
+	double r4z = r4[2];
+	der_d_th[0] = (Sqrt(Power(r2x,2) + Power(r2y,2) + Power(r2z,2) - 2*r2x*r3x + Power(r3x,2) - 
+        2*r2y*r3y + Power(r3y,2) - 2*r2z*r3z + Power(r3z,2))*
+      (-(r1x*r2z*r3y) + r1x*r2y*r3z + r2z*r3y*r4x - r2y*r3z*r4x + r1x*r2z*r4y - 
+        r2z*r3x*r4y - r1x*r3z*r4y + r2x*r3z*r4y + 
+        r1z*(r2x*r3y - r3y*r4x + r2y*(-r3x + r4x) - r2x*r4y + r3x*r4y) - r1x*r2y*r4z + 
+        r2y*r3x*r4z + r1x*r3y*r4z - r2x*r3y*r4z + 
+        r1y*(r2z*r3x - r2x*r3z - r2z*r4x + r3z*r4x + r2x*r4z - r3x*r4z))*
+      (-((-(r1y*r2x) + r1x*r2y + r1y*r3x - r2y*r3x - r1x*r3y + r2x*r3y)*
+            (2*(r2y - r3y)*(-(r1y*r2x) + r1x*r2y + r1y*r3x - r2y*r3x - r1x*r3y + 
+                 r2x*r3y) + 2*(-r2z + r3z)*
+               (r1z*r2x - r1x*r2z - r1z*r3x + r2z*r3x + r1x*r3z - r2x*r3z))*
+            (-(r2y*r3x) + r2x*r3y + r2y*r4x - r3y*r4x - r2x*r4y + r3x*r4y))/
+         (2.*Power(Power(-(r1y*r2x) + r1x*r2y + r1y*r3x - r2y*r3x - r1x*r3y + r2x*r3y,
+              2) + Power(r1z*r2x - r1x*r2z - r1z*r3x + r2z*r3x + r1x*r3z - r2x*r3z,2) + 
+             Power(-(r1z*r2y) + r1y*r2z + r1z*r3y - r2z*r3y - r1y*r3z + r2y*r3z,2),1.5)*
+           Sqrt(Power(-(r2y*r3x) + r2x*r3y + r2y*r4x - r3y*r4x - r2x*r4y + r3x*r4y,2) + 
+             Power(r2z*r3x - r2x*r3z - r2z*r4x + r3z*r4x + r2x*r4z - r3x*r4z,2) + 
+             Power(-(r2z*r3y) + r2y*r3z + r2z*r4y - r3z*r4y - r2y*r4z + r3y*r4z,2))) + 
+        ((r2y - r3y)*(-(r2y*r3x) + r2x*r3y + r2y*r4x - r3y*r4x - r2x*r4y + r3x*r4y))/
+         (Sqrt(Power(-(r1y*r2x) + r1x*r2y + r1y*r3x - r2y*r3x - r1x*r3y + r2x*r3y,2) + 
+             Power(r1z*r2x - r1x*r2z - r1z*r3x + r2z*r3x + r1x*r3z - r2x*r3z,2) + 
+             Power(-(r1z*r2y) + r1y*r2z + r1z*r3y - r2z*r3y - r1y*r3z + r2y*r3z,2))*
+           Sqrt(Power(-(r2y*r3x) + r2x*r3y + r2y*r4x - r3y*r4x - r2x*r4y + r3x*r4y,2) + 
+             Power(r2z*r3x - r2x*r3z - r2z*r4x + r3z*r4x + r2x*r4z - r3x*r4z,2) + 
+             Power(-(r2z*r3y) + r2y*r3z + r2z*r4y - r3z*r4y - r2y*r4z + r3y*r4z,2))) - 
+        ((r1z*r2x - r1x*r2z - r1z*r3x + r2z*r3x + r1x*r3z - r2x*r3z)*
+           (2*(r2y - r3y)*(-(r1y*r2x) + r1x*r2y + r1y*r3x - r2y*r3x - r1x*r3y + 
+                r2x*r3y) + 2*(-r2z + r3z)*
+              (r1z*r2x - r1x*r2z - r1z*r3x + r2z*r3x + r1x*r3z - r2x*r3z))*
+           (r2z*r3x - r2x*r3z - r2z*r4x + r3z*r4x + r2x*r4z - r3x*r4z))/
+         (2.*Power(Power(-(r1y*r2x) + r1x*r2y + r1y*r3x - r2y*r3x - r1x*r3y + r2x*r3y,
+              2) + Power(r1z*r2x - r1x*r2z - r1z*r3x + r2z*r3x + r1x*r3z - r2x*r3z,2) + 
+             Power(-(r1z*r2y) + r1y*r2z + r1z*r3y - r2z*r3y - r1y*r3z + r2y*r3z,2),1.5)*
+           Sqrt(Power(-(r2y*r3x) + r2x*r3y + r2y*r4x - r3y*r4x - r2x*r4y + r3x*r4y,2) + 
+             Power(r2z*r3x - r2x*r3z - r2z*r4x + r3z*r4x + r2x*r4z - r3x*r4z,2) + 
+             Power(-(r2z*r3y) + r2y*r3z + r2z*r4y - r3z*r4y - r2y*r4z + r3y*r4z,2))) + 
+        ((-r2z + r3z)*(r2z*r3x - r2x*r3z - r2z*r4x + r3z*r4x + r2x*r4z - r3x*r4z))/
+         (Sqrt(Power(-(r1y*r2x) + r1x*r2y + r1y*r3x - r2y*r3x - r1x*r3y + r2x*r3y,2) + 
+             Power(r1z*r2x - r1x*r2z - r1z*r3x + r2z*r3x + r1x*r3z - r2x*r3z,2) + 
+             Power(-(r1z*r2y) + r1y*r2z + r1z*r3y - r2z*r3y - r1y*r3z + r2y*r3z,2))*
+           Sqrt(Power(-(r2y*r3x) + r2x*r3y + r2y*r4x - r3y*r4x - r2x*r4y + r3x*r4y,2) + 
+             Power(r2z*r3x - r2x*r3z - r2z*r4x + r3z*r4x + r2x*r4z - r3x*r4z,2) + 
+             Power(-(r2z*r3y) + r2y*r3z + r2z*r4y - r3z*r4y - r2y*r4z + r3y*r4z,2))) - 
+        ((-(r1z*r2y) + r1y*r2z + r1z*r3y - r2z*r3y - r1y*r3z + r2y*r3z)*
+           (2*(r2y - r3y)*(-(r1y*r2x) + r1x*r2y + r1y*r3x - r2y*r3x - r1x*r3y + 
+                r2x*r3y) + 2*(-r2z + r3z)*
+              (r1z*r2x - r1x*r2z - r1z*r3x + r2z*r3x + r1x*r3z - r2x*r3z))*
+           (-(r2z*r3y) + r2y*r3z + r2z*r4y - r3z*r4y - r2y*r4z + r3y*r4z))/
+         (2.*Power(Power(-(r1y*r2x) + r1x*r2y + r1y*r3x - r2y*r3x - r1x*r3y + r2x*r3y,
+              2) + Power(r1z*r2x - r1x*r2z - r1z*r3x + r2z*r3x + r1x*r3z - r2x*r3z,2) + 
+             Power(-(r1z*r2y) + r1y*r2z + r1z*r3y - r2z*r3y - r1y*r3z + r2y*r3z,2),1.5)*
+           Sqrt(Power(-(r2y*r3x) + r2x*r3y + r2y*r4x - r3y*r4x - r2x*r4y + r3x*r4y,2) + 
+             Power(r2z*r3x - r2x*r3z - r2z*r4x + r3z*r4x + r2x*r4z - r3x*r4z,2) + 
+             Power(-(r2z*r3y) + r2y*r3z + r2z*r4y - r3z*r4y - r2y*r4z + r3y*r4z,2)))))/
+    (Sqrt(Power(r1x,2)*Power(r2y,2) + Power(r1x,2)*Power(r2z,2) - 
+        2*r1x*Power(r2y,2)*r3x - 2*r1x*Power(r2z,2)*r3x + Power(r2y,2)*Power(r3x,2) + 
+        Power(r2z,2)*Power(r3x,2) - 2*Power(r1x,2)*r2y*r3y + 2*r1x*r2x*r2y*r3y + 
+        2*r1x*r2y*r3x*r3y - 2*r2x*r2y*r3x*r3y + Power(r1x,2)*Power(r3y,2) - 
+        2*r1x*r2x*Power(r3y,2) + Power(r2x,2)*Power(r3y,2) + 
+        Power(r2z,2)*Power(r3y,2) + 
+        Power(r1z,2)*(Power(r2x,2) + Power(r2y,2) - 2*r2x*r3x + Power(r3x,2) - 
+           2*r2y*r3y + Power(r3y,2)) - 2*Power(r1x,2)*r2z*r3z + 2*r1x*r2x*r2z*r3z + 
+        2*r1x*r2z*r3x*r3z - 2*r2x*r2z*r3x*r3z - 2*r2y*r2z*r3y*r3z + 
+        Power(r1x,2)*Power(r3z,2) - 2*r1x*r2x*Power(r3z,2) + 
+        Power(r2x,2)*Power(r3z,2) + Power(r2y,2)*Power(r3z,2) + 
+        Power(r1y,2)*(Power(r2x,2) + Power(r2z,2) - 2*r2x*r3x + Power(r3x,2) - 
+           2*r2z*r3z + Power(r3z,2)) - 
+        2*r1y*(-(r2x*r2y*r3x) + r2y*Power(r3x,2) + r1x*(r2x - r3x)*(r2y - r3y) + 
+           Power(r2x,2)*r3y + Power(r2z,2)*r3y - r2x*r3x*r3y + 
+           r1z*(r2y - r3y)*(r2z - r3z) - r2y*r2z*r3z - r2z*r3y*r3z + r2y*Power(r3z,2))\
+         - 2*r1z*(r2z*Power(r3x,2) - r2y*r2z*r3y + r2z*Power(r3y,2) + 
+           r1x*(r2x - r3x)*(r2z - r3z) + Power(r2x,2)*r3z + Power(r2y,2)*r3z - 
+           r2y*r3y*r3z - r2x*r3x*(r2z + r3z)))*
+      Sqrt(Power(r2y*r3x - r2x*r3y - r2y*r4x + r3y*r4x + r2x*r4y - r3x*r4y,2) + 
+        Power(r2z*r3x - r2x*r3z - r2z*r4x + r3z*r4x + r2x*r4z - r3x*r4z,2) + 
+        Power(r2z*r3y - r2y*r3z - r2z*r4y + r3z*r4y + r2y*r4z - r3y*r4z,2))*
+      (((Power(r2x,2) + Power(r2y,2) + Power(r2z,2) - 2*r2x*r3x + Power(r3x,2) - 
+             2*r2y*r3y + Power(r3y,2) - 2*r2z*r3z + Power(r3z,2))*
+           Power(-(r1x*r2z*r3y) + r1x*r2y*r3z + r2z*r3y*r4x - r2y*r3z*r4x + 
+             r1x*r2z*r4y - r2z*r3x*r4y - r1x*r3z*r4y + r2x*r3z*r4y + 
+             r1z*(r2x*r3y - r3y*r4x + r2y*(-r3x + r4x) - r2x*r4y + r3x*r4y) - 
+             r1x*r2y*r4z + r2y*r3x*r4z + r1x*r3y*r4z - r2x*r3y*r4z + 
+             r1y*(r2z*r3x - r2x*r3z - r2z*r4x + r3z*r4x + r2x*r4z - r3x*r4z),2))/
+         ((Power(r1x,2)*Power(r2y,2) + Power(r1x,2)*Power(r2z,2) - 
+             2*r1x*Power(r2y,2)*r3x - 2*r1x*Power(r2z,2)*r3x + 
+             Power(r2y,2)*Power(r3x,2) + Power(r2z,2)*Power(r3x,2) - 
+             2*Power(r1x,2)*r2y*r3y + 2*r1x*r2x*r2y*r3y + 2*r1x*r2y*r3x*r3y - 
+             2*r2x*r2y*r3x*r3y + Power(r1x,2)*Power(r3y,2) - 2*r1x*r2x*Power(r3y,2) + 
+             Power(r2x,2)*Power(r3y,2) + Power(r2z,2)*Power(r3y,2) + 
+             Power(r1z,2)*(Power(r2x,2) + Power(r2y,2) - 2*r2x*r3x + Power(r3x,2) - 
+                2*r2y*r3y + Power(r3y,2)) - 2*Power(r1x,2)*r2z*r3z + 
+             2*r1x*r2x*r2z*r3z + 2*r1x*r2z*r3x*r3z - 2*r2x*r2z*r3x*r3z - 
+             2*r2y*r2z*r3y*r3z + Power(r1x,2)*Power(r3z,2) - 2*r1x*r2x*Power(r3z,2) + 
+             Power(r2x,2)*Power(r3z,2) + Power(r2y,2)*Power(r3z,2) + 
+             Power(r1y,2)*(Power(r2x,2) + Power(r2z,2) - 2*r2x*r3x + Power(r3x,2) - 
+                2*r2z*r3z + Power(r3z,2)) - 
+             2*r1y*(-(r2x*r2y*r3x) + r2y*Power(r3x,2) + r1x*(r2x - r3x)*(r2y - r3y) + 
+                Power(r2x,2)*r3y + Power(r2z,2)*r3y - r2x*r3x*r3y + 
+                r1z*(r2y - r3y)*(r2z - r3z) - r2y*r2z*r3z - r2z*r3y*r3z + 
+                r2y*Power(r3z,2)) - 
+             2*r1z*(r2z*Power(r3x,2) - r2y*r2z*r3y + r2z*Power(r3y,2) + 
+                r1x*(r2x - r3x)*(r2z - r3z) + Power(r2x,2)*r3z + Power(r2y,2)*r3z - 
+                r2y*r3y*r3z - r2x*r3x*(r2z + r3z)))*
+           (Power(r2y*r3x - r2x*r3y - r2y*r4x + r3y*r4x + r2x*r4y - r3x*r4y,2) + 
+             Power(r2z*r3x - r2x*r3z - r2z*r4x + r3z*r4x + r2x*r4z - r3x*r4z,2) + 
+             Power(r2z*r3y - r2y*r3z - r2z*r4y + r3z*r4y + r2y*r4z - r3y*r4z,2))) + 
+        Power(((-(r1y*r2x) + r1x*r2y + r1y*r3x - r2y*r3x - r1x*r3y + r2x*r3y)*
+             (-(r2y*r3x) + r2x*r3y + r2y*r4x - r3y*r4x - r2x*r4y + r3x*r4y))/
+           (Sqrt(Power(-(r1y*r2x) + r1x*r2y + r1y*r3x - r2y*r3x - r1x*r3y + r2x*r3y,
+                2) + Power(r1z*r2x - r1x*r2z - r1z*r3x + r2z*r3x + r1x*r3z - r2x*r3z,
+                2) + Power(-(r1z*r2y) + r1y*r2z + r1z*r3y - r2z*r3y - r1y*r3z + r2y*r3z,
+                2))*Sqrt(Power(-(r2y*r3x) + r2x*r3y + r2y*r4x - r3y*r4x - r2x*r4y + 
+                 r3x*r4y,2) + Power(r2z*r3x - r2x*r3z - r2z*r4x + r3z*r4x + r2x*r4z - 
+                 r3x*r4z,2) + Power(-(r2z*r3y) + r2y*r3z + r2z*r4y - r3z*r4y - 
+                 r2y*r4z + r3y*r4z,2))) + 
+          ((r1z*r2x - r1x*r2z - r1z*r3x + r2z*r3x + r1x*r3z - r2x*r3z)*
+             (r2z*r3x - r2x*r3z - r2z*r4x + r3z*r4x + r2x*r4z - r3x*r4z))/
+           (Sqrt(Power(-(r1y*r2x) + r1x*r2y + r1y*r3x - r2y*r3x - r1x*r3y + r2x*r3y,
+                2) + Power(r1z*r2x - r1x*r2z - r1z*r3x + r2z*r3x + r1x*r3z - r2x*r3z,
+                2) + Power(-(r1z*r2y) + r1y*r2z + r1z*r3y - r2z*r3y - r1y*r3z + r2y*r3z,
+                2))*Sqrt(Power(-(r2y*r3x) + r2x*r3y + r2y*r4x - r3y*r4x - r2x*r4y + 
+                 r3x*r4y,2) + Power(r2z*r3x - r2x*r3z - r2z*r4x + r3z*r4x + r2x*r4z - 
+                 r3x*r4z,2) + Power(-(r2z*r3y) + r2y*r3z + r2z*r4y - r3z*r4y - 
+                 r2y*r4z + r3y*r4z,2))) + 
+          ((-(r1z*r2y) + r1y*r2z + r1z*r3y - r2z*r3y - r1y*r3z + r2y*r3z)*
+             (-(r2z*r3y) + r2y*r3z + r2z*r4y - r3z*r4y - r2y*r4z + r3y*r4z))/
+           (Sqrt(Power(-(r1y*r2x) + r1x*r2y + r1y*r3x - r2y*r3x - r1x*r3y + r2x*r3y,
+                2) + Power(r1z*r2x - r1x*r2z - r1z*r3x + r2z*r3x + r1x*r3z - r2x*r3z,
+                2) + Power(-(r1z*r2y) + r1y*r2z + r1z*r3y - r2z*r3y - r1y*r3z + r2y*r3z,
+                2))*Sqrt(Power(-(r2y*r3x) + r2x*r3y + r2y*r4x - r3y*r4x - r2x*r4y + 
+                 r3x*r4y,2) + Power(r2z*r3x - r2x*r3z - r2z*r4x + r3z*r4x + r2x*r4z - 
+                 r3x*r4z,2) + Power(-(r2z*r3y) + r2y*r3z + r2z*r4y - r3z*r4y - 
+                 r2y*r4z + r3y*r4z,2))),2))) + 
+   (((Sqrt(Power(r2x,2) + Power(r2y,2) + Power(r2z,2) - 2*r2x*r3x + Power(r3x,2) - 
+             2*r2y*r3y + Power(r3y,2) - 2*r2z*r3z + Power(r3z,2))*
+           (-(r2z*r3y) + r2y*r3z + r2z*r4y - r3z*r4y - r2y*r4z + r3y*r4z))/
+         (Sqrt(Power(r1x,2)*Power(r2y,2) + Power(r1x,2)*Power(r2z,2) - 
+             2*r1x*Power(r2y,2)*r3x - 2*r1x*Power(r2z,2)*r3x + 
+             Power(r2y,2)*Power(r3x,2) + Power(r2z,2)*Power(r3x,2) - 
+             2*Power(r1x,2)*r2y*r3y + 2*r1x*r2x*r2y*r3y + 2*r1x*r2y*r3x*r3y - 
+             2*r2x*r2y*r3x*r3y + Power(r1x,2)*Power(r3y,2) - 2*r1x*r2x*Power(r3y,2) + 
+             Power(r2x,2)*Power(r3y,2) + Power(r2z,2)*Power(r3y,2) + 
+             Power(r1z,2)*(Power(r2x,2) + Power(r2y,2) - 2*r2x*r3x + Power(r3x,2) - 
+                2*r2y*r3y + Power(r3y,2)) - 2*Power(r1x,2)*r2z*r3z + 
+             2*r1x*r2x*r2z*r3z + 2*r1x*r2z*r3x*r3z - 2*r2x*r2z*r3x*r3z - 
+             2*r2y*r2z*r3y*r3z + Power(r1x,2)*Power(r3z,2) - 2*r1x*r2x*Power(r3z,2) + 
+             Power(r2x,2)*Power(r3z,2) + Power(r2y,2)*Power(r3z,2) + 
+             Power(r1y,2)*(Power(r2x,2) + Power(r2z,2) - 2*r2x*r3x + Power(r3x,2) - 
+                2*r2z*r3z + Power(r3z,2)) - 
+             2*r1y*(-(r2x*r2y*r3x) + r2y*Power(r3x,2) + r1x*(r2x - r3x)*(r2y - r3y) + 
+                Power(r2x,2)*r3y + Power(r2z,2)*r3y - r2x*r3x*r3y + 
+                r1z*(r2y - r3y)*(r2z - r3z) - r2y*r2z*r3z - r2z*r3y*r3z + 
+                r2y*Power(r3z,2)) - 
+             2*r1z*(r2z*Power(r3x,2) - r2y*r2z*r3y + r2z*Power(r3y,2) + 
+                r1x*(r2x - r3x)*(r2z - r3z) + Power(r2x,2)*r3z + Power(r2y,2)*r3z - 
+                r2y*r3y*r3z - r2x*r3x*(r2z + r3z)))*
+           Sqrt(Power(r2y*r3x - r2x*r3y - r2y*r4x + r3y*r4x + r2x*r4y - r3x*r4y,2) + 
+             Power(r2z*r3x - r2x*r3z - r2z*r4x + r3z*r4x + r2x*r4z - r3x*r4z,2) + 
+             Power(r2z*r3y - r2y*r3z - r2z*r4y + r3z*r4y + r2y*r4z - r3y*r4z,2))) - 
+        (Sqrt(Power(r2x,2) + Power(r2y,2) + Power(r2z,2) - 2*r2x*r3x + Power(r3x,2) - 
+             2*r2y*r3y + Power(r3y,2) - 2*r2z*r3z + Power(r3z,2))*
+           (2*r1x*Power(r2y,2) + 2*r1x*Power(r2z,2) - 2*Power(r2y,2)*r3x - 
+             2*Power(r2z,2)*r3x - 2*r1y*(r2x - r3x)*(r2y - r3y) - 4*r1x*r2y*r3y + 
+             2*r2x*r2y*r3y + 2*r2y*r3x*r3y + 2*r1x*Power(r3y,2) - 2*r2x*Power(r3y,2) - 
+             2*r1z*(r2x - r3x)*(r2z - r3z) - 4*r1x*r2z*r3z + 2*r2x*r2z*r3z + 
+             2*r2z*r3x*r3z + 2*r1x*Power(r3z,2) - 2*r2x*Power(r3z,2))*
+           (-(r1x*r2z*r3y) + r1x*r2y*r3z + r2z*r3y*r4x - r2y*r3z*r4x + r1x*r2z*r4y - 
+             r2z*r3x*r4y - r1x*r3z*r4y + r2x*r3z*r4y + 
+             r1z*(r2x*r3y - r3y*r4x + r2y*(-r3x + r4x) - r2x*r4y + r3x*r4y) - 
+             r1x*r2y*r4z + r2y*r3x*r4z + r1x*r3y*r4z - r2x*r3y*r4z + 
+             r1y*(r2z*r3x - r2x*r3z - r2z*r4x + r3z*r4x + r2x*r4z - r3x*r4z)))/
+         (2.*Power(Power(r1x,2)*Power(r2y,2) + Power(r1x,2)*Power(r2z,2) - 
+             2*r1x*Power(r2y,2)*r3x - 2*r1x*Power(r2z,2)*r3x + 
+             Power(r2y,2)*Power(r3x,2) + Power(r2z,2)*Power(r3x,2) - 
+             2*Power(r1x,2)*r2y*r3y + 2*r1x*r2x*r2y*r3y + 2*r1x*r2y*r3x*r3y - 
+             2*r2x*r2y*r3x*r3y + Power(r1x,2)*Power(r3y,2) - 2*r1x*r2x*Power(r3y,2) + 
+             Power(r2x,2)*Power(r3y,2) + Power(r2z,2)*Power(r3y,2) + 
+             Power(r1z,2)*(Power(r2x,2) + Power(r2y,2) - 2*r2x*r3x + Power(r3x,2) - 
+                2*r2y*r3y + Power(r3y,2)) - 2*Power(r1x,2)*r2z*r3z + 
+             2*r1x*r2x*r2z*r3z + 2*r1x*r2z*r3x*r3z - 2*r2x*r2z*r3x*r3z - 
+             2*r2y*r2z*r3y*r3z + Power(r1x,2)*Power(r3z,2) - 2*r1x*r2x*Power(r3z,2) + 
+             Power(r2x,2)*Power(r3z,2) + Power(r2y,2)*Power(r3z,2) + 
+             Power(r1y,2)*(Power(r2x,2) + Power(r2z,2) - 2*r2x*r3x + Power(r3x,2) - 
+                2*r2z*r3z + Power(r3z,2)) - 
+             2*r1y*(-(r2x*r2y*r3x) + r2y*Power(r3x,2) + r1x*(r2x - r3x)*(r2y - r3y) + 
+                Power(r2x,2)*r3y + Power(r2z,2)*r3y - r2x*r3x*r3y + 
+                r1z*(r2y - r3y)*(r2z - r3z) - r2y*r2z*r3z - r2z*r3y*r3z + 
+                r2y*Power(r3z,2)) - 
+             2*r1z*(r2z*Power(r3x,2) - r2y*r2z*r3y + r2z*Power(r3y,2) + 
+                r1x*(r2x - r3x)*(r2z - r3z) + Power(r2x,2)*r3z + Power(r2y,2)*r3z - 
+                r2y*r3y*r3z - r2x*r3x*(r2z + r3z)),1.5)*
+           Sqrt(Power(r2y*r3x - r2x*r3y - r2y*r4x + r3y*r4x + r2x*r4y - r3x*r4y,2) + 
+             Power(r2z*r3x - r2x*r3z - r2z*r4x + r3z*r4x + r2x*r4z - r3x*r4z,2) + 
+             Power(r2z*r3y - r2y*r3z - r2z*r4y + r3z*r4y + r2y*r4z - r3y*r4z,2))))*
+      (-(((-(r1y*r2x) + r1x*r2y + r1y*r3x - r2y*r3x - r1x*r3y + r2x*r3y)*
+             (-(r2y*r3x) + r2x*r3y + r2y*r4x - r3y*r4x - r2x*r4y + r3x*r4y))/
+           (Sqrt(Power(-(r1y*r2x) + r1x*r2y + r1y*r3x - r2y*r3x - r1x*r3y + r2x*r3y,
+                2) + Power(r1z*r2x - r1x*r2z - r1z*r3x + r2z*r3x + r1x*r3z - r2x*r3z,
+                2) + Power(-(r1z*r2y) + r1y*r2z + r1z*r3y - r2z*r3y - r1y*r3z + r2y*r3z,
+                2))*Sqrt(Power(-(r2y*r3x) + r2x*r3y + r2y*r4x - r3y*r4x - r2x*r4y + 
+                 r3x*r4y,2) + Power(r2z*r3x - r2x*r3z - r2z*r4x + r3z*r4x + r2x*r4z - 
+                 r3x*r4z,2) + Power(-(r2z*r3y) + r2y*r3z + r2z*r4y - r3z*r4y - 
+                 r2y*r4z + r3y*r4z,2)))) - 
+        ((r1z*r2x - r1x*r2z - r1z*r3x + r2z*r3x + r1x*r3z - r2x*r3z)*
+           (r2z*r3x - r2x*r3z - r2z*r4x + r3z*r4x + r2x*r4z - r3x*r4z))/
+         (Sqrt(Power(-(r1y*r2x) + r1x*r2y + r1y*r3x - r2y*r3x - r1x*r3y + r2x*r3y,2) + 
+             Power(r1z*r2x - r1x*r2z - r1z*r3x + r2z*r3x + r1x*r3z - r2x*r3z,2) + 
+             Power(-(r1z*r2y) + r1y*r2z + r1z*r3y - r2z*r3y - r1y*r3z + r2y*r3z,2))*
+           Sqrt(Power(-(r2y*r3x) + r2x*r3y + r2y*r4x - r3y*r4x - r2x*r4y + r3x*r4y,2) + 
+             Power(r2z*r3x - r2x*r3z - r2z*r4x + r3z*r4x + r2x*r4z - r3x*r4z,2) + 
+             Power(-(r2z*r3y) + r2y*r3z + r2z*r4y - r3z*r4y - r2y*r4z + r3y*r4z,2))) - 
+        ((-(r1z*r2y) + r1y*r2z + r1z*r3y - r2z*r3y - r1y*r3z + r2y*r3z)*
+           (-(r2z*r3y) + r2y*r3z + r2z*r4y - r3z*r4y - r2y*r4z + r3y*r4z))/
+         (Sqrt(Power(-(r1y*r2x) + r1x*r2y + r1y*r3x - r2y*r3x - r1x*r3y + r2x*r3y,2) + 
+             Power(r1z*r2x - r1x*r2z - r1z*r3x + r2z*r3x + r1x*r3z - r2x*r3z,2) + 
+             Power(-(r1z*r2y) + r1y*r2z + r1z*r3y - r2z*r3y - r1y*r3z + r2y*r3z,2))*
+           Sqrt(Power(-(r2y*r3x) + r2x*r3y + r2y*r4x - r3y*r4x - r2x*r4y + r3x*r4y,2) + 
+             Power(r2z*r3x - r2x*r3z - r2z*r4x + r3z*r4x + r2x*r4z - r3x*r4z,2) + 
+             Power(-(r2z*r3y) + r2y*r3z + r2z*r4y - r3z*r4y - r2y*r4z + r3y*r4z,2)))))/
+    (((Power(r2x,2) + Power(r2y,2) + Power(r2z,2) - 2*r2x*r3x + Power(r3x,2) - 
+           2*r2y*r3y + Power(r3y,2) - 2*r2z*r3z + Power(r3z,2))*
+         Power(-(r1x*r2z*r3y) + r1x*r2y*r3z + r2z*r3y*r4x - r2y*r3z*r4x + r1x*r2z*r4y - 
+           r2z*r3x*r4y - r1x*r3z*r4y + r2x*r3z*r4y + 
+           r1z*(r2x*r3y - r3y*r4x + r2y*(-r3x + r4x) - r2x*r4y + r3x*r4y) - 
+           r1x*r2y*r4z + r2y*r3x*r4z + r1x*r3y*r4z - r2x*r3y*r4z + 
+           r1y*(r2z*r3x - r2x*r3z - r2z*r4x + r3z*r4x + r2x*r4z - r3x*r4z),2))/
+       ((Power(r1x,2)*Power(r2y,2) + Power(r1x,2)*Power(r2z,2) - 
+           2*r1x*Power(r2y,2)*r3x - 2*r1x*Power(r2z,2)*r3x + 
+           Power(r2y,2)*Power(r3x,2) + Power(r2z,2)*Power(r3x,2) - 
+           2*Power(r1x,2)*r2y*r3y + 2*r1x*r2x*r2y*r3y + 2*r1x*r2y*r3x*r3y - 
+           2*r2x*r2y*r3x*r3y + Power(r1x,2)*Power(r3y,2) - 2*r1x*r2x*Power(r3y,2) + 
+           Power(r2x,2)*Power(r3y,2) + Power(r2z,2)*Power(r3y,2) + 
+           Power(r1z,2)*(Power(r2x,2) + Power(r2y,2) - 2*r2x*r3x + Power(r3x,2) - 
+              2*r2y*r3y + Power(r3y,2)) - 2*Power(r1x,2)*r2z*r3z + 2*r1x*r2x*r2z*r3z + 
+           2*r1x*r2z*r3x*r3z - 2*r2x*r2z*r3x*r3z - 2*r2y*r2z*r3y*r3z + 
+           Power(r1x,2)*Power(r3z,2) - 2*r1x*r2x*Power(r3z,2) + 
+           Power(r2x,2)*Power(r3z,2) + Power(r2y,2)*Power(r3z,2) + 
+           Power(r1y,2)*(Power(r2x,2) + Power(r2z,2) - 2*r2x*r3x + Power(r3x,2) - 
+              2*r2z*r3z + Power(r3z,2)) - 
+           2*r1y*(-(r2x*r2y*r3x) + r2y*Power(r3x,2) + r1x*(r2x - r3x)*(r2y - r3y) + 
+              Power(r2x,2)*r3y + Power(r2z,2)*r3y - r2x*r3x*r3y + 
+              r1z*(r2y - r3y)*(r2z - r3z) - r2y*r2z*r3z - r2z*r3y*r3z + r2y*Power(r3z,2)
+              ) - 2*r1z*(r2z*Power(r3x,2) - r2y*r2z*r3y + r2z*Power(r3y,2) + 
+              r1x*(r2x - r3x)*(r2z - r3z) + Power(r2x,2)*r3z + Power(r2y,2)*r3z - 
+              r2y*r3y*r3z - r2x*r3x*(r2z + r3z)))*
+         (Power(r2y*r3x - r2x*r3y - r2y*r4x + r3y*r4x + r2x*r4y - r3x*r4y,2) + 
+           Power(r2z*r3x - r2x*r3z - r2z*r4x + r3z*r4x + r2x*r4z - r3x*r4z,2) + 
+           Power(r2z*r3y - r2y*r3z - r2z*r4y + r3z*r4y + r2y*r4z - r3y*r4z,2))) + 
+      Power(((-(r1y*r2x) + r1x*r2y + r1y*r3x - r2y*r3x - r1x*r3y + r2x*r3y)*
+           (-(r2y*r3x) + r2x*r3y + r2y*r4x - r3y*r4x - r2x*r4y + r3x*r4y))/
+         (Sqrt(Power(-(r1y*r2x) + r1x*r2y + r1y*r3x - r2y*r3x - r1x*r3y + r2x*r3y,2) + 
+             Power(r1z*r2x - r1x*r2z - r1z*r3x + r2z*r3x + r1x*r3z - r2x*r3z,2) + 
+             Power(-(r1z*r2y) + r1y*r2z + r1z*r3y - r2z*r3y - r1y*r3z + r2y*r3z,2))*
+           Sqrt(Power(-(r2y*r3x) + r2x*r3y + r2y*r4x - r3y*r4x - r2x*r4y + r3x*r4y,2) + 
+             Power(r2z*r3x - r2x*r3z - r2z*r4x + r3z*r4x + r2x*r4z - r3x*r4z,2) + 
+             Power(-(r2z*r3y) + r2y*r3z + r2z*r4y - r3z*r4y - r2y*r4z + r3y*r4z,2))) + 
+        ((r1z*r2x - r1x*r2z - r1z*r3x + r2z*r3x + r1x*r3z - r2x*r3z)*
+           (r2z*r3x - r2x*r3z - r2z*r4x + r3z*r4x + r2x*r4z - r3x*r4z))/
+         (Sqrt(Power(-(r1y*r2x) + r1x*r2y + r1y*r3x - r2y*r3x - r1x*r3y + r2x*r3y,2) + 
+             Power(r1z*r2x - r1x*r2z - r1z*r3x + r2z*r3x + r1x*r3z - r2x*r3z,2) + 
+             Power(-(r1z*r2y) + r1y*r2z + r1z*r3y - r2z*r3y - r1y*r3z + r2y*r3z,2))*
+           Sqrt(Power(-(r2y*r3x) + r2x*r3y + r2y*r4x - r3y*r4x - r2x*r4y + r3x*r4y,2) + 
+             Power(r2z*r3x - r2x*r3z - r2z*r4x + r3z*r4x + r2x*r4z - r3x*r4z,2) + 
+             Power(-(r2z*r3y) + r2y*r3z + r2z*r4y - r3z*r4y - r2y*r4z + r3y*r4z,2))) + 
+        ((-(r1z*r2y) + r1y*r2z + r1z*r3y - r2z*r3y - r1y*r3z + r2y*r3z)*
+           (-(r2z*r3y) + r2y*r3z + r2z*r4y - r3z*r4y - r2y*r4z + r3y*r4z))/
+         (Sqrt(Power(-(r1y*r2x) + r1x*r2y + r1y*r3x - r2y*r3x - r1x*r3y + r2x*r3y,2) + 
+             Power(r1z*r2x - r1x*r2z - r1z*r3x + r2z*r3x + r1x*r3z - r2x*r3z,2) + 
+             Power(-(r1z*r2y) + r1y*r2z + r1z*r3y - r2z*r3y - r1y*r3z + r2y*r3z,2))*
+           Sqrt(Power(-(r2y*r3x) + r2x*r3y + r2y*r4x - r3y*r4x - r2x*r4y + r3x*r4y,2) + 
+             Power(r2z*r3x - r2x*r3z - r2z*r4x + r3z*r4x + r2x*r4z - r3x*r4z,2) + 
+             Power(-(r2z*r3y) + r2y*r3z + r2z*r4y - r3z*r4y - r2y*r4z + r3y*r4z,2))),2));	
+	der_d_th[1] = (Sqrt(Power(r2x,2) + Power(r2y,2) + Power(r2z,2) - 2*r2x*r3x + Power(r3x,2) - 
+        2*r2y*r3y + Power(r3y,2) - 2*r2z*r3z + Power(r3z,2))*
+      (-(r1x*r2z*r3y) + r1x*r2y*r3z + r2z*r3y*r4x - r2y*r3z*r4x + r1x*r2z*r4y - 
+        r2z*r3x*r4y - r1x*r3z*r4y + r2x*r3z*r4y + 
+        r1z*(r2x*r3y - r3y*r4x + r2y*(-r3x + r4x) - r2x*r4y + r3x*r4y) - r1x*r2y*r4z + 
+        r2y*r3x*r4z + r1x*r3y*r4z - r2x*r3y*r4z + 
+        r1y*(r2z*r3x - r2x*r3z - r2z*r4x + r3z*r4x + r2x*r4z - r3x*r4z))*
+      (-((-(r1y*r2x) + r1x*r2y + r1y*r3x - r2y*r3x - r1x*r3y + r2x*r3y)*
+            (2*(-r2x + r3x)*(-(r1y*r2x) + r1x*r2y + r1y*r3x - r2y*r3x - r1x*r3y + 
+                 r2x*r3y) + 2*(r2z - r3z)*
+               (-(r1z*r2y) + r1y*r2z + r1z*r3y - r2z*r3y - r1y*r3z + r2y*r3z))*
+            (-(r2y*r3x) + r2x*r3y + r2y*r4x - r3y*r4x - r2x*r4y + r3x*r4y))/
+         (2.*Power(Power(-(r1y*r2x) + r1x*r2y + r1y*r3x - r2y*r3x - r1x*r3y + r2x*r3y,
+              2) + Power(r1z*r2x - r1x*r2z - r1z*r3x + r2z*r3x + r1x*r3z - r2x*r3z,2) + 
+             Power(-(r1z*r2y) + r1y*r2z + r1z*r3y - r2z*r3y - r1y*r3z + r2y*r3z,2),1.5)*
+           Sqrt(Power(-(r2y*r3x) + r2x*r3y + r2y*r4x - r3y*r4x - r2x*r4y + r3x*r4y,2) + 
+             Power(r2z*r3x - r2x*r3z - r2z*r4x + r3z*r4x + r2x*r4z - r3x*r4z,2) + 
+             Power(-(r2z*r3y) + r2y*r3z + r2z*r4y - r3z*r4y - r2y*r4z + r3y*r4z,2))) + 
+        ((-r2x + r3x)*(-(r2y*r3x) + r2x*r3y + r2y*r4x - r3y*r4x - r2x*r4y + r3x*r4y))/
+         (Sqrt(Power(-(r1y*r2x) + r1x*r2y + r1y*r3x - r2y*r3x - r1x*r3y + r2x*r3y,2) + 
+             Power(r1z*r2x - r1x*r2z - r1z*r3x + r2z*r3x + r1x*r3z - r2x*r3z,2) + 
+             Power(-(r1z*r2y) + r1y*r2z + r1z*r3y - r2z*r3y - r1y*r3z + r2y*r3z,2))*
+           Sqrt(Power(-(r2y*r3x) + r2x*r3y + r2y*r4x - r3y*r4x - r2x*r4y + r3x*r4y,2) + 
+             Power(r2z*r3x - r2x*r3z - r2z*r4x + r3z*r4x + r2x*r4z - r3x*r4z,2) + 
+             Power(-(r2z*r3y) + r2y*r3z + r2z*r4y - r3z*r4y - r2y*r4z + r3y*r4z,2))) - 
+        ((r1z*r2x - r1x*r2z - r1z*r3x + r2z*r3x + r1x*r3z - r2x*r3z)*
+           (2*(-r2x + r3x)*(-(r1y*r2x) + r1x*r2y + r1y*r3x - r2y*r3x - r1x*r3y + 
+                r2x*r3y) + 2*(r2z - r3z)*
+              (-(r1z*r2y) + r1y*r2z + r1z*r3y - r2z*r3y - r1y*r3z + r2y*r3z))*
+           (r2z*r3x - r2x*r3z - r2z*r4x + r3z*r4x + r2x*r4z - r3x*r4z))/
+         (2.*Power(Power(-(r1y*r2x) + r1x*r2y + r1y*r3x - r2y*r3x - r1x*r3y + r2x*r3y,
+              2) + Power(r1z*r2x - r1x*r2z - r1z*r3x + r2z*r3x + r1x*r3z - r2x*r3z,2) + 
+             Power(-(r1z*r2y) + r1y*r2z + r1z*r3y - r2z*r3y - r1y*r3z + r2y*r3z,2),1.5)*
+           Sqrt(Power(-(r2y*r3x) + r2x*r3y + r2y*r4x - r3y*r4x - r2x*r4y + r3x*r4y,2) + 
+             Power(r2z*r3x - r2x*r3z - r2z*r4x + r3z*r4x + r2x*r4z - r3x*r4z,2) + 
+             Power(-(r2z*r3y) + r2y*r3z + r2z*r4y - r3z*r4y - r2y*r4z + r3y*r4z,2))) - 
+        ((-(r1z*r2y) + r1y*r2z + r1z*r3y - r2z*r3y - r1y*r3z + r2y*r3z)*
+           (2*(-r2x + r3x)*(-(r1y*r2x) + r1x*r2y + r1y*r3x - r2y*r3x - r1x*r3y + 
+                r2x*r3y) + 2*(r2z - r3z)*
+              (-(r1z*r2y) + r1y*r2z + r1z*r3y - r2z*r3y - r1y*r3z + r2y*r3z))*
+           (-(r2z*r3y) + r2y*r3z + r2z*r4y - r3z*r4y - r2y*r4z + r3y*r4z))/
+         (2.*Power(Power(-(r1y*r2x) + r1x*r2y + r1y*r3x - r2y*r3x - r1x*r3y + r2x*r3y,
+              2) + Power(r1z*r2x - r1x*r2z - r1z*r3x + r2z*r3x + r1x*r3z - r2x*r3z,2) + 
+             Power(-(r1z*r2y) + r1y*r2z + r1z*r3y - r2z*r3y - r1y*r3z + r2y*r3z,2),1.5)*
+           Sqrt(Power(-(r2y*r3x) + r2x*r3y + r2y*r4x - r3y*r4x - r2x*r4y + r3x*r4y,2) + 
+             Power(r2z*r3x - r2x*r3z - r2z*r4x + r3z*r4x + r2x*r4z - r3x*r4z,2) + 
+             Power(-(r2z*r3y) + r2y*r3z + r2z*r4y - r3z*r4y - r2y*r4z + r3y*r4z,2))) + 
+        ((r2z - r3z)*(-(r2z*r3y) + r2y*r3z + r2z*r4y - r3z*r4y - r2y*r4z + r3y*r4z))/
+         (Sqrt(Power(-(r1y*r2x) + r1x*r2y + r1y*r3x - r2y*r3x - r1x*r3y + r2x*r3y,2) + 
+             Power(r1z*r2x - r1x*r2z - r1z*r3x + r2z*r3x + r1x*r3z - r2x*r3z,2) + 
+             Power(-(r1z*r2y) + r1y*r2z + r1z*r3y - r2z*r3y - r1y*r3z + r2y*r3z,2))*
+           Sqrt(Power(-(r2y*r3x) + r2x*r3y + r2y*r4x - r3y*r4x - r2x*r4y + r3x*r4y,2) + 
+             Power(r2z*r3x - r2x*r3z - r2z*r4x + r3z*r4x + r2x*r4z - r3x*r4z,2) + 
+             Power(-(r2z*r3y) + r2y*r3z + r2z*r4y - r3z*r4y - r2y*r4z + r3y*r4z,2)))))/
+    (Sqrt(Power(r1x,2)*Power(r2y,2) + Power(r1x,2)*Power(r2z,2) - 
+        2*r1x*Power(r2y,2)*r3x - 2*r1x*Power(r2z,2)*r3x + Power(r2y,2)*Power(r3x,2) + 
+        Power(r2z,2)*Power(r3x,2) - 2*Power(r1x,2)*r2y*r3y + 2*r1x*r2x*r2y*r3y + 
+        2*r1x*r2y*r3x*r3y - 2*r2x*r2y*r3x*r3y + Power(r1x,2)*Power(r3y,2) - 
+        2*r1x*r2x*Power(r3y,2) + Power(r2x,2)*Power(r3y,2) + 
+        Power(r2z,2)*Power(r3y,2) + 
+        Power(r1z,2)*(Power(r2x,2) + Power(r2y,2) - 2*r2x*r3x + Power(r3x,2) - 
+           2*r2y*r3y + Power(r3y,2)) - 2*Power(r1x,2)*r2z*r3z + 2*r1x*r2x*r2z*r3z + 
+        2*r1x*r2z*r3x*r3z - 2*r2x*r2z*r3x*r3z - 2*r2y*r2z*r3y*r3z + 
+        Power(r1x,2)*Power(r3z,2) - 2*r1x*r2x*Power(r3z,2) + 
+        Power(r2x,2)*Power(r3z,2) + Power(r2y,2)*Power(r3z,2) + 
+        Power(r1y,2)*(Power(r2x,2) + Power(r2z,2) - 2*r2x*r3x + Power(r3x,2) - 
+           2*r2z*r3z + Power(r3z,2)) - 
+        2*r1y*(-(r2x*r2y*r3x) + r2y*Power(r3x,2) + r1x*(r2x - r3x)*(r2y - r3y) + 
+           Power(r2x,2)*r3y + Power(r2z,2)*r3y - r2x*r3x*r3y + 
+           r1z*(r2y - r3y)*(r2z - r3z) - r2y*r2z*r3z - r2z*r3y*r3z + r2y*Power(r3z,2))\
+         - 2*r1z*(r2z*Power(r3x,2) - r2y*r2z*r3y + r2z*Power(r3y,2) + 
+           r1x*(r2x - r3x)*(r2z - r3z) + Power(r2x,2)*r3z + Power(r2y,2)*r3z - 
+           r2y*r3y*r3z - r2x*r3x*(r2z + r3z)))*
+      Sqrt(Power(r2y*r3x - r2x*r3y - r2y*r4x + r3y*r4x + r2x*r4y - r3x*r4y,2) + 
+        Power(r2z*r3x - r2x*r3z - r2z*r4x + r3z*r4x + r2x*r4z - r3x*r4z,2) + 
+        Power(r2z*r3y - r2y*r3z - r2z*r4y + r3z*r4y + r2y*r4z - r3y*r4z,2))*
+      (((Power(r2x,2) + Power(r2y,2) + Power(r2z,2) - 2*r2x*r3x + Power(r3x,2) - 
+             2*r2y*r3y + Power(r3y,2) - 2*r2z*r3z + Power(r3z,2))*
+           Power(-(r1x*r2z*r3y) + r1x*r2y*r3z + r2z*r3y*r4x - r2y*r3z*r4x + 
+             r1x*r2z*r4y - r2z*r3x*r4y - r1x*r3z*r4y + r2x*r3z*r4y + 
+             r1z*(r2x*r3y - r3y*r4x + r2y*(-r3x + r4x) - r2x*r4y + r3x*r4y) - 
+             r1x*r2y*r4z + r2y*r3x*r4z + r1x*r3y*r4z - r2x*r3y*r4z + 
+             r1y*(r2z*r3x - r2x*r3z - r2z*r4x + r3z*r4x + r2x*r4z - r3x*r4z),2))/
+         ((Power(r1x,2)*Power(r2y,2) + Power(r1x,2)*Power(r2z,2) - 
+             2*r1x*Power(r2y,2)*r3x - 2*r1x*Power(r2z,2)*r3x + 
+             Power(r2y,2)*Power(r3x,2) + Power(r2z,2)*Power(r3x,2) - 
+             2*Power(r1x,2)*r2y*r3y + 2*r1x*r2x*r2y*r3y + 2*r1x*r2y*r3x*r3y - 
+             2*r2x*r2y*r3x*r3y + Power(r1x,2)*Power(r3y,2) - 2*r1x*r2x*Power(r3y,2) + 
+             Power(r2x,2)*Power(r3y,2) + Power(r2z,2)*Power(r3y,2) + 
+             Power(r1z,2)*(Power(r2x,2) + Power(r2y,2) - 2*r2x*r3x + Power(r3x,2) - 
+                2*r2y*r3y + Power(r3y,2)) - 2*Power(r1x,2)*r2z*r3z + 
+             2*r1x*r2x*r2z*r3z + 2*r1x*r2z*r3x*r3z - 2*r2x*r2z*r3x*r3z - 
+             2*r2y*r2z*r3y*r3z + Power(r1x,2)*Power(r3z,2) - 2*r1x*r2x*Power(r3z,2) + 
+             Power(r2x,2)*Power(r3z,2) + Power(r2y,2)*Power(r3z,2) + 
+             Power(r1y,2)*(Power(r2x,2) + Power(r2z,2) - 2*r2x*r3x + Power(r3x,2) - 
+                2*r2z*r3z + Power(r3z,2)) - 
+             2*r1y*(-(r2x*r2y*r3x) + r2y*Power(r3x,2) + r1x*(r2x - r3x)*(r2y - r3y) + 
+                Power(r2x,2)*r3y + Power(r2z,2)*r3y - r2x*r3x*r3y + 
+                r1z*(r2y - r3y)*(r2z - r3z) - r2y*r2z*r3z - r2z*r3y*r3z + 
+                r2y*Power(r3z,2)) - 
+             2*r1z*(r2z*Power(r3x,2) - r2y*r2z*r3y + r2z*Power(r3y,2) + 
+                r1x*(r2x - r3x)*(r2z - r3z) + Power(r2x,2)*r3z + Power(r2y,2)*r3z - 
+                r2y*r3y*r3z - r2x*r3x*(r2z + r3z)))*
+           (Power(r2y*r3x - r2x*r3y - r2y*r4x + r3y*r4x + r2x*r4y - r3x*r4y,2) + 
+             Power(r2z*r3x - r2x*r3z - r2z*r4x + r3z*r4x + r2x*r4z - r3x*r4z,2) + 
+             Power(r2z*r3y - r2y*r3z - r2z*r4y + r3z*r4y + r2y*r4z - r3y*r4z,2))) + 
+        Power(((-(r1y*r2x) + r1x*r2y + r1y*r3x - r2y*r3x - r1x*r3y + r2x*r3y)*
+             (-(r2y*r3x) + r2x*r3y + r2y*r4x - r3y*r4x - r2x*r4y + r3x*r4y))/
+           (Sqrt(Power(-(r1y*r2x) + r1x*r2y + r1y*r3x - r2y*r3x - r1x*r3y + r2x*r3y,
+                2) + Power(r1z*r2x - r1x*r2z - r1z*r3x + r2z*r3x + r1x*r3z - r2x*r3z,
+                2) + Power(-(r1z*r2y) + r1y*r2z + r1z*r3y - r2z*r3y - r1y*r3z + r2y*r3z,
+                2))*Sqrt(Power(-(r2y*r3x) + r2x*r3y + r2y*r4x - r3y*r4x - r2x*r4y + 
+                 r3x*r4y,2) + Power(r2z*r3x - r2x*r3z - r2z*r4x + r3z*r4x + r2x*r4z - 
+                 r3x*r4z,2) + Power(-(r2z*r3y) + r2y*r3z + r2z*r4y - r3z*r4y - 
+                 r2y*r4z + r3y*r4z,2))) + 
+          ((r1z*r2x - r1x*r2z - r1z*r3x + r2z*r3x + r1x*r3z - r2x*r3z)*
+             (r2z*r3x - r2x*r3z - r2z*r4x + r3z*r4x + r2x*r4z - r3x*r4z))/
+           (Sqrt(Power(-(r1y*r2x) + r1x*r2y + r1y*r3x - r2y*r3x - r1x*r3y + r2x*r3y,
+                2) + Power(r1z*r2x - r1x*r2z - r1z*r3x + r2z*r3x + r1x*r3z - r2x*r3z,
+                2) + Power(-(r1z*r2y) + r1y*r2z + r1z*r3y - r2z*r3y - r1y*r3z + r2y*r3z,
+                2))*Sqrt(Power(-(r2y*r3x) + r2x*r3y + r2y*r4x - r3y*r4x - r2x*r4y + 
+                 r3x*r4y,2) + Power(r2z*r3x - r2x*r3z - r2z*r4x + r3z*r4x + r2x*r4z - 
+                 r3x*r4z,2) + Power(-(r2z*r3y) + r2y*r3z + r2z*r4y - r3z*r4y - 
+                 r2y*r4z + r3y*r4z,2))) + 
+          ((-(r1z*r2y) + r1y*r2z + r1z*r3y - r2z*r3y - r1y*r3z + r2y*r3z)*
+             (-(r2z*r3y) + r2y*r3z + r2z*r4y - r3z*r4y - r2y*r4z + r3y*r4z))/
+           (Sqrt(Power(-(r1y*r2x) + r1x*r2y + r1y*r3x - r2y*r3x - r1x*r3y + r2x*r3y,
+                2) + Power(r1z*r2x - r1x*r2z - r1z*r3x + r2z*r3x + r1x*r3z - r2x*r3z,
+                2) + Power(-(r1z*r2y) + r1y*r2z + r1z*r3y - r2z*r3y - r1y*r3z + r2y*r3z,
+                2))*Sqrt(Power(-(r2y*r3x) + r2x*r3y + r2y*r4x - r3y*r4x - r2x*r4y + 
+                 r3x*r4y,2) + Power(r2z*r3x - r2x*r3z - r2z*r4x + r3z*r4x + r2x*r4z - 
+                 r3x*r4z,2) + Power(-(r2z*r3y) + r2y*r3z + r2z*r4y - r3z*r4y - 
+                 r2y*r4z + r3y*r4z,2))),2))) + 
+   (((Sqrt(Power(r2x,2) + Power(r2y,2) + Power(r2z,2) - 2*r2x*r3x + Power(r3x,2) - 
+             2*r2y*r3y + Power(r3y,2) - 2*r2z*r3z + Power(r3z,2))*
+           (r2z*r3x - r2x*r3z - r2z*r4x + r3z*r4x + r2x*r4z - r3x*r4z))/
+         (Sqrt(Power(r1x,2)*Power(r2y,2) + Power(r1x,2)*Power(r2z,2) - 
+             2*r1x*Power(r2y,2)*r3x - 2*r1x*Power(r2z,2)*r3x + 
+             Power(r2y,2)*Power(r3x,2) + Power(r2z,2)*Power(r3x,2) - 
+             2*Power(r1x,2)*r2y*r3y + 2*r1x*r2x*r2y*r3y + 2*r1x*r2y*r3x*r3y - 
+             2*r2x*r2y*r3x*r3y + Power(r1x,2)*Power(r3y,2) - 2*r1x*r2x*Power(r3y,2) + 
+             Power(r2x,2)*Power(r3y,2) + Power(r2z,2)*Power(r3y,2) + 
+             Power(r1z,2)*(Power(r2x,2) + Power(r2y,2) - 2*r2x*r3x + Power(r3x,2) - 
+                2*r2y*r3y + Power(r3y,2)) - 2*Power(r1x,2)*r2z*r3z + 
+             2*r1x*r2x*r2z*r3z + 2*r1x*r2z*r3x*r3z - 2*r2x*r2z*r3x*r3z - 
+             2*r2y*r2z*r3y*r3z + Power(r1x,2)*Power(r3z,2) - 2*r1x*r2x*Power(r3z,2) + 
+             Power(r2x,2)*Power(r3z,2) + Power(r2y,2)*Power(r3z,2) + 
+             Power(r1y,2)*(Power(r2x,2) + Power(r2z,2) - 2*r2x*r3x + Power(r3x,2) - 
+                2*r2z*r3z + Power(r3z,2)) - 
+             2*r1y*(-(r2x*r2y*r3x) + r2y*Power(r3x,2) + r1x*(r2x - r3x)*(r2y - r3y) + 
+                Power(r2x,2)*r3y + Power(r2z,2)*r3y - r2x*r3x*r3y + 
+                r1z*(r2y - r3y)*(r2z - r3z) - r2y*r2z*r3z - r2z*r3y*r3z + 
+                r2y*Power(r3z,2)) - 
+             2*r1z*(r2z*Power(r3x,2) - r2y*r2z*r3y + r2z*Power(r3y,2) + 
+                r1x*(r2x - r3x)*(r2z - r3z) + Power(r2x,2)*r3z + Power(r2y,2)*r3z - 
+                r2y*r3y*r3z - r2x*r3x*(r2z + r3z)))*
+           Sqrt(Power(r2y*r3x - r2x*r3y - r2y*r4x + r3y*r4x + r2x*r4y - r3x*r4y,2) + 
+             Power(r2z*r3x - r2x*r3z - r2z*r4x + r3z*r4x + r2x*r4z - r3x*r4z,2) + 
+             Power(r2z*r3y - r2y*r3z - r2z*r4y + r3z*r4y + r2y*r4z - r3y*r4z,2))) - 
+        (Sqrt(Power(r2x,2) + Power(r2y,2) + Power(r2z,2) - 2*r2x*r3x + Power(r3x,2) - 
+             2*r2y*r3y + Power(r3y,2) - 2*r2z*r3z + Power(r3z,2))*
+           (2*r1y*(Power(r2x,2) + Power(r2z,2) - 2*r2x*r3x + Power(r3x,2) - 2*r2z*r3z + 
+                Power(r3z,2)) - 2*(-(r2x*r2y*r3x) + r2y*Power(r3x,2) + 
+                r1x*(r2x - r3x)*(r2y - r3y) + Power(r2x,2)*r3y + Power(r2z,2)*r3y - 
+                r2x*r3x*r3y + r1z*(r2y - r3y)*(r2z - r3z) - r2y*r2z*r3z - r2z*r3y*r3z + 
+                r2y*Power(r3z,2)))*(-(r1x*r2z*r3y) + r1x*r2y*r3z + r2z*r3y*r4x - 
+             r2y*r3z*r4x + r1x*r2z*r4y - r2z*r3x*r4y - r1x*r3z*r4y + r2x*r3z*r4y + 
+             r1z*(r2x*r3y - r3y*r4x + r2y*(-r3x + r4x) - r2x*r4y + r3x*r4y) - 
+             r1x*r2y*r4z + r2y*r3x*r4z + r1x*r3y*r4z - r2x*r3y*r4z + 
+             r1y*(r2z*r3x - r2x*r3z - r2z*r4x + r3z*r4x + r2x*r4z - r3x*r4z)))/
+         (2.*Power(Power(r1x,2)*Power(r2y,2) + Power(r1x,2)*Power(r2z,2) - 
+             2*r1x*Power(r2y,2)*r3x - 2*r1x*Power(r2z,2)*r3x + 
+             Power(r2y,2)*Power(r3x,2) + Power(r2z,2)*Power(r3x,2) - 
+             2*Power(r1x,2)*r2y*r3y + 2*r1x*r2x*r2y*r3y + 2*r1x*r2y*r3x*r3y - 
+             2*r2x*r2y*r3x*r3y + Power(r1x,2)*Power(r3y,2) - 2*r1x*r2x*Power(r3y,2) + 
+             Power(r2x,2)*Power(r3y,2) + Power(r2z,2)*Power(r3y,2) + 
+             Power(r1z,2)*(Power(r2x,2) + Power(r2y,2) - 2*r2x*r3x + Power(r3x,2) - 
+                2*r2y*r3y + Power(r3y,2)) - 2*Power(r1x,2)*r2z*r3z + 
+             2*r1x*r2x*r2z*r3z + 2*r1x*r2z*r3x*r3z - 2*r2x*r2z*r3x*r3z - 
+             2*r2y*r2z*r3y*r3z + Power(r1x,2)*Power(r3z,2) - 2*r1x*r2x*Power(r3z,2) + 
+             Power(r2x,2)*Power(r3z,2) + Power(r2y,2)*Power(r3z,2) + 
+             Power(r1y,2)*(Power(r2x,2) + Power(r2z,2) - 2*r2x*r3x + Power(r3x,2) - 
+                2*r2z*r3z + Power(r3z,2)) - 
+             2*r1y*(-(r2x*r2y*r3x) + r2y*Power(r3x,2) + r1x*(r2x - r3x)*(r2y - r3y) + 
+                Power(r2x,2)*r3y + Power(r2z,2)*r3y - r2x*r3x*r3y + 
+                r1z*(r2y - r3y)*(r2z - r3z) - r2y*r2z*r3z - r2z*r3y*r3z + 
+                r2y*Power(r3z,2)) - 
+             2*r1z*(r2z*Power(r3x,2) - r2y*r2z*r3y + r2z*Power(r3y,2) + 
+                r1x*(r2x - r3x)*(r2z - r3z) + Power(r2x,2)*r3z + Power(r2y,2)*r3z - 
+                r2y*r3y*r3z - r2x*r3x*(r2z + r3z)),1.5)*
+           Sqrt(Power(r2y*r3x - r2x*r3y - r2y*r4x + r3y*r4x + r2x*r4y - r3x*r4y,2) + 
+             Power(r2z*r3x - r2x*r3z - r2z*r4x + r3z*r4x + r2x*r4z - r3x*r4z,2) + 
+             Power(r2z*r3y - r2y*r3z - r2z*r4y + r3z*r4y + r2y*r4z - r3y*r4z,2))))*
+      (-(((-(r1y*r2x) + r1x*r2y + r1y*r3x - r2y*r3x - r1x*r3y + r2x*r3y)*
+             (-(r2y*r3x) + r2x*r3y + r2y*r4x - r3y*r4x - r2x*r4y + r3x*r4y))/
+           (Sqrt(Power(-(r1y*r2x) + r1x*r2y + r1y*r3x - r2y*r3x - r1x*r3y + r2x*r3y,
+                2) + Power(r1z*r2x - r1x*r2z - r1z*r3x + r2z*r3x + r1x*r3z - r2x*r3z,
+                2) + Power(-(r1z*r2y) + r1y*r2z + r1z*r3y - r2z*r3y - r1y*r3z + r2y*r3z,
+                2))*Sqrt(Power(-(r2y*r3x) + r2x*r3y + r2y*r4x - r3y*r4x - r2x*r4y + 
+                 r3x*r4y,2) + Power(r2z*r3x - r2x*r3z - r2z*r4x + r3z*r4x + r2x*r4z - 
+                 r3x*r4z,2) + Power(-(r2z*r3y) + r2y*r3z + r2z*r4y - r3z*r4y - 
+                 r2y*r4z + r3y*r4z,2)))) - 
+        ((r1z*r2x - r1x*r2z - r1z*r3x + r2z*r3x + r1x*r3z - r2x*r3z)*
+           (r2z*r3x - r2x*r3z - r2z*r4x + r3z*r4x + r2x*r4z - r3x*r4z))/
+         (Sqrt(Power(-(r1y*r2x) + r1x*r2y + r1y*r3x - r2y*r3x - r1x*r3y + r2x*r3y,2) + 
+             Power(r1z*r2x - r1x*r2z - r1z*r3x + r2z*r3x + r1x*r3z - r2x*r3z,2) + 
+             Power(-(r1z*r2y) + r1y*r2z + r1z*r3y - r2z*r3y - r1y*r3z + r2y*r3z,2))*
+           Sqrt(Power(-(r2y*r3x) + r2x*r3y + r2y*r4x - r3y*r4x - r2x*r4y + r3x*r4y,2) + 
+             Power(r2z*r3x - r2x*r3z - r2z*r4x + r3z*r4x + r2x*r4z - r3x*r4z,2) + 
+             Power(-(r2z*r3y) + r2y*r3z + r2z*r4y - r3z*r4y - r2y*r4z + r3y*r4z,2))) - 
+        ((-(r1z*r2y) + r1y*r2z + r1z*r3y - r2z*r3y - r1y*r3z + r2y*r3z)*
+           (-(r2z*r3y) + r2y*r3z + r2z*r4y - r3z*r4y - r2y*r4z + r3y*r4z))/
+         (Sqrt(Power(-(r1y*r2x) + r1x*r2y + r1y*r3x - r2y*r3x - r1x*r3y + r2x*r3y,2) + 
+             Power(r1z*r2x - r1x*r2z - r1z*r3x + r2z*r3x + r1x*r3z - r2x*r3z,2) + 
+             Power(-(r1z*r2y) + r1y*r2z + r1z*r3y - r2z*r3y - r1y*r3z + r2y*r3z,2))*
+           Sqrt(Power(-(r2y*r3x) + r2x*r3y + r2y*r4x - r3y*r4x - r2x*r4y + r3x*r4y,2) + 
+             Power(r2z*r3x - r2x*r3z - r2z*r4x + r3z*r4x + r2x*r4z - r3x*r4z,2) + 
+             Power(-(r2z*r3y) + r2y*r3z + r2z*r4y - r3z*r4y - r2y*r4z + r3y*r4z,2)))))/
+    (((Power(r2x,2) + Power(r2y,2) + Power(r2z,2) - 2*r2x*r3x + Power(r3x,2) - 
+           2*r2y*r3y + Power(r3y,2) - 2*r2z*r3z + Power(r3z,2))*
+         Power(-(r1x*r2z*r3y) + r1x*r2y*r3z + r2z*r3y*r4x - r2y*r3z*r4x + r1x*r2z*r4y - 
+           r2z*r3x*r4y - r1x*r3z*r4y + r2x*r3z*r4y + 
+           r1z*(r2x*r3y - r3y*r4x + r2y*(-r3x + r4x) - r2x*r4y + r3x*r4y) - 
+           r1x*r2y*r4z + r2y*r3x*r4z + r1x*r3y*r4z - r2x*r3y*r4z + 
+           r1y*(r2z*r3x - r2x*r3z - r2z*r4x + r3z*r4x + r2x*r4z - r3x*r4z),2))/
+       ((Power(r1x,2)*Power(r2y,2) + Power(r1x,2)*Power(r2z,2) - 
+           2*r1x*Power(r2y,2)*r3x - 2*r1x*Power(r2z,2)*r3x + 
+           Power(r2y,2)*Power(r3x,2) + Power(r2z,2)*Power(r3x,2) - 
+           2*Power(r1x,2)*r2y*r3y + 2*r1x*r2x*r2y*r3y + 2*r1x*r2y*r3x*r3y - 
+           2*r2x*r2y*r3x*r3y + Power(r1x,2)*Power(r3y,2) - 2*r1x*r2x*Power(r3y,2) + 
+           Power(r2x,2)*Power(r3y,2) + Power(r2z,2)*Power(r3y,2) + 
+           Power(r1z,2)*(Power(r2x,2) + Power(r2y,2) - 2*r2x*r3x + Power(r3x,2) - 
+              2*r2y*r3y + Power(r3y,2)) - 2*Power(r1x,2)*r2z*r3z + 2*r1x*r2x*r2z*r3z + 
+           2*r1x*r2z*r3x*r3z - 2*r2x*r2z*r3x*r3z - 2*r2y*r2z*r3y*r3z + 
+           Power(r1x,2)*Power(r3z,2) - 2*r1x*r2x*Power(r3z,2) + 
+           Power(r2x,2)*Power(r3z,2) + Power(r2y,2)*Power(r3z,2) + 
+           Power(r1y,2)*(Power(r2x,2) + Power(r2z,2) - 2*r2x*r3x + Power(r3x,2) - 
+              2*r2z*r3z + Power(r3z,2)) - 
+           2*r1y*(-(r2x*r2y*r3x) + r2y*Power(r3x,2) + r1x*(r2x - r3x)*(r2y - r3y) + 
+              Power(r2x,2)*r3y + Power(r2z,2)*r3y - r2x*r3x*r3y + 
+              r1z*(r2y - r3y)*(r2z - r3z) - r2y*r2z*r3z - r2z*r3y*r3z + r2y*Power(r3z,2)
+              ) - 2*r1z*(r2z*Power(r3x,2) - r2y*r2z*r3y + r2z*Power(r3y,2) + 
+              r1x*(r2x - r3x)*(r2z - r3z) + Power(r2x,2)*r3z + Power(r2y,2)*r3z - 
+              r2y*r3y*r3z - r2x*r3x*(r2z + r3z)))*
+         (Power(r2y*r3x - r2x*r3y - r2y*r4x + r3y*r4x + r2x*r4y - r3x*r4y,2) + 
+           Power(r2z*r3x - r2x*r3z - r2z*r4x + r3z*r4x + r2x*r4z - r3x*r4z,2) + 
+           Power(r2z*r3y - r2y*r3z - r2z*r4y + r3z*r4y + r2y*r4z - r3y*r4z,2))) + 
+      Power(((-(r1y*r2x) + r1x*r2y + r1y*r3x - r2y*r3x - r1x*r3y + r2x*r3y)*
+           (-(r2y*r3x) + r2x*r3y + r2y*r4x - r3y*r4x - r2x*r4y + r3x*r4y))/
+         (Sqrt(Power(-(r1y*r2x) + r1x*r2y + r1y*r3x - r2y*r3x - r1x*r3y + r2x*r3y,2) + 
+             Power(r1z*r2x - r1x*r2z - r1z*r3x + r2z*r3x + r1x*r3z - r2x*r3z,2) + 
+             Power(-(r1z*r2y) + r1y*r2z + r1z*r3y - r2z*r3y - r1y*r3z + r2y*r3z,2))*
+           Sqrt(Power(-(r2y*r3x) + r2x*r3y + r2y*r4x - r3y*r4x - r2x*r4y + r3x*r4y,2) + 
+             Power(r2z*r3x - r2x*r3z - r2z*r4x + r3z*r4x + r2x*r4z - r3x*r4z,2) + 
+             Power(-(r2z*r3y) + r2y*r3z + r2z*r4y - r3z*r4y - r2y*r4z + r3y*r4z,2))) + 
+        ((r1z*r2x - r1x*r2z - r1z*r3x + r2z*r3x + r1x*r3z - r2x*r3z)*
+           (r2z*r3x - r2x*r3z - r2z*r4x + r3z*r4x + r2x*r4z - r3x*r4z))/
+         (Sqrt(Power(-(r1y*r2x) + r1x*r2y + r1y*r3x - r2y*r3x - r1x*r3y + r2x*r3y,2) + 
+             Power(r1z*r2x - r1x*r2z - r1z*r3x + r2z*r3x + r1x*r3z - r2x*r3z,2) + 
+             Power(-(r1z*r2y) + r1y*r2z + r1z*r3y - r2z*r3y - r1y*r3z + r2y*r3z,2))*
+           Sqrt(Power(-(r2y*r3x) + r2x*r3y + r2y*r4x - r3y*r4x - r2x*r4y + r3x*r4y,2) + 
+             Power(r2z*r3x - r2x*r3z - r2z*r4x + r3z*r4x + r2x*r4z - r3x*r4z,2) + 
+             Power(-(r2z*r3y) + r2y*r3z + r2z*r4y - r3z*r4y - r2y*r4z + r3y*r4z,2))) + 
+        ((-(r1z*r2y) + r1y*r2z + r1z*r3y - r2z*r3y - r1y*r3z + r2y*r3z)*
+           (-(r2z*r3y) + r2y*r3z + r2z*r4y - r3z*r4y - r2y*r4z + r3y*r4z))/
+         (Sqrt(Power(-(r1y*r2x) + r1x*r2y + r1y*r3x - r2y*r3x - r1x*r3y + r2x*r3y,2) + 
+             Power(r1z*r2x - r1x*r2z - r1z*r3x + r2z*r3x + r1x*r3z - r2x*r3z,2) + 
+             Power(-(r1z*r2y) + r1y*r2z + r1z*r3y - r2z*r3y - r1y*r3z + r2y*r3z,2))*
+           Sqrt(Power(-(r2y*r3x) + r2x*r3y + r2y*r4x - r3y*r4x - r2x*r4y + r3x*r4y,2) + 
+             Power(r2z*r3x - r2x*r3z - r2z*r4x + r3z*r4x + r2x*r4z - r3x*r4z,2) + 
+             Power(-(r2z*r3y) + r2y*r3z + r2z*r4y - r3z*r4y - r2y*r4z + r3y*r4z,2))),2));
+	der_d_th[2] = (Sqrt(Power(r2x,2) + Power(r2y,2) + Power(r2z,2) - 2*r2x*r3x + Power(r3x,2) - 
+        2*r2y*r3y + Power(r3y,2) - 2*r2z*r3z + Power(r3z,2))*
+      (-(r1x*r2z*r3y) + r1x*r2y*r3z + r2z*r3y*r4x - r2y*r3z*r4x + r1x*r2z*r4y - 
+        r2z*r3x*r4y - r1x*r3z*r4y + r2x*r3z*r4y + 
+        r1z*(r2x*r3y - r3y*r4x + r2y*(-r3x + r4x) - r2x*r4y + r3x*r4y) - r1x*r2y*r4z + 
+        r2y*r3x*r4z + r1x*r3y*r4z - r2x*r3y*r4z + 
+        r1y*(r2z*r3x - r2x*r3z - r2z*r4x + r3z*r4x + r2x*r4z - r3x*r4z))*
+      (-((-(r1y*r2x) + r1x*r2y + r1y*r3x - r2y*r3x - r1x*r3y + r2x*r3y)*
+            (2*(r2x - r3x)*(r1z*r2x - r1x*r2z - r1z*r3x + r2z*r3x + r1x*r3z - 
+                 r2x*r3z) + 2*(-r2y + r3y)*
+               (-(r1z*r2y) + r1y*r2z + r1z*r3y - r2z*r3y - r1y*r3z + r2y*r3z))*
+            (-(r2y*r3x) + r2x*r3y + r2y*r4x - r3y*r4x - r2x*r4y + r3x*r4y))/
+         (2.*Power(Power(-(r1y*r2x) + r1x*r2y + r1y*r3x - r2y*r3x - r1x*r3y + r2x*r3y,
+              2) + Power(r1z*r2x - r1x*r2z - r1z*r3x + r2z*r3x + r1x*r3z - r2x*r3z,2) + 
+             Power(-(r1z*r2y) + r1y*r2z + r1z*r3y - r2z*r3y - r1y*r3z + r2y*r3z,2),1.5)*
+           Sqrt(Power(-(r2y*r3x) + r2x*r3y + r2y*r4x - r3y*r4x - r2x*r4y + r3x*r4y,2) + 
+             Power(r2z*r3x - r2x*r3z - r2z*r4x + r3z*r4x + r2x*r4z - r3x*r4z,2) + 
+             Power(-(r2z*r3y) + r2y*r3z + r2z*r4y - r3z*r4y - r2y*r4z + r3y*r4z,2))) - 
+        ((r1z*r2x - r1x*r2z - r1z*r3x + r2z*r3x + r1x*r3z - r2x*r3z)*
+           (2*(r2x - r3x)*(r1z*r2x - r1x*r2z - r1z*r3x + r2z*r3x + r1x*r3z - r2x*r3z) + 
+             2*(-r2y + r3y)*(-(r1z*r2y) + r1y*r2z + r1z*r3y - r2z*r3y - r1y*r3z + 
+                r2y*r3z))*(r2z*r3x - r2x*r3z - r2z*r4x + r3z*r4x + r2x*r4z - r3x*r4z))/
+         (2.*Power(Power(-(r1y*r2x) + r1x*r2y + r1y*r3x - r2y*r3x - r1x*r3y + r2x*r3y,
+              2) + Power(r1z*r2x - r1x*r2z - r1z*r3x + r2z*r3x + r1x*r3z - r2x*r3z,2) + 
+             Power(-(r1z*r2y) + r1y*r2z + r1z*r3y - r2z*r3y - r1y*r3z + r2y*r3z,2),1.5)*
+           Sqrt(Power(-(r2y*r3x) + r2x*r3y + r2y*r4x - r3y*r4x - r2x*r4y + r3x*r4y,2) + 
+             Power(r2z*r3x - r2x*r3z - r2z*r4x + r3z*r4x + r2x*r4z - r3x*r4z,2) + 
+             Power(-(r2z*r3y) + r2y*r3z + r2z*r4y - r3z*r4y - r2y*r4z + r3y*r4z,2))) + 
+        ((r2x - r3x)*(r2z*r3x - r2x*r3z - r2z*r4x + r3z*r4x + r2x*r4z - r3x*r4z))/
+         (Sqrt(Power(-(r1y*r2x) + r1x*r2y + r1y*r3x - r2y*r3x - r1x*r3y + r2x*r3y,2) + 
+             Power(r1z*r2x - r1x*r2z - r1z*r3x + r2z*r3x + r1x*r3z - r2x*r3z,2) + 
+             Power(-(r1z*r2y) + r1y*r2z + r1z*r3y - r2z*r3y - r1y*r3z + r2y*r3z,2))*
+           Sqrt(Power(-(r2y*r3x) + r2x*r3y + r2y*r4x - r3y*r4x - r2x*r4y + r3x*r4y,2) + 
+             Power(r2z*r3x - r2x*r3z - r2z*r4x + r3z*r4x + r2x*r4z - r3x*r4z,2) + 
+             Power(-(r2z*r3y) + r2y*r3z + r2z*r4y - r3z*r4y - r2y*r4z + r3y*r4z,2))) - 
+        ((-(r1z*r2y) + r1y*r2z + r1z*r3y - r2z*r3y - r1y*r3z + r2y*r3z)*
+           (2*(r2x - r3x)*(r1z*r2x - r1x*r2z - r1z*r3x + r2z*r3x + r1x*r3z - r2x*r3z) + 
+             2*(-r2y + r3y)*(-(r1z*r2y) + r1y*r2z + r1z*r3y - r2z*r3y - r1y*r3z + 
+                r2y*r3z))*(-(r2z*r3y) + r2y*r3z + r2z*r4y - r3z*r4y - r2y*r4z + r3y*r4z)
+           )/(2.*Power(Power(-(r1y*r2x) + r1x*r2y + r1y*r3x - r2y*r3x - r1x*r3y + 
+               r2x*r3y,2) + Power(r1z*r2x - r1x*r2z - r1z*r3x + r2z*r3x + r1x*r3z - 
+               r2x*r3z,2) + Power(-(r1z*r2y) + r1y*r2z + r1z*r3y - r2z*r3y - r1y*r3z + 
+               r2y*r3z,2),1.5)*Sqrt(Power(-(r2y*r3x) + r2x*r3y + r2y*r4x - r3y*r4x - 
+               r2x*r4y + r3x*r4y,2) + 
+             Power(r2z*r3x - r2x*r3z - r2z*r4x + r3z*r4x + r2x*r4z - r3x*r4z,2) + 
+             Power(-(r2z*r3y) + r2y*r3z + r2z*r4y - r3z*r4y - r2y*r4z + r3y*r4z,2))) + 
+        ((-r2y + r3y)*(-(r2z*r3y) + r2y*r3z + r2z*r4y - r3z*r4y - r2y*r4z + r3y*r4z))/
+         (Sqrt(Power(-(r1y*r2x) + r1x*r2y + r1y*r3x - r2y*r3x - r1x*r3y + r2x*r3y,2) + 
+             Power(r1z*r2x - r1x*r2z - r1z*r3x + r2z*r3x + r1x*r3z - r2x*r3z,2) + 
+             Power(-(r1z*r2y) + r1y*r2z + r1z*r3y - r2z*r3y - r1y*r3z + r2y*r3z,2))*
+           Sqrt(Power(-(r2y*r3x) + r2x*r3y + r2y*r4x - r3y*r4x - r2x*r4y + r3x*r4y,2) + 
+             Power(r2z*r3x - r2x*r3z - r2z*r4x + r3z*r4x + r2x*r4z - r3x*r4z,2) + 
+             Power(-(r2z*r3y) + r2y*r3z + r2z*r4y - r3z*r4y - r2y*r4z + r3y*r4z,2)))))/
+    (Sqrt(Power(r1x,2)*Power(r2y,2) + Power(r1x,2)*Power(r2z,2) - 
+        2*r1x*Power(r2y,2)*r3x - 2*r1x*Power(r2z,2)*r3x + Power(r2y,2)*Power(r3x,2) + 
+        Power(r2z,2)*Power(r3x,2) - 2*Power(r1x,2)*r2y*r3y + 2*r1x*r2x*r2y*r3y + 
+        2*r1x*r2y*r3x*r3y - 2*r2x*r2y*r3x*r3y + Power(r1x,2)*Power(r3y,2) - 
+        2*r1x*r2x*Power(r3y,2) + Power(r2x,2)*Power(r3y,2) + 
+        Power(r2z,2)*Power(r3y,2) + 
+        Power(r1z,2)*(Power(r2x,2) + Power(r2y,2) - 2*r2x*r3x + Power(r3x,2) - 
+           2*r2y*r3y + Power(r3y,2)) - 2*Power(r1x,2)*r2z*r3z + 2*r1x*r2x*r2z*r3z + 
+        2*r1x*r2z*r3x*r3z - 2*r2x*r2z*r3x*r3z - 2*r2y*r2z*r3y*r3z + 
+        Power(r1x,2)*Power(r3z,2) - 2*r1x*r2x*Power(r3z,2) + 
+        Power(r2x,2)*Power(r3z,2) + Power(r2y,2)*Power(r3z,2) + 
+        Power(r1y,2)*(Power(r2x,2) + Power(r2z,2) - 2*r2x*r3x + Power(r3x,2) - 
+           2*r2z*r3z + Power(r3z,2)) - 
+        2*r1y*(-(r2x*r2y*r3x) + r2y*Power(r3x,2) + r1x*(r2x - r3x)*(r2y - r3y) + 
+           Power(r2x,2)*r3y + Power(r2z,2)*r3y - r2x*r3x*r3y + 
+           r1z*(r2y - r3y)*(r2z - r3z) - r2y*r2z*r3z - r2z*r3y*r3z + r2y*Power(r3z,2))\
+         - 2*r1z*(r2z*Power(r3x,2) - r2y*r2z*r3y + r2z*Power(r3y,2) + 
+           r1x*(r2x - r3x)*(r2z - r3z) + Power(r2x,2)*r3z + Power(r2y,2)*r3z - 
+           r2y*r3y*r3z - r2x*r3x*(r2z + r3z)))*
+      Sqrt(Power(r2y*r3x - r2x*r3y - r2y*r4x + r3y*r4x + r2x*r4y - r3x*r4y,2) + 
+        Power(r2z*r3x - r2x*r3z - r2z*r4x + r3z*r4x + r2x*r4z - r3x*r4z,2) + 
+        Power(r2z*r3y - r2y*r3z - r2z*r4y + r3z*r4y + r2y*r4z - r3y*r4z,2))*
+      (((Power(r2x,2) + Power(r2y,2) + Power(r2z,2) - 2*r2x*r3x + Power(r3x,2) - 
+             2*r2y*r3y + Power(r3y,2) - 2*r2z*r3z + Power(r3z,2))*
+           Power(-(r1x*r2z*r3y) + r1x*r2y*r3z + r2z*r3y*r4x - r2y*r3z*r4x + 
+             r1x*r2z*r4y - r2z*r3x*r4y - r1x*r3z*r4y + r2x*r3z*r4y + 
+             r1z*(r2x*r3y - r3y*r4x + r2y*(-r3x + r4x) - r2x*r4y + r3x*r4y) - 
+             r1x*r2y*r4z + r2y*r3x*r4z + r1x*r3y*r4z - r2x*r3y*r4z + 
+             r1y*(r2z*r3x - r2x*r3z - r2z*r4x + r3z*r4x + r2x*r4z - r3x*r4z),2))/
+         ((Power(r1x,2)*Power(r2y,2) + Power(r1x,2)*Power(r2z,2) - 
+             2*r1x*Power(r2y,2)*r3x - 2*r1x*Power(r2z,2)*r3x + 
+             Power(r2y,2)*Power(r3x,2) + Power(r2z,2)*Power(r3x,2) - 
+             2*Power(r1x,2)*r2y*r3y + 2*r1x*r2x*r2y*r3y + 2*r1x*r2y*r3x*r3y - 
+             2*r2x*r2y*r3x*r3y + Power(r1x,2)*Power(r3y,2) - 2*r1x*r2x*Power(r3y,2) + 
+             Power(r2x,2)*Power(r3y,2) + Power(r2z,2)*Power(r3y,2) + 
+             Power(r1z,2)*(Power(r2x,2) + Power(r2y,2) - 2*r2x*r3x + Power(r3x,2) - 
+                2*r2y*r3y + Power(r3y,2)) - 2*Power(r1x,2)*r2z*r3z + 
+             2*r1x*r2x*r2z*r3z + 2*r1x*r2z*r3x*r3z - 2*r2x*r2z*r3x*r3z - 
+             2*r2y*r2z*r3y*r3z + Power(r1x,2)*Power(r3z,2) - 2*r1x*r2x*Power(r3z,2) + 
+             Power(r2x,2)*Power(r3z,2) + Power(r2y,2)*Power(r3z,2) + 
+             Power(r1y,2)*(Power(r2x,2) + Power(r2z,2) - 2*r2x*r3x + Power(r3x,2) - 
+                2*r2z*r3z + Power(r3z,2)) - 
+             2*r1y*(-(r2x*r2y*r3x) + r2y*Power(r3x,2) + r1x*(r2x - r3x)*(r2y - r3y) + 
+                Power(r2x,2)*r3y + Power(r2z,2)*r3y - r2x*r3x*r3y + 
+                r1z*(r2y - r3y)*(r2z - r3z) - r2y*r2z*r3z - r2z*r3y*r3z + 
+                r2y*Power(r3z,2)) - 
+             2*r1z*(r2z*Power(r3x,2) - r2y*r2z*r3y + r2z*Power(r3y,2) + 
+                r1x*(r2x - r3x)*(r2z - r3z) + Power(r2x,2)*r3z + Power(r2y,2)*r3z - 
+                r2y*r3y*r3z - r2x*r3x*(r2z + r3z)))*
+           (Power(r2y*r3x - r2x*r3y - r2y*r4x + r3y*r4x + r2x*r4y - r3x*r4y,2) + 
+             Power(r2z*r3x - r2x*r3z - r2z*r4x + r3z*r4x + r2x*r4z - r3x*r4z,2) + 
+             Power(r2z*r3y - r2y*r3z - r2z*r4y + r3z*r4y + r2y*r4z - r3y*r4z,2))) + 
+        Power(((-(r1y*r2x) + r1x*r2y + r1y*r3x - r2y*r3x - r1x*r3y + r2x*r3y)*
+             (-(r2y*r3x) + r2x*r3y + r2y*r4x - r3y*r4x - r2x*r4y + r3x*r4y))/
+           (Sqrt(Power(-(r1y*r2x) + r1x*r2y + r1y*r3x - r2y*r3x - r1x*r3y + r2x*r3y,
+                2) + Power(r1z*r2x - r1x*r2z - r1z*r3x + r2z*r3x + r1x*r3z - r2x*r3z,
+                2) + Power(-(r1z*r2y) + r1y*r2z + r1z*r3y - r2z*r3y - r1y*r3z + r2y*r3z,
+                2))*Sqrt(Power(-(r2y*r3x) + r2x*r3y + r2y*r4x - r3y*r4x - r2x*r4y + 
+                 r3x*r4y,2) + Power(r2z*r3x - r2x*r3z - r2z*r4x + r3z*r4x + r2x*r4z - 
+                 r3x*r4z,2) + Power(-(r2z*r3y) + r2y*r3z + r2z*r4y - r3z*r4y - 
+                 r2y*r4z + r3y*r4z,2))) + 
+          ((r1z*r2x - r1x*r2z - r1z*r3x + r2z*r3x + r1x*r3z - r2x*r3z)*
+             (r2z*r3x - r2x*r3z - r2z*r4x + r3z*r4x + r2x*r4z - r3x*r4z))/
+           (Sqrt(Power(-(r1y*r2x) + r1x*r2y + r1y*r3x - r2y*r3x - r1x*r3y + r2x*r3y,
+                2) + Power(r1z*r2x - r1x*r2z - r1z*r3x + r2z*r3x + r1x*r3z - r2x*r3z,
+                2) + Power(-(r1z*r2y) + r1y*r2z + r1z*r3y - r2z*r3y - r1y*r3z + r2y*r3z,
+                2))*Sqrt(Power(-(r2y*r3x) + r2x*r3y + r2y*r4x - r3y*r4x - r2x*r4y + 
+                 r3x*r4y,2) + Power(r2z*r3x - r2x*r3z - r2z*r4x + r3z*r4x + r2x*r4z - 
+                 r3x*r4z,2) + Power(-(r2z*r3y) + r2y*r3z + r2z*r4y - r3z*r4y - 
+                 r2y*r4z + r3y*r4z,2))) + 
+          ((-(r1z*r2y) + r1y*r2z + r1z*r3y - r2z*r3y - r1y*r3z + r2y*r3z)*
+             (-(r2z*r3y) + r2y*r3z + r2z*r4y - r3z*r4y - r2y*r4z + r3y*r4z))/
+           (Sqrt(Power(-(r1y*r2x) + r1x*r2y + r1y*r3x - r2y*r3x - r1x*r3y + r2x*r3y,
+                2) + Power(r1z*r2x - r1x*r2z - r1z*r3x + r2z*r3x + r1x*r3z - r2x*r3z,
+                2) + Power(-(r1z*r2y) + r1y*r2z + r1z*r3y - r2z*r3y - r1y*r3z + r2y*r3z,
+                2))*Sqrt(Power(-(r2y*r3x) + r2x*r3y + r2y*r4x - r3y*r4x - r2x*r4y + 
+                 r3x*r4y,2) + Power(r2z*r3x - r2x*r3z - r2z*r4x + r3z*r4x + r2x*r4z - 
+                 r3x*r4z,2) + Power(-(r2z*r3y) + r2y*r3z + r2z*r4y - r3z*r4y - 
+                 r2y*r4z + r3y*r4z,2))),2))) + 
+   (((Sqrt(Power(r2x,2) + Power(r2y,2) + Power(r2z,2) - 2*r2x*r3x + Power(r3x,2) - 
+             2*r2y*r3y + Power(r3y,2) - 2*r2z*r3z + Power(r3z,2))*
+           (r2x*r3y - r3y*r4x + r2y*(-r3x + r4x) - r2x*r4y + r3x*r4y))/
+         (Sqrt(Power(r1x,2)*Power(r2y,2) + Power(r1x,2)*Power(r2z,2) - 
+             2*r1x*Power(r2y,2)*r3x - 2*r1x*Power(r2z,2)*r3x + 
+             Power(r2y,2)*Power(r3x,2) + Power(r2z,2)*Power(r3x,2) - 
+             2*Power(r1x,2)*r2y*r3y + 2*r1x*r2x*r2y*r3y + 2*r1x*r2y*r3x*r3y - 
+             2*r2x*r2y*r3x*r3y + Power(r1x,2)*Power(r3y,2) - 2*r1x*r2x*Power(r3y,2) + 
+             Power(r2x,2)*Power(r3y,2) + Power(r2z,2)*Power(r3y,2) + 
+             Power(r1z,2)*(Power(r2x,2) + Power(r2y,2) - 2*r2x*r3x + Power(r3x,2) - 
+                2*r2y*r3y + Power(r3y,2)) - 2*Power(r1x,2)*r2z*r3z + 
+             2*r1x*r2x*r2z*r3z + 2*r1x*r2z*r3x*r3z - 2*r2x*r2z*r3x*r3z - 
+             2*r2y*r2z*r3y*r3z + Power(r1x,2)*Power(r3z,2) - 2*r1x*r2x*Power(r3z,2) + 
+             Power(r2x,2)*Power(r3z,2) + Power(r2y,2)*Power(r3z,2) + 
+             Power(r1y,2)*(Power(r2x,2) + Power(r2z,2) - 2*r2x*r3x + Power(r3x,2) - 
+                2*r2z*r3z + Power(r3z,2)) - 
+             2*r1y*(-(r2x*r2y*r3x) + r2y*Power(r3x,2) + r1x*(r2x - r3x)*(r2y - r3y) + 
+                Power(r2x,2)*r3y + Power(r2z,2)*r3y - r2x*r3x*r3y + 
+                r1z*(r2y - r3y)*(r2z - r3z) - r2y*r2z*r3z - r2z*r3y*r3z + 
+                r2y*Power(r3z,2)) - 
+             2*r1z*(r2z*Power(r3x,2) - r2y*r2z*r3y + r2z*Power(r3y,2) + 
+                r1x*(r2x - r3x)*(r2z - r3z) + Power(r2x,2)*r3z + Power(r2y,2)*r3z - 
+                r2y*r3y*r3z - r2x*r3x*(r2z + r3z)))*
+           Sqrt(Power(r2y*r3x - r2x*r3y - r2y*r4x + r3y*r4x + r2x*r4y - r3x*r4y,2) + 
+             Power(r2z*r3x - r2x*r3z - r2z*r4x + r3z*r4x + r2x*r4z - r3x*r4z,2) + 
+             Power(r2z*r3y - r2y*r3z - r2z*r4y + r3z*r4y + r2y*r4z - r3y*r4z,2))) - 
+        (Sqrt(Power(r2x,2) + Power(r2y,2) + Power(r2z,2) - 2*r2x*r3x + Power(r3x,2) - 
+             2*r2y*r3y + Power(r3y,2) - 2*r2z*r3z + Power(r3z,2))*
+           (2*r1z*(Power(r2x,2) + Power(r2y,2) - 2*r2x*r3x + Power(r3x,2) - 2*r2y*r3y + 
+                Power(r3y,2)) - 2*r1y*(r2y - r3y)*(r2z - r3z) - 
+             2*(r2z*Power(r3x,2) - r2y*r2z*r3y + r2z*Power(r3y,2) + 
+                r1x*(r2x - r3x)*(r2z - r3z) + Power(r2x,2)*r3z + Power(r2y,2)*r3z - 
+                r2y*r3y*r3z - r2x*r3x*(r2z + r3z)))*
+           (-(r1x*r2z*r3y) + r1x*r2y*r3z + r2z*r3y*r4x - r2y*r3z*r4x + r1x*r2z*r4y - 
+             r2z*r3x*r4y - r1x*r3z*r4y + r2x*r3z*r4y + 
+             r1z*(r2x*r3y - r3y*r4x + r2y*(-r3x + r4x) - r2x*r4y + r3x*r4y) - 
+             r1x*r2y*r4z + r2y*r3x*r4z + r1x*r3y*r4z - r2x*r3y*r4z + 
+             r1y*(r2z*r3x - r2x*r3z - r2z*r4x + r3z*r4x + r2x*r4z - r3x*r4z)))/
+         (2.*Power(Power(r1x,2)*Power(r2y,2) + Power(r1x,2)*Power(r2z,2) - 
+             2*r1x*Power(r2y,2)*r3x - 2*r1x*Power(r2z,2)*r3x + 
+             Power(r2y,2)*Power(r3x,2) + Power(r2z,2)*Power(r3x,2) - 
+             2*Power(r1x,2)*r2y*r3y + 2*r1x*r2x*r2y*r3y + 2*r1x*r2y*r3x*r3y - 
+             2*r2x*r2y*r3x*r3y + Power(r1x,2)*Power(r3y,2) - 2*r1x*r2x*Power(r3y,2) + 
+             Power(r2x,2)*Power(r3y,2) + Power(r2z,2)*Power(r3y,2) + 
+             Power(r1z,2)*(Power(r2x,2) + Power(r2y,2) - 2*r2x*r3x + Power(r3x,2) - 
+                2*r2y*r3y + Power(r3y,2)) - 2*Power(r1x,2)*r2z*r3z + 
+             2*r1x*r2x*r2z*r3z + 2*r1x*r2z*r3x*r3z - 2*r2x*r2z*r3x*r3z - 
+             2*r2y*r2z*r3y*r3z + Power(r1x,2)*Power(r3z,2) - 2*r1x*r2x*Power(r3z,2) + 
+             Power(r2x,2)*Power(r3z,2) + Power(r2y,2)*Power(r3z,2) + 
+             Power(r1y,2)*(Power(r2x,2) + Power(r2z,2) - 2*r2x*r3x + Power(r3x,2) - 
+                2*r2z*r3z + Power(r3z,2)) - 
+             2*r1y*(-(r2x*r2y*r3x) + r2y*Power(r3x,2) + r1x*(r2x - r3x)*(r2y - r3y) + 
+                Power(r2x,2)*r3y + Power(r2z,2)*r3y - r2x*r3x*r3y + 
+                r1z*(r2y - r3y)*(r2z - r3z) - r2y*r2z*r3z - r2z*r3y*r3z + 
+                r2y*Power(r3z,2)) - 
+             2*r1z*(r2z*Power(r3x,2) - r2y*r2z*r3y + r2z*Power(r3y,2) + 
+                r1x*(r2x - r3x)*(r2z - r3z) + Power(r2x,2)*r3z + Power(r2y,2)*r3z - 
+                r2y*r3y*r3z - r2x*r3x*(r2z + r3z)),1.5)*
+           Sqrt(Power(r2y*r3x - r2x*r3y - r2y*r4x + r3y*r4x + r2x*r4y - r3x*r4y,2) + 
+             Power(r2z*r3x - r2x*r3z - r2z*r4x + r3z*r4x + r2x*r4z - r3x*r4z,2) + 
+             Power(r2z*r3y - r2y*r3z - r2z*r4y + r3z*r4y + r2y*r4z - r3y*r4z,2))))*
+      (-(((-(r1y*r2x) + r1x*r2y + r1y*r3x - r2y*r3x - r1x*r3y + r2x*r3y)*
+             (-(r2y*r3x) + r2x*r3y + r2y*r4x - r3y*r4x - r2x*r4y + r3x*r4y))/
+           (Sqrt(Power(-(r1y*r2x) + r1x*r2y + r1y*r3x - r2y*r3x - r1x*r3y + r2x*r3y,
+                2) + Power(r1z*r2x - r1x*r2z - r1z*r3x + r2z*r3x + r1x*r3z - r2x*r3z,
+                2) + Power(-(r1z*r2y) + r1y*r2z + r1z*r3y - r2z*r3y - r1y*r3z + r2y*r3z,
+                2))*Sqrt(Power(-(r2y*r3x) + r2x*r3y + r2y*r4x - r3y*r4x - r2x*r4y + 
+                 r3x*r4y,2) + Power(r2z*r3x - r2x*r3z - r2z*r4x + r3z*r4x + r2x*r4z - 
+                 r3x*r4z,2) + Power(-(r2z*r3y) + r2y*r3z + r2z*r4y - r3z*r4y - 
+                 r2y*r4z + r3y*r4z,2)))) - 
+        ((r1z*r2x - r1x*r2z - r1z*r3x + r2z*r3x + r1x*r3z - r2x*r3z)*
+           (r2z*r3x - r2x*r3z - r2z*r4x + r3z*r4x + r2x*r4z - r3x*r4z))/
+         (Sqrt(Power(-(r1y*r2x) + r1x*r2y + r1y*r3x - r2y*r3x - r1x*r3y + r2x*r3y,2) + 
+             Power(r1z*r2x - r1x*r2z - r1z*r3x + r2z*r3x + r1x*r3z - r2x*r3z,2) + 
+             Power(-(r1z*r2y) + r1y*r2z + r1z*r3y - r2z*r3y - r1y*r3z + r2y*r3z,2))*
+           Sqrt(Power(-(r2y*r3x) + r2x*r3y + r2y*r4x - r3y*r4x - r2x*r4y + r3x*r4y,2) + 
+             Power(r2z*r3x - r2x*r3z - r2z*r4x + r3z*r4x + r2x*r4z - r3x*r4z,2) + 
+             Power(-(r2z*r3y) + r2y*r3z + r2z*r4y - r3z*r4y - r2y*r4z + r3y*r4z,2))) - 
+        ((-(r1z*r2y) + r1y*r2z + r1z*r3y - r2z*r3y - r1y*r3z + r2y*r3z)*
+           (-(r2z*r3y) + r2y*r3z + r2z*r4y - r3z*r4y - r2y*r4z + r3y*r4z))/
+         (Sqrt(Power(-(r1y*r2x) + r1x*r2y + r1y*r3x - r2y*r3x - r1x*r3y + r2x*r3y,2) + 
+             Power(r1z*r2x - r1x*r2z - r1z*r3x + r2z*r3x + r1x*r3z - r2x*r3z,2) + 
+             Power(-(r1z*r2y) + r1y*r2z + r1z*r3y - r2z*r3y - r1y*r3z + r2y*r3z,2))*
+           Sqrt(Power(-(r2y*r3x) + r2x*r3y + r2y*r4x - r3y*r4x - r2x*r4y + r3x*r4y,2) + 
+             Power(r2z*r3x - r2x*r3z - r2z*r4x + r3z*r4x + r2x*r4z - r3x*r4z,2) + 
+             Power(-(r2z*r3y) + r2y*r3z + r2z*r4y - r3z*r4y - r2y*r4z + r3y*r4z,2)))))/
+    (((Power(r2x,2) + Power(r2y,2) + Power(r2z,2) - 2*r2x*r3x + Power(r3x,2) - 
+           2*r2y*r3y + Power(r3y,2) - 2*r2z*r3z + Power(r3z,2))*
+         Power(-(r1x*r2z*r3y) + r1x*r2y*r3z + r2z*r3y*r4x - r2y*r3z*r4x + r1x*r2z*r4y - 
+           r2z*r3x*r4y - r1x*r3z*r4y + r2x*r3z*r4y + 
+           r1z*(r2x*r3y - r3y*r4x + r2y*(-r3x + r4x) - r2x*r4y + r3x*r4y) - 
+           r1x*r2y*r4z + r2y*r3x*r4z + r1x*r3y*r4z - r2x*r3y*r4z + 
+           r1y*(r2z*r3x - r2x*r3z - r2z*r4x + r3z*r4x + r2x*r4z - r3x*r4z),2))/
+       ((Power(r1x,2)*Power(r2y,2) + Power(r1x,2)*Power(r2z,2) - 
+           2*r1x*Power(r2y,2)*r3x - 2*r1x*Power(r2z,2)*r3x + 
+           Power(r2y,2)*Power(r3x,2) + Power(r2z,2)*Power(r3x,2) - 
+           2*Power(r1x,2)*r2y*r3y + 2*r1x*r2x*r2y*r3y + 2*r1x*r2y*r3x*r3y - 
+           2*r2x*r2y*r3x*r3y + Power(r1x,2)*Power(r3y,2) - 2*r1x*r2x*Power(r3y,2) + 
+           Power(r2x,2)*Power(r3y,2) + Power(r2z,2)*Power(r3y,2) + 
+           Power(r1z,2)*(Power(r2x,2) + Power(r2y,2) - 2*r2x*r3x + Power(r3x,2) - 
+              2*r2y*r3y + Power(r3y,2)) - 2*Power(r1x,2)*r2z*r3z + 2*r1x*r2x*r2z*r3z + 
+           2*r1x*r2z*r3x*r3z - 2*r2x*r2z*r3x*r3z - 2*r2y*r2z*r3y*r3z + 
+           Power(r1x,2)*Power(r3z,2) - 2*r1x*r2x*Power(r3z,2) + 
+           Power(r2x,2)*Power(r3z,2) + Power(r2y,2)*Power(r3z,2) + 
+           Power(r1y,2)*(Power(r2x,2) + Power(r2z,2) - 2*r2x*r3x + Power(r3x,2) - 
+              2*r2z*r3z + Power(r3z,2)) - 
+           2*r1y*(-(r2x*r2y*r3x) + r2y*Power(r3x,2) + r1x*(r2x - r3x)*(r2y - r3y) + 
+              Power(r2x,2)*r3y + Power(r2z,2)*r3y - r2x*r3x*r3y + 
+              r1z*(r2y - r3y)*(r2z - r3z) - r2y*r2z*r3z - r2z*r3y*r3z + r2y*Power(r3z,2)
+              ) - 2*r1z*(r2z*Power(r3x,2) - r2y*r2z*r3y + r2z*Power(r3y,2) + 
+              r1x*(r2x - r3x)*(r2z - r3z) + Power(r2x,2)*r3z + Power(r2y,2)*r3z - 
+              r2y*r3y*r3z - r2x*r3x*(r2z + r3z)))*
+         (Power(r2y*r3x - r2x*r3y - r2y*r4x + r3y*r4x + r2x*r4y - r3x*r4y,2) + 
+           Power(r2z*r3x - r2x*r3z - r2z*r4x + r3z*r4x + r2x*r4z - r3x*r4z,2) + 
+           Power(r2z*r3y - r2y*r3z - r2z*r4y + r3z*r4y + r2y*r4z - r3y*r4z,2))) + 
+      Power(((-(r1y*r2x) + r1x*r2y + r1y*r3x - r2y*r3x - r1x*r3y + r2x*r3y)*
+           (-(r2y*r3x) + r2x*r3y + r2y*r4x - r3y*r4x - r2x*r4y + r3x*r4y))/
+         (Sqrt(Power(-(r1y*r2x) + r1x*r2y + r1y*r3x - r2y*r3x - r1x*r3y + r2x*r3y,2) + 
+             Power(r1z*r2x - r1x*r2z - r1z*r3x + r2z*r3x + r1x*r3z - r2x*r3z,2) + 
+             Power(-(r1z*r2y) + r1y*r2z + r1z*r3y - r2z*r3y - r1y*r3z + r2y*r3z,2))*
+           Sqrt(Power(-(r2y*r3x) + r2x*r3y + r2y*r4x - r3y*r4x - r2x*r4y + r3x*r4y,2) + 
+             Power(r2z*r3x - r2x*r3z - r2z*r4x + r3z*r4x + r2x*r4z - r3x*r4z,2) + 
+             Power(-(r2z*r3y) + r2y*r3z + r2z*r4y - r3z*r4y - r2y*r4z + r3y*r4z,2))) + 
+        ((r1z*r2x - r1x*r2z - r1z*r3x + r2z*r3x + r1x*r3z - r2x*r3z)*
+           (r2z*r3x - r2x*r3z - r2z*r4x + r3z*r4x + r2x*r4z - r3x*r4z))/
+         (Sqrt(Power(-(r1y*r2x) + r1x*r2y + r1y*r3x - r2y*r3x - r1x*r3y + r2x*r3y,2) + 
+             Power(r1z*r2x - r1x*r2z - r1z*r3x + r2z*r3x + r1x*r3z - r2x*r3z,2) + 
+             Power(-(r1z*r2y) + r1y*r2z + r1z*r3y - r2z*r3y - r1y*r3z + r2y*r3z,2))*
+           Sqrt(Power(-(r2y*r3x) + r2x*r3y + r2y*r4x - r3y*r4x - r2x*r4y + r3x*r4y,2) + 
+             Power(r2z*r3x - r2x*r3z - r2z*r4x + r3z*r4x + r2x*r4z - r3x*r4z,2) + 
+             Power(-(r2z*r3y) + r2y*r3z + r2z*r4y - r3z*r4y - r2y*r4z + r3y*r4z,2))) + 
+        ((-(r1z*r2y) + r1y*r2z + r1z*r3y - r2z*r3y - r1y*r3z + r2y*r3z)*
+           (-(r2z*r3y) + r2y*r3z + r2z*r4y - r3z*r4y - r2y*r4z + r3y*r4z))/
+         (Sqrt(Power(-(r1y*r2x) + r1x*r2y + r1y*r3x - r2y*r3x - r1x*r3y + r2x*r3y,2) + 
+             Power(r1z*r2x - r1x*r2z - r1z*r3x + r2z*r3x + r1x*r3z - r2x*r3z,2) + 
+             Power(-(r1z*r2y) + r1y*r2z + r1z*r3y - r2z*r3y - r1y*r3z + r2y*r3z,2))*
+           Sqrt(Power(-(r2y*r3x) + r2x*r3y + r2y*r4x - r3y*r4x - r2x*r4y + r3x*r4y,2) + 
+             Power(r2z*r3x - r2x*r3z - r2z*r4x + r3z*r4x + r2x*r4z - r3x*r4z,2) + 
+             Power(-(r2z*r3y) + r2y*r3z + r2z*r4y - r3z*r4y - r2y*r4z + r3y*r4z,2))),2));
+	
+	// d r2
+	der_d_th[3] = (Sqrt(Power(r2x,2) + Power(r2y,2) + Power(r2z,2) - 2*r2x*r3x + Power(r3x,2) - 
+        2*r2y*r3y + Power(r3y,2) - 2*r2z*r3z + Power(r3z,2))*
+      (-(r1x*r2z*r3y) + r1x*r2y*r3z + r2z*r3y*r4x - r2y*r3z*r4x + r1x*r2z*r4y - 
+        r2z*r3x*r4y - r1x*r3z*r4y + r2x*r3z*r4y + 
+        r1z*(r2x*r3y - r3y*r4x + r2y*(-r3x + r4x) - r2x*r4y + r3x*r4y) - r1x*r2y*r4z + 
+        r2y*r3x*r4z + r1x*r3y*r4z - r2x*r3y*r4z + 
+        r1y*(r2z*r3x - r2x*r3z - r2z*r4x + r3z*r4x + r2x*r4z - r3x*r4z))*
+      (-((-(r1y*r2x) + r1x*r2y + r1y*r3x - r2y*r3x - r1x*r3y + r2x*r3y)*
+            (-(r2y*r3x) + r2x*r3y + r2y*r4x - r3y*r4x - r2x*r4y + r3x*r4y)*
+            (2*(r3y - r4y)*(-(r2y*r3x) + r2x*r3y + r2y*r4x - r3y*r4x - r2x*r4y + 
+                 r3x*r4y) + 2*(-r3z + r4z)*
+               (r2z*r3x - r2x*r3z - r2z*r4x + r3z*r4x + r2x*r4z - r3x*r4z)))/
+         (2.*Sqrt(Power(-(r1y*r2x) + r1x*r2y + r1y*r3x - r2y*r3x - r1x*r3y + r2x*r3y,
+              2) + Power(r1z*r2x - r1x*r2z - r1z*r3x + r2z*r3x + r1x*r3z - r2x*r3z,2) + 
+             Power(-(r1z*r2y) + r1y*r2z + r1z*r3y - r2z*r3y - r1y*r3z + r2y*r3z,2))*
+           Power(Power(-(r2y*r3x) + r2x*r3y + r2y*r4x - r3y*r4x - r2x*r4y + r3x*r4y,
+              2) + Power(r2z*r3x - r2x*r3z - r2z*r4x + r3z*r4x + r2x*r4z - r3x*r4z,2) + 
+             Power(-(r2z*r3y) + r2y*r3z + r2z*r4y - r3z*r4y - r2y*r4z + r3y*r4z,2),1.5))
+          - ((r1z*r2x - r1x*r2z - r1z*r3x + r2z*r3x + r1x*r3z - r2x*r3z)*
+           (r2z*r3x - r2x*r3z - r2z*r4x + r3z*r4x + r2x*r4z - r3x*r4z)*
+           (2*(r3y - r4y)*(-(r2y*r3x) + r2x*r3y + r2y*r4x - r3y*r4x - r2x*r4y + 
+                r3x*r4y) + 2*(-r3z + r4z)*
+              (r2z*r3x - r2x*r3z - r2z*r4x + r3z*r4x + r2x*r4z - r3x*r4z)))/
+         (2.*Sqrt(Power(-(r1y*r2x) + r1x*r2y + r1y*r3x - r2y*r3x - r1x*r3y + r2x*r3y,
+              2) + Power(r1z*r2x - r1x*r2z - r1z*r3x + r2z*r3x + r1x*r3z - r2x*r3z,2) + 
+             Power(-(r1z*r2y) + r1y*r2z + r1z*r3y - r2z*r3y - r1y*r3z + r2y*r3z,2))*
+           Power(Power(-(r2y*r3x) + r2x*r3y + r2y*r4x - r3y*r4x - r2x*r4y + r3x*r4y,
+              2) + Power(r2z*r3x - r2x*r3z - r2z*r4x + r3z*r4x + r2x*r4z - r3x*r4z,2) + 
+             Power(-(r2z*r3y) + r2y*r3z + r2z*r4y - r3z*r4y - r2y*r4z + r3y*r4z,2),1.5))
+          - ((-(r1z*r2y) + r1y*r2z + r1z*r3y - r2z*r3y - r1y*r3z + r2y*r3z)*
+           (-(r2z*r3y) + r2y*r3z + r2z*r4y - r3z*r4y - r2y*r4z + r3y*r4z)*
+           (2*(r3y - r4y)*(-(r2y*r3x) + r2x*r3y + r2y*r4x - r3y*r4x - r2x*r4y + 
+                r3x*r4y) + 2*(-r3z + r4z)*
+              (r2z*r3x - r2x*r3z - r2z*r4x + r3z*r4x + r2x*r4z - r3x*r4z)))/
+         (2.*Sqrt(Power(-(r1y*r2x) + r1x*r2y + r1y*r3x - r2y*r3x - r1x*r3y + r2x*r3y,
+              2) + Power(r1z*r2x - r1x*r2z - r1z*r3x + r2z*r3x + r1x*r3z - r2x*r3z,2) + 
+             Power(-(r1z*r2y) + r1y*r2z + r1z*r3y - r2z*r3y - r1y*r3z + r2y*r3z,2))*
+           Power(Power(-(r2y*r3x) + r2x*r3y + r2y*r4x - r3y*r4x - r2x*r4y + r3x*r4y,
+              2) + Power(r2z*r3x - r2x*r3z - r2z*r4x + r3z*r4x + r2x*r4z - r3x*r4z,2) + 
+             Power(-(r2z*r3y) + r2y*r3z + r2z*r4y - r3z*r4y - r2y*r4z + r3y*r4z,2),1.5))
+          + ((-(r1y*r2x) + r1x*r2y + r1y*r3x - r2y*r3x - r1x*r3y + r2x*r3y)*
+           (r3y - r4y))/
+         (Sqrt(Power(-(r1y*r2x) + r1x*r2y + r1y*r3x - r2y*r3x - r1x*r3y + r2x*r3y,2) + 
+             Power(r1z*r2x - r1x*r2z - r1z*r3x + r2z*r3x + r1x*r3z - r2x*r3z,2) + 
+             Power(-(r1z*r2y) + r1y*r2z + r1z*r3y - r2z*r3y - r1y*r3z + r2y*r3z,2))*
+           Sqrt(Power(-(r2y*r3x) + r2x*r3y + r2y*r4x - r3y*r4x - r2x*r4y + r3x*r4y,2) + 
+             Power(r2z*r3x - r2x*r3z - r2z*r4x + r3z*r4x + r2x*r4z - r3x*r4z,2) + 
+             Power(-(r2z*r3y) + r2y*r3z + r2z*r4y - r3z*r4y - r2y*r4z + r3y*r4z,2))) - 
+        ((-(r1y*r2x) + r1x*r2y + r1y*r3x - r2y*r3x - r1x*r3y + r2x*r3y)*
+           (2*(-r1y + r3y)*(-(r1y*r2x) + r1x*r2y + r1y*r3x - r2y*r3x - r1x*r3y + 
+                r2x*r3y) + 2*(r1z - r3z)*
+              (r1z*r2x - r1x*r2z - r1z*r3x + r2z*r3x + r1x*r3z - r2x*r3z))*
+           (-(r2y*r3x) + r2x*r3y + r2y*r4x - r3y*r4x - r2x*r4y + r3x*r4y))/
+         (2.*Power(Power(-(r1y*r2x) + r1x*r2y + r1y*r3x - r2y*r3x - r1x*r3y + r2x*r3y,
+              2) + Power(r1z*r2x - r1x*r2z - r1z*r3x + r2z*r3x + r1x*r3z - r2x*r3z,2) + 
+             Power(-(r1z*r2y) + r1y*r2z + r1z*r3y - r2z*r3y - r1y*r3z + r2y*r3z,2),1.5)*
+           Sqrt(Power(-(r2y*r3x) + r2x*r3y + r2y*r4x - r3y*r4x - r2x*r4y + r3x*r4y,2) + 
+             Power(r2z*r3x - r2x*r3z - r2z*r4x + r3z*r4x + r2x*r4z - r3x*r4z,2) + 
+             Power(-(r2z*r3y) + r2y*r3z + r2z*r4y - r3z*r4y - r2y*r4z + r3y*r4z,2))) + 
+        ((-r1y + r3y)*(-(r2y*r3x) + r2x*r3y + r2y*r4x - r3y*r4x - r2x*r4y + r3x*r4y))/
+         (Sqrt(Power(-(r1y*r2x) + r1x*r2y + r1y*r3x - r2y*r3x - r1x*r3y + r2x*r3y,2) + 
+             Power(r1z*r2x - r1x*r2z - r1z*r3x + r2z*r3x + r1x*r3z - r2x*r3z,2) + 
+             Power(-(r1z*r2y) + r1y*r2z + r1z*r3y - r2z*r3y - r1y*r3z + r2y*r3z,2))*
+           Sqrt(Power(-(r2y*r3x) + r2x*r3y + r2y*r4x - r3y*r4x - r2x*r4y + r3x*r4y,2) + 
+             Power(r2z*r3x - r2x*r3z - r2z*r4x + r3z*r4x + r2x*r4z - r3x*r4z,2) + 
+             Power(-(r2z*r3y) + r2y*r3z + r2z*r4y - r3z*r4y - r2y*r4z + r3y*r4z,2))) + 
+        ((r1z*r2x - r1x*r2z - r1z*r3x + r2z*r3x + r1x*r3z - r2x*r3z)*(-r3z + r4z))/
+         (Sqrt(Power(-(r1y*r2x) + r1x*r2y + r1y*r3x - r2y*r3x - r1x*r3y + r2x*r3y,2) + 
+             Power(r1z*r2x - r1x*r2z - r1z*r3x + r2z*r3x + r1x*r3z - r2x*r3z,2) + 
+             Power(-(r1z*r2y) + r1y*r2z + r1z*r3y - r2z*r3y - r1y*r3z + r2y*r3z,2))*
+           Sqrt(Power(-(r2y*r3x) + r2x*r3y + r2y*r4x - r3y*r4x - r2x*r4y + r3x*r4y,2) + 
+             Power(r2z*r3x - r2x*r3z - r2z*r4x + r3z*r4x + r2x*r4z - r3x*r4z,2) + 
+             Power(-(r2z*r3y) + r2y*r3z + r2z*r4y - r3z*r4y - r2y*r4z + r3y*r4z,2))) - 
+        ((r1z*r2x - r1x*r2z - r1z*r3x + r2z*r3x + r1x*r3z - r2x*r3z)*
+           (2*(-r1y + r3y)*(-(r1y*r2x) + r1x*r2y + r1y*r3x - r2y*r3x - r1x*r3y + 
+                r2x*r3y) + 2*(r1z - r3z)*
+              (r1z*r2x - r1x*r2z - r1z*r3x + r2z*r3x + r1x*r3z - r2x*r3z))*
+           (r2z*r3x - r2x*r3z - r2z*r4x + r3z*r4x + r2x*r4z - r3x*r4z))/
+         (2.*Power(Power(-(r1y*r2x) + r1x*r2y + r1y*r3x - r2y*r3x - r1x*r3y + r2x*r3y,
+              2) + Power(r1z*r2x - r1x*r2z - r1z*r3x + r2z*r3x + r1x*r3z - r2x*r3z,2) + 
+             Power(-(r1z*r2y) + r1y*r2z + r1z*r3y - r2z*r3y - r1y*r3z + r2y*r3z,2),1.5)*
+           Sqrt(Power(-(r2y*r3x) + r2x*r3y + r2y*r4x - r3y*r4x - r2x*r4y + r3x*r4y,2) + 
+             Power(r2z*r3x - r2x*r3z - r2z*r4x + r3z*r4x + r2x*r4z - r3x*r4z,2) + 
+             Power(-(r2z*r3y) + r2y*r3z + r2z*r4y - r3z*r4y - r2y*r4z + r3y*r4z,2))) + 
+        ((r1z - r3z)*(r2z*r3x - r2x*r3z - r2z*r4x + r3z*r4x + r2x*r4z - r3x*r4z))/
+         (Sqrt(Power(-(r1y*r2x) + r1x*r2y + r1y*r3x - r2y*r3x - r1x*r3y + r2x*r3y,2) + 
+             Power(r1z*r2x - r1x*r2z - r1z*r3x + r2z*r3x + r1x*r3z - r2x*r3z,2) + 
+             Power(-(r1z*r2y) + r1y*r2z + r1z*r3y - r2z*r3y - r1y*r3z + r2y*r3z,2))*
+           Sqrt(Power(-(r2y*r3x) + r2x*r3y + r2y*r4x - r3y*r4x - r2x*r4y + r3x*r4y,2) + 
+             Power(r2z*r3x - r2x*r3z - r2z*r4x + r3z*r4x + r2x*r4z - r3x*r4z,2) + 
+             Power(-(r2z*r3y) + r2y*r3z + r2z*r4y - r3z*r4y - r2y*r4z + r3y*r4z,2))) - 
+        ((-(r1z*r2y) + r1y*r2z + r1z*r3y - r2z*r3y - r1y*r3z + r2y*r3z)*
+           (2*(-r1y + r3y)*(-(r1y*r2x) + r1x*r2y + r1y*r3x - r2y*r3x - r1x*r3y + 
+                r2x*r3y) + 2*(r1z - r3z)*
+              (r1z*r2x - r1x*r2z - r1z*r3x + r2z*r3x + r1x*r3z - r2x*r3z))*
+           (-(r2z*r3y) + r2y*r3z + r2z*r4y - r3z*r4y - r2y*r4z + r3y*r4z))/
+         (2.*Power(Power(-(r1y*r2x) + r1x*r2y + r1y*r3x - r2y*r3x - r1x*r3y + r2x*r3y,
+              2) + Power(r1z*r2x - r1x*r2z - r1z*r3x + r2z*r3x + r1x*r3z - r2x*r3z,2) + 
+             Power(-(r1z*r2y) + r1y*r2z + r1z*r3y - r2z*r3y - r1y*r3z + r2y*r3z,2),1.5)*
+           Sqrt(Power(-(r2y*r3x) + r2x*r3y + r2y*r4x - r3y*r4x - r2x*r4y + r3x*r4y,2) + 
+             Power(r2z*r3x - r2x*r3z - r2z*r4x + r3z*r4x + r2x*r4z - r3x*r4z,2) + 
+             Power(-(r2z*r3y) + r2y*r3z + r2z*r4y - r3z*r4y - r2y*r4z + r3y*r4z,2)))))/
+    (Sqrt(Power(r1x,2)*Power(r2y,2) + Power(r1x,2)*Power(r2z,2) - 
+        2*r1x*Power(r2y,2)*r3x - 2*r1x*Power(r2z,2)*r3x + Power(r2y,2)*Power(r3x,2) + 
+        Power(r2z,2)*Power(r3x,2) - 2*Power(r1x,2)*r2y*r3y + 2*r1x*r2x*r2y*r3y + 
+        2*r1x*r2y*r3x*r3y - 2*r2x*r2y*r3x*r3y + Power(r1x,2)*Power(r3y,2) - 
+        2*r1x*r2x*Power(r3y,2) + Power(r2x,2)*Power(r3y,2) + 
+        Power(r2z,2)*Power(r3y,2) + 
+        Power(r1z,2)*(Power(r2x,2) + Power(r2y,2) - 2*r2x*r3x + Power(r3x,2) - 
+           2*r2y*r3y + Power(r3y,2)) - 2*Power(r1x,2)*r2z*r3z + 2*r1x*r2x*r2z*r3z + 
+        2*r1x*r2z*r3x*r3z - 2*r2x*r2z*r3x*r3z - 2*r2y*r2z*r3y*r3z + 
+        Power(r1x,2)*Power(r3z,2) - 2*r1x*r2x*Power(r3z,2) + 
+        Power(r2x,2)*Power(r3z,2) + Power(r2y,2)*Power(r3z,2) + 
+        Power(r1y,2)*(Power(r2x,2) + Power(r2z,2) - 2*r2x*r3x + Power(r3x,2) - 
+           2*r2z*r3z + Power(r3z,2)) - 
+        2*r1y*(-(r2x*r2y*r3x) + r2y*Power(r3x,2) + r1x*(r2x - r3x)*(r2y - r3y) + 
+           Power(r2x,2)*r3y + Power(r2z,2)*r3y - r2x*r3x*r3y + 
+           r1z*(r2y - r3y)*(r2z - r3z) - r2y*r2z*r3z - r2z*r3y*r3z + r2y*Power(r3z,2))\
+         - 2*r1z*(r2z*Power(r3x,2) - r2y*r2z*r3y + r2z*Power(r3y,2) + 
+           r1x*(r2x - r3x)*(r2z - r3z) + Power(r2x,2)*r3z + Power(r2y,2)*r3z - 
+           r2y*r3y*r3z - r2x*r3x*(r2z + r3z)))*
+      Sqrt(Power(r2y*r3x - r2x*r3y - r2y*r4x + r3y*r4x + r2x*r4y - r3x*r4y,2) + 
+        Power(r2z*r3x - r2x*r3z - r2z*r4x + r3z*r4x + r2x*r4z - r3x*r4z,2) + 
+        Power(r2z*r3y - r2y*r3z - r2z*r4y + r3z*r4y + r2y*r4z - r3y*r4z,2))*
+      (((Power(r2x,2) + Power(r2y,2) + Power(r2z,2) - 2*r2x*r3x + Power(r3x,2) - 
+             2*r2y*r3y + Power(r3y,2) - 2*r2z*r3z + Power(r3z,2))*
+           Power(-(r1x*r2z*r3y) + r1x*r2y*r3z + r2z*r3y*r4x - r2y*r3z*r4x + 
+             r1x*r2z*r4y - r2z*r3x*r4y - r1x*r3z*r4y + r2x*r3z*r4y + 
+             r1z*(r2x*r3y - r3y*r4x + r2y*(-r3x + r4x) - r2x*r4y + r3x*r4y) - 
+             r1x*r2y*r4z + r2y*r3x*r4z + r1x*r3y*r4z - r2x*r3y*r4z + 
+             r1y*(r2z*r3x - r2x*r3z - r2z*r4x + r3z*r4x + r2x*r4z - r3x*r4z),2))/
+         ((Power(r1x,2)*Power(r2y,2) + Power(r1x,2)*Power(r2z,2) - 
+             2*r1x*Power(r2y,2)*r3x - 2*r1x*Power(r2z,2)*r3x + 
+             Power(r2y,2)*Power(r3x,2) + Power(r2z,2)*Power(r3x,2) - 
+             2*Power(r1x,2)*r2y*r3y + 2*r1x*r2x*r2y*r3y + 2*r1x*r2y*r3x*r3y - 
+             2*r2x*r2y*r3x*r3y + Power(r1x,2)*Power(r3y,2) - 2*r1x*r2x*Power(r3y,2) + 
+             Power(r2x,2)*Power(r3y,2) + Power(r2z,2)*Power(r3y,2) + 
+             Power(r1z,2)*(Power(r2x,2) + Power(r2y,2) - 2*r2x*r3x + Power(r3x,2) - 
+                2*r2y*r3y + Power(r3y,2)) - 2*Power(r1x,2)*r2z*r3z + 
+             2*r1x*r2x*r2z*r3z + 2*r1x*r2z*r3x*r3z - 2*r2x*r2z*r3x*r3z - 
+             2*r2y*r2z*r3y*r3z + Power(r1x,2)*Power(r3z,2) - 2*r1x*r2x*Power(r3z,2) + 
+             Power(r2x,2)*Power(r3z,2) + Power(r2y,2)*Power(r3z,2) + 
+             Power(r1y,2)*(Power(r2x,2) + Power(r2z,2) - 2*r2x*r3x + Power(r3x,2) - 
+                2*r2z*r3z + Power(r3z,2)) - 
+             2*r1y*(-(r2x*r2y*r3x) + r2y*Power(r3x,2) + r1x*(r2x - r3x)*(r2y - r3y) + 
+                Power(r2x,2)*r3y + Power(r2z,2)*r3y - r2x*r3x*r3y + 
+                r1z*(r2y - r3y)*(r2z - r3z) - r2y*r2z*r3z - r2z*r3y*r3z + 
+                r2y*Power(r3z,2)) - 
+             2*r1z*(r2z*Power(r3x,2) - r2y*r2z*r3y + r2z*Power(r3y,2) + 
+                r1x*(r2x - r3x)*(r2z - r3z) + Power(r2x,2)*r3z + Power(r2y,2)*r3z - 
+                r2y*r3y*r3z - r2x*r3x*(r2z + r3z)))*
+           (Power(r2y*r3x - r2x*r3y - r2y*r4x + r3y*r4x + r2x*r4y - r3x*r4y,2) + 
+             Power(r2z*r3x - r2x*r3z - r2z*r4x + r3z*r4x + r2x*r4z - r3x*r4z,2) + 
+             Power(r2z*r3y - r2y*r3z - r2z*r4y + r3z*r4y + r2y*r4z - r3y*r4z,2))) + 
+        Power(((-(r1y*r2x) + r1x*r2y + r1y*r3x - r2y*r3x - r1x*r3y + r2x*r3y)*
+             (-(r2y*r3x) + r2x*r3y + r2y*r4x - r3y*r4x - r2x*r4y + r3x*r4y))/
+           (Sqrt(Power(-(r1y*r2x) + r1x*r2y + r1y*r3x - r2y*r3x - r1x*r3y + r2x*r3y,
+                2) + Power(r1z*r2x - r1x*r2z - r1z*r3x + r2z*r3x + r1x*r3z - r2x*r3z,
+                2) + Power(-(r1z*r2y) + r1y*r2z + r1z*r3y - r2z*r3y - r1y*r3z + r2y*r3z,
+                2))*Sqrt(Power(-(r2y*r3x) + r2x*r3y + r2y*r4x - r3y*r4x - r2x*r4y + 
+                 r3x*r4y,2) + Power(r2z*r3x - r2x*r3z - r2z*r4x + r3z*r4x + r2x*r4z - 
+                 r3x*r4z,2) + Power(-(r2z*r3y) + r2y*r3z + r2z*r4y - r3z*r4y - 
+                 r2y*r4z + r3y*r4z,2))) + 
+          ((r1z*r2x - r1x*r2z - r1z*r3x + r2z*r3x + r1x*r3z - r2x*r3z)*
+             (r2z*r3x - r2x*r3z - r2z*r4x + r3z*r4x + r2x*r4z - r3x*r4z))/
+           (Sqrt(Power(-(r1y*r2x) + r1x*r2y + r1y*r3x - r2y*r3x - r1x*r3y + r2x*r3y,
+                2) + Power(r1z*r2x - r1x*r2z - r1z*r3x + r2z*r3x + r1x*r3z - r2x*r3z,
+                2) + Power(-(r1z*r2y) + r1y*r2z + r1z*r3y - r2z*r3y - r1y*r3z + r2y*r3z,
+                2))*Sqrt(Power(-(r2y*r3x) + r2x*r3y + r2y*r4x - r3y*r4x - r2x*r4y + 
+                 r3x*r4y,2) + Power(r2z*r3x - r2x*r3z - r2z*r4x + r3z*r4x + r2x*r4z - 
+                 r3x*r4z,2) + Power(-(r2z*r3y) + r2y*r3z + r2z*r4y - r3z*r4y - 
+                 r2y*r4z + r3y*r4z,2))) + 
+          ((-(r1z*r2y) + r1y*r2z + r1z*r3y - r2z*r3y - r1y*r3z + r2y*r3z)*
+             (-(r2z*r3y) + r2y*r3z + r2z*r4y - r3z*r4y - r2y*r4z + r3y*r4z))/
+           (Sqrt(Power(-(r1y*r2x) + r1x*r2y + r1y*r3x - r2y*r3x - r1x*r3y + r2x*r3y,
+                2) + Power(r1z*r2x - r1x*r2z - r1z*r3x + r2z*r3x + r1x*r3z - r2x*r3z,
+                2) + Power(-(r1z*r2y) + r1y*r2z + r1z*r3y - r2z*r3y - r1y*r3z + r2y*r3z,
+                2))*Sqrt(Power(-(r2y*r3x) + r2x*r3y + r2y*r4x - r3y*r4x - r2x*r4y + 
+                 r3x*r4y,2) + Power(r2z*r3x - r2x*r3z - r2z*r4x + r3z*r4x + r2x*r4z - 
+                 r3x*r4z,2) + Power(-(r2z*r3y) + r2y*r3z + r2z*r4y - r3z*r4y - 
+                 r2y*r4z + r3y*r4z,2))),2))) + 
+   ((-(Sqrt(Power(r2x,2) + Power(r2y,2) + Power(r2z,2) - 2*r2x*r3x + Power(r3x,2) - 
+              2*r2y*r3y + Power(r3y,2) - 2*r2z*r3z + Power(r3z,2))*
+            (-(r1x*r2z*r3y) + r1x*r2y*r3z + r2z*r3y*r4x - r2y*r3z*r4x + r1x*r2z*r4y - 
+              r2z*r3x*r4y - r1x*r3z*r4y + r2x*r3z*r4y + 
+              r1z*(r2x*r3y - r3y*r4x + r2y*(-r3x + r4x) - r2x*r4y + r3x*r4y) - 
+              r1x*r2y*r4z + r2y*r3x*r4z + r1x*r3y*r4z - r2x*r3y*r4z + 
+              r1y*(r2z*r3x - r2x*r3z - r2z*r4x + r3z*r4x + r2x*r4z - r3x*r4z))*
+            (2*(-r3y + r4y)*(r2y*r3x - r2x*r3y - r2y*r4x + r3y*r4x + r2x*r4y - 
+                 r3x*r4y) + 2*(-r3z + r4z)*
+               (r2z*r3x - r2x*r3z - r2z*r4x + r3z*r4x + r2x*r4z - r3x*r4z)))/
+         (2.*Sqrt(Power(r1x,2)*Power(r2y,2) + Power(r1x,2)*Power(r2z,2) - 
+             2*r1x*Power(r2y,2)*r3x - 2*r1x*Power(r2z,2)*r3x + 
+             Power(r2y,2)*Power(r3x,2) + Power(r2z,2)*Power(r3x,2) - 
+             2*Power(r1x,2)*r2y*r3y + 2*r1x*r2x*r2y*r3y + 2*r1x*r2y*r3x*r3y - 
+             2*r2x*r2y*r3x*r3y + Power(r1x,2)*Power(r3y,2) - 2*r1x*r2x*Power(r3y,2) + 
+             Power(r2x,2)*Power(r3y,2) + Power(r2z,2)*Power(r3y,2) + 
+             Power(r1z,2)*(Power(r2x,2) + Power(r2y,2) - 2*r2x*r3x + Power(r3x,2) - 
+                2*r2y*r3y + Power(r3y,2)) - 2*Power(r1x,2)*r2z*r3z + 
+             2*r1x*r2x*r2z*r3z + 2*r1x*r2z*r3x*r3z - 2*r2x*r2z*r3x*r3z - 
+             2*r2y*r2z*r3y*r3z + Power(r1x,2)*Power(r3z,2) - 2*r1x*r2x*Power(r3z,2) + 
+             Power(r2x,2)*Power(r3z,2) + Power(r2y,2)*Power(r3z,2) + 
+             Power(r1y,2)*(Power(r2x,2) + Power(r2z,2) - 2*r2x*r3x + Power(r3x,2) - 
+                2*r2z*r3z + Power(r3z,2)) - 
+             2*r1y*(-(r2x*r2y*r3x) + r2y*Power(r3x,2) + r1x*(r2x - r3x)*(r2y - r3y) + 
+                Power(r2x,2)*r3y + Power(r2z,2)*r3y - r2x*r3x*r3y + 
+                r1z*(r2y - r3y)*(r2z - r3z) - r2y*r2z*r3z - r2z*r3y*r3z + 
+                r2y*Power(r3z,2)) - 
+             2*r1z*(r2z*Power(r3x,2) - r2y*r2z*r3y + r2z*Power(r3y,2) + 
+                r1x*(r2x - r3x)*(r2z - r3z) + Power(r2x,2)*r3z + Power(r2y,2)*r3z - 
+                r2y*r3y*r3z - r2x*r3x*(r2z + r3z)))*
+           Power(Power(r2y*r3x - r2x*r3y - r2y*r4x + r3y*r4x + r2x*r4y - r3x*r4y,2) + 
+             Power(r2z*r3x - r2x*r3z - r2z*r4x + r3z*r4x + r2x*r4z - r3x*r4z,2) + 
+             Power(r2z*r3y - r2y*r3z - r2z*r4y + r3z*r4y + r2y*r4z - r3y*r4z,2),1.5)) + 
+        (Sqrt(Power(r2x,2) + Power(r2y,2) + Power(r2z,2) - 2*r2x*r3x + Power(r3x,2) - 
+             2*r2y*r3y + Power(r3y,2) - 2*r2z*r3z + Power(r3z,2))*
+           (r1z*(r3y - r4y) + r3z*r4y - r3y*r4z + r1y*(-r3z + r4z)))/
+         (Sqrt(Power(r1x,2)*Power(r2y,2) + Power(r1x,2)*Power(r2z,2) - 
+             2*r1x*Power(r2y,2)*r3x - 2*r1x*Power(r2z,2)*r3x + 
+             Power(r2y,2)*Power(r3x,2) + Power(r2z,2)*Power(r3x,2) - 
+             2*Power(r1x,2)*r2y*r3y + 2*r1x*r2x*r2y*r3y + 2*r1x*r2y*r3x*r3y - 
+             2*r2x*r2y*r3x*r3y + Power(r1x,2)*Power(r3y,2) - 2*r1x*r2x*Power(r3y,2) + 
+             Power(r2x,2)*Power(r3y,2) + Power(r2z,2)*Power(r3y,2) + 
+             Power(r1z,2)*(Power(r2x,2) + Power(r2y,2) - 2*r2x*r3x + Power(r3x,2) - 
+                2*r2y*r3y + Power(r3y,2)) - 2*Power(r1x,2)*r2z*r3z + 
+             2*r1x*r2x*r2z*r3z + 2*r1x*r2z*r3x*r3z - 2*r2x*r2z*r3x*r3z - 
+             2*r2y*r2z*r3y*r3z + Power(r1x,2)*Power(r3z,2) - 2*r1x*r2x*Power(r3z,2) + 
+             Power(r2x,2)*Power(r3z,2) + Power(r2y,2)*Power(r3z,2) + 
+             Power(r1y,2)*(Power(r2x,2) + Power(r2z,2) - 2*r2x*r3x + Power(r3x,2) - 
+                2*r2z*r3z + Power(r3z,2)) - 
+             2*r1y*(-(r2x*r2y*r3x) + r2y*Power(r3x,2) + r1x*(r2x - r3x)*(r2y - r3y) + 
+                Power(r2x,2)*r3y + Power(r2z,2)*r3y - r2x*r3x*r3y + 
+                r1z*(r2y - r3y)*(r2z - r3z) - r2y*r2z*r3z - r2z*r3y*r3z + 
+                r2y*Power(r3z,2)) - 
+             2*r1z*(r2z*Power(r3x,2) - r2y*r2z*r3y + r2z*Power(r3y,2) + 
+                r1x*(r2x - r3x)*(r2z - r3z) + Power(r2x,2)*r3z + Power(r2y,2)*r3z - 
+                r2y*r3y*r3z - r2x*r3x*(r2z + r3z)))*
+           Sqrt(Power(r2y*r3x - r2x*r3y - r2y*r4x + r3y*r4x + r2x*r4y - r3x*r4y,2) + 
+             Power(r2z*r3x - r2x*r3z - r2z*r4x + r3z*r4x + r2x*r4z - r3x*r4z,2) + 
+             Power(r2z*r3y - r2y*r3z - r2z*r4y + r3z*r4y + r2y*r4z - r3y*r4z,2))) - 
+        (Sqrt(Power(r2x,2) + Power(r2y,2) + Power(r2z,2) - 2*r2x*r3x + Power(r3x,2) - 
+             2*r2y*r3y + Power(r3y,2) - 2*r2z*r3z + Power(r3z,2))*
+           (Power(r1y,2)*(2*r2x - 2*r3x) + Power(r1z,2)*(2*r2x - 2*r3x) + 
+             2*r1x*r2y*r3y - 2*r2y*r3x*r3y - 2*r1x*Power(r3y,2) + 2*r2x*Power(r3y,2) - 
+             2*r1y*(-(r2y*r3x) + r1x*(r2y - r3y) + 2*r2x*r3y - r3x*r3y) + 
+             2*r1x*r2z*r3z - 2*r2z*r3x*r3z - 2*r1x*Power(r3z,2) + 2*r2x*Power(r3z,2) - 
+             2*r1z*(r1x*(r2z - r3z) + 2*r2x*r3z - r3x*(r2z + r3z)))*
+           (-(r1x*r2z*r3y) + r1x*r2y*r3z + r2z*r3y*r4x - r2y*r3z*r4x + r1x*r2z*r4y - 
+             r2z*r3x*r4y - r1x*r3z*r4y + r2x*r3z*r4y + 
+             r1z*(r2x*r3y - r3y*r4x + r2y*(-r3x + r4x) - r2x*r4y + r3x*r4y) - 
+             r1x*r2y*r4z + r2y*r3x*r4z + r1x*r3y*r4z - r2x*r3y*r4z + 
+             r1y*(r2z*r3x - r2x*r3z - r2z*r4x + r3z*r4x + r2x*r4z - r3x*r4z)))/
+         (2.*Power(Power(r1x,2)*Power(r2y,2) + Power(r1x,2)*Power(r2z,2) - 
+             2*r1x*Power(r2y,2)*r3x - 2*r1x*Power(r2z,2)*r3x + 
+             Power(r2y,2)*Power(r3x,2) + Power(r2z,2)*Power(r3x,2) - 
+             2*Power(r1x,2)*r2y*r3y + 2*r1x*r2x*r2y*r3y + 2*r1x*r2y*r3x*r3y - 
+             2*r2x*r2y*r3x*r3y + Power(r1x,2)*Power(r3y,2) - 2*r1x*r2x*Power(r3y,2) + 
+             Power(r2x,2)*Power(r3y,2) + Power(r2z,2)*Power(r3y,2) + 
+             Power(r1z,2)*(Power(r2x,2) + Power(r2y,2) - 2*r2x*r3x + Power(r3x,2) - 
+                2*r2y*r3y + Power(r3y,2)) - 2*Power(r1x,2)*r2z*r3z + 
+             2*r1x*r2x*r2z*r3z + 2*r1x*r2z*r3x*r3z - 2*r2x*r2z*r3x*r3z - 
+             2*r2y*r2z*r3y*r3z + Power(r1x,2)*Power(r3z,2) - 2*r1x*r2x*Power(r3z,2) + 
+             Power(r2x,2)*Power(r3z,2) + Power(r2y,2)*Power(r3z,2) + 
+             Power(r1y,2)*(Power(r2x,2) + Power(r2z,2) - 2*r2x*r3x + Power(r3x,2) - 
+                2*r2z*r3z + Power(r3z,2)) - 
+             2*r1y*(-(r2x*r2y*r3x) + r2y*Power(r3x,2) + r1x*(r2x - r3x)*(r2y - r3y) + 
+                Power(r2x,2)*r3y + Power(r2z,2)*r3y - r2x*r3x*r3y + 
+                r1z*(r2y - r3y)*(r2z - r3z) - r2y*r2z*r3z - r2z*r3y*r3z + 
+                r2y*Power(r3z,2)) - 
+             2*r1z*(r2z*Power(r3x,2) - r2y*r2z*r3y + r2z*Power(r3y,2) + 
+                r1x*(r2x - r3x)*(r2z - r3z) + Power(r2x,2)*r3z + Power(r2y,2)*r3z - 
+                r2y*r3y*r3z - r2x*r3x*(r2z + r3z)),1.5)*
+           Sqrt(Power(r2y*r3x - r2x*r3y - r2y*r4x + r3y*r4x + r2x*r4y - r3x*r4y,2) + 
+             Power(r2z*r3x - r2x*r3z - r2z*r4x + r3z*r4x + r2x*r4z - r3x*r4z,2) + 
+             Power(r2z*r3y - r2y*r3z - r2z*r4y + r3z*r4y + r2y*r4z - r3y*r4z,2))) + 
+        ((2*r2x - 2*r3x)*(-(r1x*r2z*r3y) + r1x*r2y*r3z + r2z*r3y*r4x - r2y*r3z*r4x + 
+             r1x*r2z*r4y - r2z*r3x*r4y - r1x*r3z*r4y + r2x*r3z*r4y + 
+             r1z*(r2x*r3y - r3y*r4x + r2y*(-r3x + r4x) - r2x*r4y + r3x*r4y) - 
+             r1x*r2y*r4z + r2y*r3x*r4z + r1x*r3y*r4z - r2x*r3y*r4z + 
+             r1y*(r2z*r3x - r2x*r3z - r2z*r4x + r3z*r4x + r2x*r4z - r3x*r4z)))/
+         (2.*Sqrt(Power(r2x,2) + Power(r2y,2) + Power(r2z,2) - 2*r2x*r3x + 
+             Power(r3x,2) - 2*r2y*r3y + Power(r3y,2) - 2*r2z*r3z + Power(r3z,2))*
+           Sqrt(Power(r1x,2)*Power(r2y,2) + Power(r1x,2)*Power(r2z,2) - 
+             2*r1x*Power(r2y,2)*r3x - 2*r1x*Power(r2z,2)*r3x + 
+             Power(r2y,2)*Power(r3x,2) + Power(r2z,2)*Power(r3x,2) - 
+             2*Power(r1x,2)*r2y*r3y + 2*r1x*r2x*r2y*r3y + 2*r1x*r2y*r3x*r3y - 
+             2*r2x*r2y*r3x*r3y + Power(r1x,2)*Power(r3y,2) - 2*r1x*r2x*Power(r3y,2) + 
+             Power(r2x,2)*Power(r3y,2) + Power(r2z,2)*Power(r3y,2) + 
+             Power(r1z,2)*(Power(r2x,2) + Power(r2y,2) - 2*r2x*r3x + Power(r3x,2) - 
+                2*r2y*r3y + Power(r3y,2)) - 2*Power(r1x,2)*r2z*r3z + 
+             2*r1x*r2x*r2z*r3z + 2*r1x*r2z*r3x*r3z - 2*r2x*r2z*r3x*r3z - 
+             2*r2y*r2z*r3y*r3z + Power(r1x,2)*Power(r3z,2) - 2*r1x*r2x*Power(r3z,2) + 
+             Power(r2x,2)*Power(r3z,2) + Power(r2y,2)*Power(r3z,2) + 
+             Power(r1y,2)*(Power(r2x,2) + Power(r2z,2) - 2*r2x*r3x + Power(r3x,2) - 
+                2*r2z*r3z + Power(r3z,2)) - 
+             2*r1y*(-(r2x*r2y*r3x) + r2y*Power(r3x,2) + r1x*(r2x - r3x)*(r2y - r3y) + 
+                Power(r2x,2)*r3y + Power(r2z,2)*r3y - r2x*r3x*r3y + 
+                r1z*(r2y - r3y)*(r2z - r3z) - r2y*r2z*r3z - r2z*r3y*r3z + 
+                r2y*Power(r3z,2)) - 
+             2*r1z*(r2z*Power(r3x,2) - r2y*r2z*r3y + r2z*Power(r3y,2) + 
+                r1x*(r2x - r3x)*(r2z - r3z) + Power(r2x,2)*r3z + Power(r2y,2)*r3z - 
+                r2y*r3y*r3z - r2x*r3x*(r2z + r3z)))*
+           Sqrt(Power(r2y*r3x - r2x*r3y - r2y*r4x + r3y*r4x + r2x*r4y - r3x*r4y,2) + 
+             Power(r2z*r3x - r2x*r3z - r2z*r4x + r3z*r4x + r2x*r4z - r3x*r4z,2) + 
+             Power(r2z*r3y - r2y*r3z - r2z*r4y + r3z*r4y + r2y*r4z - r3y*r4z,2))))*
+      (-(((-(r1y*r2x) + r1x*r2y + r1y*r3x - r2y*r3x - r1x*r3y + r2x*r3y)*
+             (-(r2y*r3x) + r2x*r3y + r2y*r4x - r3y*r4x - r2x*r4y + r3x*r4y))/
+           (Sqrt(Power(-(r1y*r2x) + r1x*r2y + r1y*r3x - r2y*r3x - r1x*r3y + r2x*r3y,
+                2) + Power(r1z*r2x - r1x*r2z - r1z*r3x + r2z*r3x + r1x*r3z - r2x*r3z,
+                2) + Power(-(r1z*r2y) + r1y*r2z + r1z*r3y - r2z*r3y - r1y*r3z + r2y*r3z,
+                2))*Sqrt(Power(-(r2y*r3x) + r2x*r3y + r2y*r4x - r3y*r4x - r2x*r4y + 
+                 r3x*r4y,2) + Power(r2z*r3x - r2x*r3z - r2z*r4x + r3z*r4x + r2x*r4z - 
+                 r3x*r4z,2) + Power(-(r2z*r3y) + r2y*r3z + r2z*r4y - r3z*r4y - 
+                 r2y*r4z + r3y*r4z,2)))) - 
+        ((r1z*r2x - r1x*r2z - r1z*r3x + r2z*r3x + r1x*r3z - r2x*r3z)*
+           (r2z*r3x - r2x*r3z - r2z*r4x + r3z*r4x + r2x*r4z - r3x*r4z))/
+         (Sqrt(Power(-(r1y*r2x) + r1x*r2y + r1y*r3x - r2y*r3x - r1x*r3y + r2x*r3y,2) + 
+             Power(r1z*r2x - r1x*r2z - r1z*r3x + r2z*r3x + r1x*r3z - r2x*r3z,2) + 
+             Power(-(r1z*r2y) + r1y*r2z + r1z*r3y - r2z*r3y - r1y*r3z + r2y*r3z,2))*
+           Sqrt(Power(-(r2y*r3x) + r2x*r3y + r2y*r4x - r3y*r4x - r2x*r4y + r3x*r4y,2) + 
+             Power(r2z*r3x - r2x*r3z - r2z*r4x + r3z*r4x + r2x*r4z - r3x*r4z,2) + 
+             Power(-(r2z*r3y) + r2y*r3z + r2z*r4y - r3z*r4y - r2y*r4z + r3y*r4z,2))) - 
+        ((-(r1z*r2y) + r1y*r2z + r1z*r3y - r2z*r3y - r1y*r3z + r2y*r3z)*
+           (-(r2z*r3y) + r2y*r3z + r2z*r4y - r3z*r4y - r2y*r4z + r3y*r4z))/
+         (Sqrt(Power(-(r1y*r2x) + r1x*r2y + r1y*r3x - r2y*r3x - r1x*r3y + r2x*r3y,2) + 
+             Power(r1z*r2x - r1x*r2z - r1z*r3x + r2z*r3x + r1x*r3z - r2x*r3z,2) + 
+             Power(-(r1z*r2y) + r1y*r2z + r1z*r3y - r2z*r3y - r1y*r3z + r2y*r3z,2))*
+           Sqrt(Power(-(r2y*r3x) + r2x*r3y + r2y*r4x - r3y*r4x - r2x*r4y + r3x*r4y,2) + 
+             Power(r2z*r3x - r2x*r3z - r2z*r4x + r3z*r4x + r2x*r4z - r3x*r4z,2) + 
+             Power(-(r2z*r3y) + r2y*r3z + r2z*r4y - r3z*r4y - r2y*r4z + r3y*r4z,2)))))/
+    (((Power(r2x,2) + Power(r2y,2) + Power(r2z,2) - 2*r2x*r3x + Power(r3x,2) - 
+           2*r2y*r3y + Power(r3y,2) - 2*r2z*r3z + Power(r3z,2))*
+         Power(-(r1x*r2z*r3y) + r1x*r2y*r3z + r2z*r3y*r4x - r2y*r3z*r4x + r1x*r2z*r4y - 
+           r2z*r3x*r4y - r1x*r3z*r4y + r2x*r3z*r4y + 
+           r1z*(r2x*r3y - r3y*r4x + r2y*(-r3x + r4x) - r2x*r4y + r3x*r4y) - 
+           r1x*r2y*r4z + r2y*r3x*r4z + r1x*r3y*r4z - r2x*r3y*r4z + 
+           r1y*(r2z*r3x - r2x*r3z - r2z*r4x + r3z*r4x + r2x*r4z - r3x*r4z),2))/
+       ((Power(r1x,2)*Power(r2y,2) + Power(r1x,2)*Power(r2z,2) - 
+           2*r1x*Power(r2y,2)*r3x - 2*r1x*Power(r2z,2)*r3x + 
+           Power(r2y,2)*Power(r3x,2) + Power(r2z,2)*Power(r3x,2) - 
+           2*Power(r1x,2)*r2y*r3y + 2*r1x*r2x*r2y*r3y + 2*r1x*r2y*r3x*r3y - 
+           2*r2x*r2y*r3x*r3y + Power(r1x,2)*Power(r3y,2) - 2*r1x*r2x*Power(r3y,2) + 
+           Power(r2x,2)*Power(r3y,2) + Power(r2z,2)*Power(r3y,2) + 
+           Power(r1z,2)*(Power(r2x,2) + Power(r2y,2) - 2*r2x*r3x + Power(r3x,2) - 
+              2*r2y*r3y + Power(r3y,2)) - 2*Power(r1x,2)*r2z*r3z + 2*r1x*r2x*r2z*r3z + 
+           2*r1x*r2z*r3x*r3z - 2*r2x*r2z*r3x*r3z - 2*r2y*r2z*r3y*r3z + 
+           Power(r1x,2)*Power(r3z,2) - 2*r1x*r2x*Power(r3z,2) + 
+           Power(r2x,2)*Power(r3z,2) + Power(r2y,2)*Power(r3z,2) + 
+           Power(r1y,2)*(Power(r2x,2) + Power(r2z,2) - 2*r2x*r3x + Power(r3x,2) - 
+              2*r2z*r3z + Power(r3z,2)) - 
+           2*r1y*(-(r2x*r2y*r3x) + r2y*Power(r3x,2) + r1x*(r2x - r3x)*(r2y - r3y) + 
+              Power(r2x,2)*r3y + Power(r2z,2)*r3y - r2x*r3x*r3y + 
+              r1z*(r2y - r3y)*(r2z - r3z) - r2y*r2z*r3z - r2z*r3y*r3z + r2y*Power(r3z,2)
+              ) - 2*r1z*(r2z*Power(r3x,2) - r2y*r2z*r3y + r2z*Power(r3y,2) + 
+              r1x*(r2x - r3x)*(r2z - r3z) + Power(r2x,2)*r3z + Power(r2y,2)*r3z - 
+              r2y*r3y*r3z - r2x*r3x*(r2z + r3z)))*
+         (Power(r2y*r3x - r2x*r3y - r2y*r4x + r3y*r4x + r2x*r4y - r3x*r4y,2) + 
+           Power(r2z*r3x - r2x*r3z - r2z*r4x + r3z*r4x + r2x*r4z - r3x*r4z,2) + 
+           Power(r2z*r3y - r2y*r3z - r2z*r4y + r3z*r4y + r2y*r4z - r3y*r4z,2))) + 
+      Power(((-(r1y*r2x) + r1x*r2y + r1y*r3x - r2y*r3x - r1x*r3y + r2x*r3y)*
+           (-(r2y*r3x) + r2x*r3y + r2y*r4x - r3y*r4x - r2x*r4y + r3x*r4y))/
+         (Sqrt(Power(-(r1y*r2x) + r1x*r2y + r1y*r3x - r2y*r3x - r1x*r3y + r2x*r3y,2) + 
+             Power(r1z*r2x - r1x*r2z - r1z*r3x + r2z*r3x + r1x*r3z - r2x*r3z,2) + 
+             Power(-(r1z*r2y) + r1y*r2z + r1z*r3y - r2z*r3y - r1y*r3z + r2y*r3z,2))*
+           Sqrt(Power(-(r2y*r3x) + r2x*r3y + r2y*r4x - r3y*r4x - r2x*r4y + r3x*r4y,2) + 
+             Power(r2z*r3x - r2x*r3z - r2z*r4x + r3z*r4x + r2x*r4z - r3x*r4z,2) + 
+             Power(-(r2z*r3y) + r2y*r3z + r2z*r4y - r3z*r4y - r2y*r4z + r3y*r4z,2))) + 
+        ((r1z*r2x - r1x*r2z - r1z*r3x + r2z*r3x + r1x*r3z - r2x*r3z)*
+           (r2z*r3x - r2x*r3z - r2z*r4x + r3z*r4x + r2x*r4z - r3x*r4z))/
+         (Sqrt(Power(-(r1y*r2x) + r1x*r2y + r1y*r3x - r2y*r3x - r1x*r3y + r2x*r3y,2) + 
+             Power(r1z*r2x - r1x*r2z - r1z*r3x + r2z*r3x + r1x*r3z - r2x*r3z,2) + 
+             Power(-(r1z*r2y) + r1y*r2z + r1z*r3y - r2z*r3y - r1y*r3z + r2y*r3z,2))*
+           Sqrt(Power(-(r2y*r3x) + r2x*r3y + r2y*r4x - r3y*r4x - r2x*r4y + r3x*r4y,2) + 
+             Power(r2z*r3x - r2x*r3z - r2z*r4x + r3z*r4x + r2x*r4z - r3x*r4z,2) + 
+             Power(-(r2z*r3y) + r2y*r3z + r2z*r4y - r3z*r4y - r2y*r4z + r3y*r4z,2))) + 
+        ((-(r1z*r2y) + r1y*r2z + r1z*r3y - r2z*r3y - r1y*r3z + r2y*r3z)*
+           (-(r2z*r3y) + r2y*r3z + r2z*r4y - r3z*r4y - r2y*r4z + r3y*r4z))/
+         (Sqrt(Power(-(r1y*r2x) + r1x*r2y + r1y*r3x - r2y*r3x - r1x*r3y + r2x*r3y,2) + 
+             Power(r1z*r2x - r1x*r2z - r1z*r3x + r2z*r3x + r1x*r3z - r2x*r3z,2) + 
+             Power(-(r1z*r2y) + r1y*r2z + r1z*r3y - r2z*r3y - r1y*r3z + r2y*r3z,2))*
+           Sqrt(Power(-(r2y*r3x) + r2x*r3y + r2y*r4x - r3y*r4x - r2x*r4y + r3x*r4y,2) + 
+             Power(r2z*r3x - r2x*r3z - r2z*r4x + r3z*r4x + r2x*r4z - r3x*r4z,2) + 
+             Power(-(r2z*r3y) + r2y*r3z + r2z*r4y - r3z*r4y - r2y*r4z + r3y*r4z,2))),2));
+	der_d_th[4] = (Sqrt(Power(r2x,2) + Power(r2y,2) + Power(r2z,2) - 2*r2x*r3x + Power(r3x,2) - 
+        2*r2y*r3y + Power(r3y,2) - 2*r2z*r3z + Power(r3z,2))*
+      (-(r1x*r2z*r3y) + r1x*r2y*r3z + r2z*r3y*r4x - r2y*r3z*r4x + r1x*r2z*r4y - 
+        r2z*r3x*r4y - r1x*r3z*r4y + r2x*r3z*r4y + 
+        r1z*(r2x*r3y - r3y*r4x + r2y*(-r3x + r4x) - r2x*r4y + r3x*r4y) - r1x*r2y*r4z + 
+        r2y*r3x*r4z + r1x*r3y*r4z - r2x*r3y*r4z + 
+        r1y*(r2z*r3x - r2x*r3z - r2z*r4x + r3z*r4x + r2x*r4z - r3x*r4z))*
+      (-((-(r1y*r2x) + r1x*r2y + r1y*r3x - r2y*r3x - r1x*r3y + r2x*r3y)*
+            (-(r2y*r3x) + r2x*r3y + r2y*r4x - r3y*r4x - r2x*r4y + r3x*r4y)*
+            (2*(-r3x + r4x)*(-(r2y*r3x) + r2x*r3y + r2y*r4x - r3y*r4x - r2x*r4y + 
+                 r3x*r4y) + 2*(r3z - r4z)*
+               (-(r2z*r3y) + r2y*r3z + r2z*r4y - r3z*r4y - r2y*r4z + r3y*r4z)))/
+         (2.*Sqrt(Power(-(r1y*r2x) + r1x*r2y + r1y*r3x - r2y*r3x - r1x*r3y + r2x*r3y,
+              2) + Power(r1z*r2x - r1x*r2z - r1z*r3x + r2z*r3x + r1x*r3z - r2x*r3z,2) + 
+             Power(-(r1z*r2y) + r1y*r2z + r1z*r3y - r2z*r3y - r1y*r3z + r2y*r3z,2))*
+           Power(Power(-(r2y*r3x) + r2x*r3y + r2y*r4x - r3y*r4x - r2x*r4y + r3x*r4y,
+              2) + Power(r2z*r3x - r2x*r3z - r2z*r4x + r3z*r4x + r2x*r4z - r3x*r4z,2) + 
+             Power(-(r2z*r3y) + r2y*r3z + r2z*r4y - r3z*r4y - r2y*r4z + r3y*r4z,2),1.5))
+          - ((r1z*r2x - r1x*r2z - r1z*r3x + r2z*r3x + r1x*r3z - r2x*r3z)*
+           (r2z*r3x - r2x*r3z - r2z*r4x + r3z*r4x + r2x*r4z - r3x*r4z)*
+           (2*(-r3x + r4x)*(-(r2y*r3x) + r2x*r3y + r2y*r4x - r3y*r4x - r2x*r4y + 
+                r3x*r4y) + 2*(r3z - r4z)*
+              (-(r2z*r3y) + r2y*r3z + r2z*r4y - r3z*r4y - r2y*r4z + r3y*r4z)))/
+         (2.*Sqrt(Power(-(r1y*r2x) + r1x*r2y + r1y*r3x - r2y*r3x - r1x*r3y + r2x*r3y,
+              2) + Power(r1z*r2x - r1x*r2z - r1z*r3x + r2z*r3x + r1x*r3z - r2x*r3z,2) + 
+             Power(-(r1z*r2y) + r1y*r2z + r1z*r3y - r2z*r3y - r1y*r3z + r2y*r3z,2))*
+           Power(Power(-(r2y*r3x) + r2x*r3y + r2y*r4x - r3y*r4x - r2x*r4y + r3x*r4y,
+              2) + Power(r2z*r3x - r2x*r3z - r2z*r4x + r3z*r4x + r2x*r4z - r3x*r4z,2) + 
+             Power(-(r2z*r3y) + r2y*r3z + r2z*r4y - r3z*r4y - r2y*r4z + r3y*r4z,2),1.5))
+          - ((-(r1z*r2y) + r1y*r2z + r1z*r3y - r2z*r3y - r1y*r3z + r2y*r3z)*
+           (-(r2z*r3y) + r2y*r3z + r2z*r4y - r3z*r4y - r2y*r4z + r3y*r4z)*
+           (2*(-r3x + r4x)*(-(r2y*r3x) + r2x*r3y + r2y*r4x - r3y*r4x - r2x*r4y + 
+                r3x*r4y) + 2*(r3z - r4z)*
+              (-(r2z*r3y) + r2y*r3z + r2z*r4y - r3z*r4y - r2y*r4z + r3y*r4z)))/
+         (2.*Sqrt(Power(-(r1y*r2x) + r1x*r2y + r1y*r3x - r2y*r3x - r1x*r3y + r2x*r3y,
+              2) + Power(r1z*r2x - r1x*r2z - r1z*r3x + r2z*r3x + r1x*r3z - r2x*r3z,2) + 
+             Power(-(r1z*r2y) + r1y*r2z + r1z*r3y - r2z*r3y - r1y*r3z + r2y*r3z,2))*
+           Power(Power(-(r2y*r3x) + r2x*r3y + r2y*r4x - r3y*r4x - r2x*r4y + r3x*r4y,
+              2) + Power(r2z*r3x - r2x*r3z - r2z*r4x + r3z*r4x + r2x*r4z - r3x*r4z,2) + 
+             Power(-(r2z*r3y) + r2y*r3z + r2z*r4y - r3z*r4y - r2y*r4z + r3y*r4z,2),1.5))
+          + ((-(r1y*r2x) + r1x*r2y + r1y*r3x - r2y*r3x - r1x*r3y + r2x*r3y)*
+           (-r3x + r4x))/
+         (Sqrt(Power(-(r1y*r2x) + r1x*r2y + r1y*r3x - r2y*r3x - r1x*r3y + r2x*r3y,2) + 
+             Power(r1z*r2x - r1x*r2z - r1z*r3x + r2z*r3x + r1x*r3z - r2x*r3z,2) + 
+             Power(-(r1z*r2y) + r1y*r2z + r1z*r3y - r2z*r3y - r1y*r3z + r2y*r3z,2))*
+           Sqrt(Power(-(r2y*r3x) + r2x*r3y + r2y*r4x - r3y*r4x - r2x*r4y + r3x*r4y,2) + 
+             Power(r2z*r3x - r2x*r3z - r2z*r4x + r3z*r4x + r2x*r4z - r3x*r4z,2) + 
+             Power(-(r2z*r3y) + r2y*r3z + r2z*r4y - r3z*r4y - r2y*r4z + r3y*r4z,2))) - 
+        ((-(r1y*r2x) + r1x*r2y + r1y*r3x - r2y*r3x - r1x*r3y + r2x*r3y)*
+           (2*(r1x - r3x)*(-(r1y*r2x) + r1x*r2y + r1y*r3x - r2y*r3x - r1x*r3y + 
+                r2x*r3y) + 2*(-r1z + r3z)*
+              (-(r1z*r2y) + r1y*r2z + r1z*r3y - r2z*r3y - r1y*r3z + r2y*r3z))*
+           (-(r2y*r3x) + r2x*r3y + r2y*r4x - r3y*r4x - r2x*r4y + r3x*r4y))/
+         (2.*Power(Power(-(r1y*r2x) + r1x*r2y + r1y*r3x - r2y*r3x - r1x*r3y + r2x*r3y,
+              2) + Power(r1z*r2x - r1x*r2z - r1z*r3x + r2z*r3x + r1x*r3z - r2x*r3z,2) + 
+             Power(-(r1z*r2y) + r1y*r2z + r1z*r3y - r2z*r3y - r1y*r3z + r2y*r3z,2),1.5)*
+           Sqrt(Power(-(r2y*r3x) + r2x*r3y + r2y*r4x - r3y*r4x - r2x*r4y + r3x*r4y,2) + 
+             Power(r2z*r3x - r2x*r3z - r2z*r4x + r3z*r4x + r2x*r4z - r3x*r4z,2) + 
+             Power(-(r2z*r3y) + r2y*r3z + r2z*r4y - r3z*r4y - r2y*r4z + r3y*r4z,2))) + 
+        ((r1x - r3x)*(-(r2y*r3x) + r2x*r3y + r2y*r4x - r3y*r4x - r2x*r4y + r3x*r4y))/
+         (Sqrt(Power(-(r1y*r2x) + r1x*r2y + r1y*r3x - r2y*r3x - r1x*r3y + r2x*r3y,2) + 
+             Power(r1z*r2x - r1x*r2z - r1z*r3x + r2z*r3x + r1x*r3z - r2x*r3z,2) + 
+             Power(-(r1z*r2y) + r1y*r2z + r1z*r3y - r2z*r3y - r1y*r3z + r2y*r3z,2))*
+           Sqrt(Power(-(r2y*r3x) + r2x*r3y + r2y*r4x - r3y*r4x - r2x*r4y + r3x*r4y,2) + 
+             Power(r2z*r3x - r2x*r3z - r2z*r4x + r3z*r4x + r2x*r4z - r3x*r4z,2) + 
+             Power(-(r2z*r3y) + r2y*r3z + r2z*r4y - r3z*r4y - r2y*r4z + r3y*r4z,2))) + 
+        ((-(r1z*r2y) + r1y*r2z + r1z*r3y - r2z*r3y - r1y*r3z + r2y*r3z)*(r3z - r4z))/
+         (Sqrt(Power(-(r1y*r2x) + r1x*r2y + r1y*r3x - r2y*r3x - r1x*r3y + r2x*r3y,2) + 
+             Power(r1z*r2x - r1x*r2z - r1z*r3x + r2z*r3x + r1x*r3z - r2x*r3z,2) + 
+             Power(-(r1z*r2y) + r1y*r2z + r1z*r3y - r2z*r3y - r1y*r3z + r2y*r3z,2))*
+           Sqrt(Power(-(r2y*r3x) + r2x*r3y + r2y*r4x - r3y*r4x - r2x*r4y + r3x*r4y,2) + 
+             Power(r2z*r3x - r2x*r3z - r2z*r4x + r3z*r4x + r2x*r4z - r3x*r4z,2) + 
+             Power(-(r2z*r3y) + r2y*r3z + r2z*r4y - r3z*r4y - r2y*r4z + r3y*r4z,2))) - 
+        ((r1z*r2x - r1x*r2z - r1z*r3x + r2z*r3x + r1x*r3z - r2x*r3z)*
+           (2*(r1x - r3x)*(-(r1y*r2x) + r1x*r2y + r1y*r3x - r2y*r3x - r1x*r3y + 
+                r2x*r3y) + 2*(-r1z + r3z)*
+              (-(r1z*r2y) + r1y*r2z + r1z*r3y - r2z*r3y - r1y*r3z + r2y*r3z))*
+           (r2z*r3x - r2x*r3z - r2z*r4x + r3z*r4x + r2x*r4z - r3x*r4z))/
+         (2.*Power(Power(-(r1y*r2x) + r1x*r2y + r1y*r3x - r2y*r3x - r1x*r3y + r2x*r3y,
+              2) + Power(r1z*r2x - r1x*r2z - r1z*r3x + r2z*r3x + r1x*r3z - r2x*r3z,2) + 
+             Power(-(r1z*r2y) + r1y*r2z + r1z*r3y - r2z*r3y - r1y*r3z + r2y*r3z,2),1.5)*
+           Sqrt(Power(-(r2y*r3x) + r2x*r3y + r2y*r4x - r3y*r4x - r2x*r4y + r3x*r4y,2) + 
+             Power(r2z*r3x - r2x*r3z - r2z*r4x + r3z*r4x + r2x*r4z - r3x*r4z,2) + 
+             Power(-(r2z*r3y) + r2y*r3z + r2z*r4y - r3z*r4y - r2y*r4z + r3y*r4z,2))) - 
+        ((-(r1z*r2y) + r1y*r2z + r1z*r3y - r2z*r3y - r1y*r3z + r2y*r3z)*
+           (2*(r1x - r3x)*(-(r1y*r2x) + r1x*r2y + r1y*r3x - r2y*r3x - r1x*r3y + 
+                r2x*r3y) + 2*(-r1z + r3z)*
+              (-(r1z*r2y) + r1y*r2z + r1z*r3y - r2z*r3y - r1y*r3z + r2y*r3z))*
+           (-(r2z*r3y) + r2y*r3z + r2z*r4y - r3z*r4y - r2y*r4z + r3y*r4z))/
+         (2.*Power(Power(-(r1y*r2x) + r1x*r2y + r1y*r3x - r2y*r3x - r1x*r3y + r2x*r3y,
+              2) + Power(r1z*r2x - r1x*r2z - r1z*r3x + r2z*r3x + r1x*r3z - r2x*r3z,2) + 
+             Power(-(r1z*r2y) + r1y*r2z + r1z*r3y - r2z*r3y - r1y*r3z + r2y*r3z,2),1.5)*
+           Sqrt(Power(-(r2y*r3x) + r2x*r3y + r2y*r4x - r3y*r4x - r2x*r4y + r3x*r4y,2) + 
+             Power(r2z*r3x - r2x*r3z - r2z*r4x + r3z*r4x + r2x*r4z - r3x*r4z,2) + 
+             Power(-(r2z*r3y) + r2y*r3z + r2z*r4y - r3z*r4y - r2y*r4z + r3y*r4z,2))) + 
+        ((-r1z + r3z)*(-(r2z*r3y) + r2y*r3z + r2z*r4y - r3z*r4y - r2y*r4z + r3y*r4z))/
+         (Sqrt(Power(-(r1y*r2x) + r1x*r2y + r1y*r3x - r2y*r3x - r1x*r3y + r2x*r3y,2) + 
+             Power(r1z*r2x - r1x*r2z - r1z*r3x + r2z*r3x + r1x*r3z - r2x*r3z,2) + 
+             Power(-(r1z*r2y) + r1y*r2z + r1z*r3y - r2z*r3y - r1y*r3z + r2y*r3z,2))*
+           Sqrt(Power(-(r2y*r3x) + r2x*r3y + r2y*r4x - r3y*r4x - r2x*r4y + r3x*r4y,2) + 
+             Power(r2z*r3x - r2x*r3z - r2z*r4x + r3z*r4x + r2x*r4z - r3x*r4z,2) + 
+             Power(-(r2z*r3y) + r2y*r3z + r2z*r4y - r3z*r4y - r2y*r4z + r3y*r4z,2)))))/
+    (Sqrt(Power(r1x,2)*Power(r2y,2) + Power(r1x,2)*Power(r2z,2) - 
+        2*r1x*Power(r2y,2)*r3x - 2*r1x*Power(r2z,2)*r3x + Power(r2y,2)*Power(r3x,2) + 
+        Power(r2z,2)*Power(r3x,2) - 2*Power(r1x,2)*r2y*r3y + 2*r1x*r2x*r2y*r3y + 
+        2*r1x*r2y*r3x*r3y - 2*r2x*r2y*r3x*r3y + Power(r1x,2)*Power(r3y,2) - 
+        2*r1x*r2x*Power(r3y,2) + Power(r2x,2)*Power(r3y,2) + 
+        Power(r2z,2)*Power(r3y,2) + 
+        Power(r1z,2)*(Power(r2x,2) + Power(r2y,2) - 2*r2x*r3x + Power(r3x,2) - 
+           2*r2y*r3y + Power(r3y,2)) - 2*Power(r1x,2)*r2z*r3z + 2*r1x*r2x*r2z*r3z + 
+        2*r1x*r2z*r3x*r3z - 2*r2x*r2z*r3x*r3z - 2*r2y*r2z*r3y*r3z + 
+        Power(r1x,2)*Power(r3z,2) - 2*r1x*r2x*Power(r3z,2) + 
+        Power(r2x,2)*Power(r3z,2) + Power(r2y,2)*Power(r3z,2) + 
+        Power(r1y,2)*(Power(r2x,2) + Power(r2z,2) - 2*r2x*r3x + Power(r3x,2) - 
+           2*r2z*r3z + Power(r3z,2)) - 
+        2*r1y*(-(r2x*r2y*r3x) + r2y*Power(r3x,2) + r1x*(r2x - r3x)*(r2y - r3y) + 
+           Power(r2x,2)*r3y + Power(r2z,2)*r3y - r2x*r3x*r3y + 
+           r1z*(r2y - r3y)*(r2z - r3z) - r2y*r2z*r3z - r2z*r3y*r3z + r2y*Power(r3z,2))\
+         - 2*r1z*(r2z*Power(r3x,2) - r2y*r2z*r3y + r2z*Power(r3y,2) + 
+           r1x*(r2x - r3x)*(r2z - r3z) + Power(r2x,2)*r3z + Power(r2y,2)*r3z - 
+           r2y*r3y*r3z - r2x*r3x*(r2z + r3z)))*
+      Sqrt(Power(r2y*r3x - r2x*r3y - r2y*r4x + r3y*r4x + r2x*r4y - r3x*r4y,2) + 
+        Power(r2z*r3x - r2x*r3z - r2z*r4x + r3z*r4x + r2x*r4z - r3x*r4z,2) + 
+        Power(r2z*r3y - r2y*r3z - r2z*r4y + r3z*r4y + r2y*r4z - r3y*r4z,2))*
+      (((Power(r2x,2) + Power(r2y,2) + Power(r2z,2) - 2*r2x*r3x + Power(r3x,2) - 
+             2*r2y*r3y + Power(r3y,2) - 2*r2z*r3z + Power(r3z,2))*
+           Power(-(r1x*r2z*r3y) + r1x*r2y*r3z + r2z*r3y*r4x - r2y*r3z*r4x + 
+             r1x*r2z*r4y - r2z*r3x*r4y - r1x*r3z*r4y + r2x*r3z*r4y + 
+             r1z*(r2x*r3y - r3y*r4x + r2y*(-r3x + r4x) - r2x*r4y + r3x*r4y) - 
+             r1x*r2y*r4z + r2y*r3x*r4z + r1x*r3y*r4z - r2x*r3y*r4z + 
+             r1y*(r2z*r3x - r2x*r3z - r2z*r4x + r3z*r4x + r2x*r4z - r3x*r4z),2))/
+         ((Power(r1x,2)*Power(r2y,2) + Power(r1x,2)*Power(r2z,2) - 
+             2*r1x*Power(r2y,2)*r3x - 2*r1x*Power(r2z,2)*r3x + 
+             Power(r2y,2)*Power(r3x,2) + Power(r2z,2)*Power(r3x,2) - 
+             2*Power(r1x,2)*r2y*r3y + 2*r1x*r2x*r2y*r3y + 2*r1x*r2y*r3x*r3y - 
+             2*r2x*r2y*r3x*r3y + Power(r1x,2)*Power(r3y,2) - 2*r1x*r2x*Power(r3y,2) + 
+             Power(r2x,2)*Power(r3y,2) + Power(r2z,2)*Power(r3y,2) + 
+             Power(r1z,2)*(Power(r2x,2) + Power(r2y,2) - 2*r2x*r3x + Power(r3x,2) - 
+                2*r2y*r3y + Power(r3y,2)) - 2*Power(r1x,2)*r2z*r3z + 
+             2*r1x*r2x*r2z*r3z + 2*r1x*r2z*r3x*r3z - 2*r2x*r2z*r3x*r3z - 
+             2*r2y*r2z*r3y*r3z + Power(r1x,2)*Power(r3z,2) - 2*r1x*r2x*Power(r3z,2) + 
+             Power(r2x,2)*Power(r3z,2) + Power(r2y,2)*Power(r3z,2) + 
+             Power(r1y,2)*(Power(r2x,2) + Power(r2z,2) - 2*r2x*r3x + Power(r3x,2) - 
+                2*r2z*r3z + Power(r3z,2)) - 
+             2*r1y*(-(r2x*r2y*r3x) + r2y*Power(r3x,2) + r1x*(r2x - r3x)*(r2y - r3y) + 
+                Power(r2x,2)*r3y + Power(r2z,2)*r3y - r2x*r3x*r3y + 
+                r1z*(r2y - r3y)*(r2z - r3z) - r2y*r2z*r3z - r2z*r3y*r3z + 
+                r2y*Power(r3z,2)) - 
+             2*r1z*(r2z*Power(r3x,2) - r2y*r2z*r3y + r2z*Power(r3y,2) + 
+                r1x*(r2x - r3x)*(r2z - r3z) + Power(r2x,2)*r3z + Power(r2y,2)*r3z - 
+                r2y*r3y*r3z - r2x*r3x*(r2z + r3z)))*
+           (Power(r2y*r3x - r2x*r3y - r2y*r4x + r3y*r4x + r2x*r4y - r3x*r4y,2) + 
+             Power(r2z*r3x - r2x*r3z - r2z*r4x + r3z*r4x + r2x*r4z - r3x*r4z,2) + 
+             Power(r2z*r3y - r2y*r3z - r2z*r4y + r3z*r4y + r2y*r4z - r3y*r4z,2))) + 
+        Power(((-(r1y*r2x) + r1x*r2y + r1y*r3x - r2y*r3x - r1x*r3y + r2x*r3y)*
+             (-(r2y*r3x) + r2x*r3y + r2y*r4x - r3y*r4x - r2x*r4y + r3x*r4y))/
+           (Sqrt(Power(-(r1y*r2x) + r1x*r2y + r1y*r3x - r2y*r3x - r1x*r3y + r2x*r3y,
+                2) + Power(r1z*r2x - r1x*r2z - r1z*r3x + r2z*r3x + r1x*r3z - r2x*r3z,
+                2) + Power(-(r1z*r2y) + r1y*r2z + r1z*r3y - r2z*r3y - r1y*r3z + r2y*r3z,
+                2))*Sqrt(Power(-(r2y*r3x) + r2x*r3y + r2y*r4x - r3y*r4x - r2x*r4y + 
+                 r3x*r4y,2) + Power(r2z*r3x - r2x*r3z - r2z*r4x + r3z*r4x + r2x*r4z - 
+                 r3x*r4z,2) + Power(-(r2z*r3y) + r2y*r3z + r2z*r4y - r3z*r4y - 
+                 r2y*r4z + r3y*r4z,2))) + 
+          ((r1z*r2x - r1x*r2z - r1z*r3x + r2z*r3x + r1x*r3z - r2x*r3z)*
+             (r2z*r3x - r2x*r3z - r2z*r4x + r3z*r4x + r2x*r4z - r3x*r4z))/
+           (Sqrt(Power(-(r1y*r2x) + r1x*r2y + r1y*r3x - r2y*r3x - r1x*r3y + r2x*r3y,
+                2) + Power(r1z*r2x - r1x*r2z - r1z*r3x + r2z*r3x + r1x*r3z - r2x*r3z,
+                2) + Power(-(r1z*r2y) + r1y*r2z + r1z*r3y - r2z*r3y - r1y*r3z + r2y*r3z,
+                2))*Sqrt(Power(-(r2y*r3x) + r2x*r3y + r2y*r4x - r3y*r4x - r2x*r4y + 
+                 r3x*r4y,2) + Power(r2z*r3x - r2x*r3z - r2z*r4x + r3z*r4x + r2x*r4z - 
+                 r3x*r4z,2) + Power(-(r2z*r3y) + r2y*r3z + r2z*r4y - r3z*r4y - 
+                 r2y*r4z + r3y*r4z,2))) + 
+          ((-(r1z*r2y) + r1y*r2z + r1z*r3y - r2z*r3y - r1y*r3z + r2y*r3z)*
+             (-(r2z*r3y) + r2y*r3z + r2z*r4y - r3z*r4y - r2y*r4z + r3y*r4z))/
+           (Sqrt(Power(-(r1y*r2x) + r1x*r2y + r1y*r3x - r2y*r3x - r1x*r3y + r2x*r3y,
+                2) + Power(r1z*r2x - r1x*r2z - r1z*r3x + r2z*r3x + r1x*r3z - r2x*r3z,
+                2) + Power(-(r1z*r2y) + r1y*r2z + r1z*r3y - r2z*r3y - r1y*r3z + r2y*r3z,
+                2))*Sqrt(Power(-(r2y*r3x) + r2x*r3y + r2y*r4x - r3y*r4x - r2x*r4y + 
+                 r3x*r4y,2) + Power(r2z*r3x - r2x*r3z - r2z*r4x + r3z*r4x + r2x*r4z - 
+                 r3x*r4z,2) + Power(-(r2z*r3y) + r2y*r3z + r2z*r4y - r3z*r4y - 
+                 r2y*r4z + r3y*r4z,2))),2))) + 
+   ((-(Sqrt(Power(r2x,2) + Power(r2y,2) + Power(r2z,2) - 2*r2x*r3x + Power(r3x,2) - 
+              2*r2y*r3y + Power(r3y,2) - 2*r2z*r3z + Power(r3z,2))*
+            (-(r1x*r2z*r3y) + r1x*r2y*r3z + r2z*r3y*r4x - r2y*r3z*r4x + r1x*r2z*r4y - 
+              r2z*r3x*r4y - r1x*r3z*r4y + r2x*r3z*r4y + 
+              r1z*(r2x*r3y - r3y*r4x + r2y*(-r3x + r4x) - r2x*r4y + r3x*r4y) - 
+              r1x*r2y*r4z + r2y*r3x*r4z + r1x*r3y*r4z - r2x*r3y*r4z + 
+              r1y*(r2z*r3x - r2x*r3z - r2z*r4x + r3z*r4x + r2x*r4z - r3x*r4z))*
+            (2*(r3x - r4x)*(r2y*r3x - r2x*r3y - r2y*r4x + r3y*r4x + r2x*r4y - 
+                 r3x*r4y) + 2*(-r3z + r4z)*
+               (r2z*r3y - r2y*r3z - r2z*r4y + r3z*r4y + r2y*r4z - r3y*r4z)))/
+         (2.*Sqrt(Power(r1x,2)*Power(r2y,2) + Power(r1x,2)*Power(r2z,2) - 
+             2*r1x*Power(r2y,2)*r3x - 2*r1x*Power(r2z,2)*r3x + 
+             Power(r2y,2)*Power(r3x,2) + Power(r2z,2)*Power(r3x,2) - 
+             2*Power(r1x,2)*r2y*r3y + 2*r1x*r2x*r2y*r3y + 2*r1x*r2y*r3x*r3y - 
+             2*r2x*r2y*r3x*r3y + Power(r1x,2)*Power(r3y,2) - 2*r1x*r2x*Power(r3y,2) + 
+             Power(r2x,2)*Power(r3y,2) + Power(r2z,2)*Power(r3y,2) + 
+             Power(r1z,2)*(Power(r2x,2) + Power(r2y,2) - 2*r2x*r3x + Power(r3x,2) - 
+                2*r2y*r3y + Power(r3y,2)) - 2*Power(r1x,2)*r2z*r3z + 
+             2*r1x*r2x*r2z*r3z + 2*r1x*r2z*r3x*r3z - 2*r2x*r2z*r3x*r3z - 
+             2*r2y*r2z*r3y*r3z + Power(r1x,2)*Power(r3z,2) - 2*r1x*r2x*Power(r3z,2) + 
+             Power(r2x,2)*Power(r3z,2) + Power(r2y,2)*Power(r3z,2) + 
+             Power(r1y,2)*(Power(r2x,2) + Power(r2z,2) - 2*r2x*r3x + Power(r3x,2) - 
+                2*r2z*r3z + Power(r3z,2)) - 
+             2*r1y*(-(r2x*r2y*r3x) + r2y*Power(r3x,2) + r1x*(r2x - r3x)*(r2y - r3y) + 
+                Power(r2x,2)*r3y + Power(r2z,2)*r3y - r2x*r3x*r3y + 
+                r1z*(r2y - r3y)*(r2z - r3z) - r2y*r2z*r3z - r2z*r3y*r3z + 
+                r2y*Power(r3z,2)) - 
+             2*r1z*(r2z*Power(r3x,2) - r2y*r2z*r3y + r2z*Power(r3y,2) + 
+                r1x*(r2x - r3x)*(r2z - r3z) + Power(r2x,2)*r3z + Power(r2y,2)*r3z - 
+                r2y*r3y*r3z - r2x*r3x*(r2z + r3z)))*
+           Power(Power(r2y*r3x - r2x*r3y - r2y*r4x + r3y*r4x + r2x*r4y - r3x*r4y,2) + 
+             Power(r2z*r3x - r2x*r3z - r2z*r4x + r3z*r4x + r2x*r4z - r3x*r4z,2) + 
+             Power(r2z*r3y - r2y*r3z - r2z*r4y + r3z*r4y + r2y*r4z - r3y*r4z,2),1.5)) + 
+        (Sqrt(Power(r2x,2) + Power(r2y,2) + Power(r2z,2) - 2*r2x*r3x + Power(r3x,2) - 
+             2*r2y*r3y + Power(r3y,2) - 2*r2z*r3z + Power(r3z,2))*
+           (r1x*r3z - r3z*r4x + r1z*(-r3x + r4x) - r1x*r4z + r3x*r4z))/
+         (Sqrt(Power(r1x,2)*Power(r2y,2) + Power(r1x,2)*Power(r2z,2) - 
+             2*r1x*Power(r2y,2)*r3x - 2*r1x*Power(r2z,2)*r3x + 
+             Power(r2y,2)*Power(r3x,2) + Power(r2z,2)*Power(r3x,2) - 
+             2*Power(r1x,2)*r2y*r3y + 2*r1x*r2x*r2y*r3y + 2*r1x*r2y*r3x*r3y - 
+             2*r2x*r2y*r3x*r3y + Power(r1x,2)*Power(r3y,2) - 2*r1x*r2x*Power(r3y,2) + 
+             Power(r2x,2)*Power(r3y,2) + Power(r2z,2)*Power(r3y,2) + 
+             Power(r1z,2)*(Power(r2x,2) + Power(r2y,2) - 2*r2x*r3x + Power(r3x,2) - 
+                2*r2y*r3y + Power(r3y,2)) - 2*Power(r1x,2)*r2z*r3z + 
+             2*r1x*r2x*r2z*r3z + 2*r1x*r2z*r3x*r3z - 2*r2x*r2z*r3x*r3z - 
+             2*r2y*r2z*r3y*r3z + Power(r1x,2)*Power(r3z,2) - 2*r1x*r2x*Power(r3z,2) + 
+             Power(r2x,2)*Power(r3z,2) + Power(r2y,2)*Power(r3z,2) + 
+             Power(r1y,2)*(Power(r2x,2) + Power(r2z,2) - 2*r2x*r3x + Power(r3x,2) - 
+                2*r2z*r3z + Power(r3z,2)) - 
+             2*r1y*(-(r2x*r2y*r3x) + r2y*Power(r3x,2) + r1x*(r2x - r3x)*(r2y - r3y) + 
+                Power(r2x,2)*r3y + Power(r2z,2)*r3y - r2x*r3x*r3y + 
+                r1z*(r2y - r3y)*(r2z - r3z) - r2y*r2z*r3z - r2z*r3y*r3z + 
+                r2y*Power(r3z,2)) - 
+             2*r1z*(r2z*Power(r3x,2) - r2y*r2z*r3y + r2z*Power(r3y,2) + 
+                r1x*(r2x - r3x)*(r2z - r3z) + Power(r2x,2)*r3z + Power(r2y,2)*r3z - 
+                r2y*r3y*r3z - r2x*r3x*(r2z + r3z)))*
+           Sqrt(Power(r2y*r3x - r2x*r3y - r2y*r4x + r3y*r4x + r2x*r4y - r3x*r4y,2) + 
+             Power(r2z*r3x - r2x*r3z - r2z*r4x + r3z*r4x + r2x*r4z - r3x*r4z,2) + 
+             Power(r2z*r3y - r2y*r3z - r2z*r4y + r3z*r4y + r2y*r4z - r3y*r4z,2))) - 
+        (Sqrt(Power(r2x,2) + Power(r2y,2) + Power(r2z,2) - 2*r2x*r3x + Power(r3x,2) - 
+             2*r2y*r3y + Power(r3y,2) - 2*r2z*r3z + Power(r3z,2))*
+           (2*Power(r1x,2)*r2y - 4*r1x*r2y*r3x + 2*r2y*Power(r3x,2) + 
+             Power(r1z,2)*(2*r2y - 2*r3y) - 2*Power(r1x,2)*r3y + 2*r1x*r2x*r3y + 
+             2*r1x*r3x*r3y - 2*r2x*r3x*r3y - 2*r2z*r3y*r3z + 2*r2y*Power(r3z,2) - 
+             2*r1z*(-(r2z*r3y) + 2*r2y*r3z - r3y*r3z) - 
+             2*r1y*(r1x*(r2x - r3x) - r2x*r3x + Power(r3x,2) + r1z*(r2z - r3z) - 
+                r2z*r3z + Power(r3z,2)))*
+           (-(r1x*r2z*r3y) + r1x*r2y*r3z + r2z*r3y*r4x - r2y*r3z*r4x + r1x*r2z*r4y - 
+             r2z*r3x*r4y - r1x*r3z*r4y + r2x*r3z*r4y + 
+             r1z*(r2x*r3y - r3y*r4x + r2y*(-r3x + r4x) - r2x*r4y + r3x*r4y) - 
+             r1x*r2y*r4z + r2y*r3x*r4z + r1x*r3y*r4z - r2x*r3y*r4z + 
+             r1y*(r2z*r3x - r2x*r3z - r2z*r4x + r3z*r4x + r2x*r4z - r3x*r4z)))/
+         (2.*Power(Power(r1x,2)*Power(r2y,2) + Power(r1x,2)*Power(r2z,2) - 
+             2*r1x*Power(r2y,2)*r3x - 2*r1x*Power(r2z,2)*r3x + 
+             Power(r2y,2)*Power(r3x,2) + Power(r2z,2)*Power(r3x,2) - 
+             2*Power(r1x,2)*r2y*r3y + 2*r1x*r2x*r2y*r3y + 2*r1x*r2y*r3x*r3y - 
+             2*r2x*r2y*r3x*r3y + Power(r1x,2)*Power(r3y,2) - 2*r1x*r2x*Power(r3y,2) + 
+             Power(r2x,2)*Power(r3y,2) + Power(r2z,2)*Power(r3y,2) + 
+             Power(r1z,2)*(Power(r2x,2) + Power(r2y,2) - 2*r2x*r3x + Power(r3x,2) - 
+                2*r2y*r3y + Power(r3y,2)) - 2*Power(r1x,2)*r2z*r3z + 
+             2*r1x*r2x*r2z*r3z + 2*r1x*r2z*r3x*r3z - 2*r2x*r2z*r3x*r3z - 
+             2*r2y*r2z*r3y*r3z + Power(r1x,2)*Power(r3z,2) - 2*r1x*r2x*Power(r3z,2) + 
+             Power(r2x,2)*Power(r3z,2) + Power(r2y,2)*Power(r3z,2) + 
+             Power(r1y,2)*(Power(r2x,2) + Power(r2z,2) - 2*r2x*r3x + Power(r3x,2) - 
+                2*r2z*r3z + Power(r3z,2)) - 
+             2*r1y*(-(r2x*r2y*r3x) + r2y*Power(r3x,2) + r1x*(r2x - r3x)*(r2y - r3y) + 
+                Power(r2x,2)*r3y + Power(r2z,2)*r3y - r2x*r3x*r3y + 
+                r1z*(r2y - r3y)*(r2z - r3z) - r2y*r2z*r3z - r2z*r3y*r3z + 
+                r2y*Power(r3z,2)) - 
+             2*r1z*(r2z*Power(r3x,2) - r2y*r2z*r3y + r2z*Power(r3y,2) + 
+                r1x*(r2x - r3x)*(r2z - r3z) + Power(r2x,2)*r3z + Power(r2y,2)*r3z - 
+                r2y*r3y*r3z - r2x*r3x*(r2z + r3z)),1.5)*
+           Sqrt(Power(r2y*r3x - r2x*r3y - r2y*r4x + r3y*r4x + r2x*r4y - r3x*r4y,2) + 
+             Power(r2z*r3x - r2x*r3z - r2z*r4x + r3z*r4x + r2x*r4z - r3x*r4z,2) + 
+             Power(r2z*r3y - r2y*r3z - r2z*r4y + r3z*r4y + r2y*r4z - r3y*r4z,2))) + 
+        ((2*r2y - 2*r3y)*(-(r1x*r2z*r3y) + r1x*r2y*r3z + r2z*r3y*r4x - r2y*r3z*r4x + 
+             r1x*r2z*r4y - r2z*r3x*r4y - r1x*r3z*r4y + r2x*r3z*r4y + 
+             r1z*(r2x*r3y - r3y*r4x + r2y*(-r3x + r4x) - r2x*r4y + r3x*r4y) - 
+             r1x*r2y*r4z + r2y*r3x*r4z + r1x*r3y*r4z - r2x*r3y*r4z + 
+             r1y*(r2z*r3x - r2x*r3z - r2z*r4x + r3z*r4x + r2x*r4z - r3x*r4z)))/
+         (2.*Sqrt(Power(r2x,2) + Power(r2y,2) + Power(r2z,2) - 2*r2x*r3x + 
+             Power(r3x,2) - 2*r2y*r3y + Power(r3y,2) - 2*r2z*r3z + Power(r3z,2))*
+           Sqrt(Power(r1x,2)*Power(r2y,2) + Power(r1x,2)*Power(r2z,2) - 
+             2*r1x*Power(r2y,2)*r3x - 2*r1x*Power(r2z,2)*r3x + 
+             Power(r2y,2)*Power(r3x,2) + Power(r2z,2)*Power(r3x,2) - 
+             2*Power(r1x,2)*r2y*r3y + 2*r1x*r2x*r2y*r3y + 2*r1x*r2y*r3x*r3y - 
+             2*r2x*r2y*r3x*r3y + Power(r1x,2)*Power(r3y,2) - 2*r1x*r2x*Power(r3y,2) + 
+             Power(r2x,2)*Power(r3y,2) + Power(r2z,2)*Power(r3y,2) + 
+             Power(r1z,2)*(Power(r2x,2) + Power(r2y,2) - 2*r2x*r3x + Power(r3x,2) - 
+                2*r2y*r3y + Power(r3y,2)) - 2*Power(r1x,2)*r2z*r3z + 
+             2*r1x*r2x*r2z*r3z + 2*r1x*r2z*r3x*r3z - 2*r2x*r2z*r3x*r3z - 
+             2*r2y*r2z*r3y*r3z + Power(r1x,2)*Power(r3z,2) - 2*r1x*r2x*Power(r3z,2) + 
+             Power(r2x,2)*Power(r3z,2) + Power(r2y,2)*Power(r3z,2) + 
+             Power(r1y,2)*(Power(r2x,2) + Power(r2z,2) - 2*r2x*r3x + Power(r3x,2) - 
+                2*r2z*r3z + Power(r3z,2)) - 
+             2*r1y*(-(r2x*r2y*r3x) + r2y*Power(r3x,2) + r1x*(r2x - r3x)*(r2y - r3y) + 
+                Power(r2x,2)*r3y + Power(r2z,2)*r3y - r2x*r3x*r3y + 
+                r1z*(r2y - r3y)*(r2z - r3z) - r2y*r2z*r3z - r2z*r3y*r3z + 
+                r2y*Power(r3z,2)) - 
+             2*r1z*(r2z*Power(r3x,2) - r2y*r2z*r3y + r2z*Power(r3y,2) + 
+                r1x*(r2x - r3x)*(r2z - r3z) + Power(r2x,2)*r3z + Power(r2y,2)*r3z - 
+                r2y*r3y*r3z - r2x*r3x*(r2z + r3z)))*
+           Sqrt(Power(r2y*r3x - r2x*r3y - r2y*r4x + r3y*r4x + r2x*r4y - r3x*r4y,2) + 
+             Power(r2z*r3x - r2x*r3z - r2z*r4x + r3z*r4x + r2x*r4z - r3x*r4z,2) + 
+             Power(r2z*r3y - r2y*r3z - r2z*r4y + r3z*r4y + r2y*r4z - r3y*r4z,2))))*
+      (-(((-(r1y*r2x) + r1x*r2y + r1y*r3x - r2y*r3x - r1x*r3y + r2x*r3y)*
+             (-(r2y*r3x) + r2x*r3y + r2y*r4x - r3y*r4x - r2x*r4y + r3x*r4y))/
+           (Sqrt(Power(-(r1y*r2x) + r1x*r2y + r1y*r3x - r2y*r3x - r1x*r3y + r2x*r3y,
+                2) + Power(r1z*r2x - r1x*r2z - r1z*r3x + r2z*r3x + r1x*r3z - r2x*r3z,
+                2) + Power(-(r1z*r2y) + r1y*r2z + r1z*r3y - r2z*r3y - r1y*r3z + r2y*r3z,
+                2))*Sqrt(Power(-(r2y*r3x) + r2x*r3y + r2y*r4x - r3y*r4x - r2x*r4y + 
+                 r3x*r4y,2) + Power(r2z*r3x - r2x*r3z - r2z*r4x + r3z*r4x + r2x*r4z - 
+                 r3x*r4z,2) + Power(-(r2z*r3y) + r2y*r3z + r2z*r4y - r3z*r4y - 
+                 r2y*r4z + r3y*r4z,2)))) - 
+        ((r1z*r2x - r1x*r2z - r1z*r3x + r2z*r3x + r1x*r3z - r2x*r3z)*
+           (r2z*r3x - r2x*r3z - r2z*r4x + r3z*r4x + r2x*r4z - r3x*r4z))/
+         (Sqrt(Power(-(r1y*r2x) + r1x*r2y + r1y*r3x - r2y*r3x - r1x*r3y + r2x*r3y,2) + 
+             Power(r1z*r2x - r1x*r2z - r1z*r3x + r2z*r3x + r1x*r3z - r2x*r3z,2) + 
+             Power(-(r1z*r2y) + r1y*r2z + r1z*r3y - r2z*r3y - r1y*r3z + r2y*r3z,2))*
+           Sqrt(Power(-(r2y*r3x) + r2x*r3y + r2y*r4x - r3y*r4x - r2x*r4y + r3x*r4y,2) + 
+             Power(r2z*r3x - r2x*r3z - r2z*r4x + r3z*r4x + r2x*r4z - r3x*r4z,2) + 
+             Power(-(r2z*r3y) + r2y*r3z + r2z*r4y - r3z*r4y - r2y*r4z + r3y*r4z,2))) - 
+        ((-(r1z*r2y) + r1y*r2z + r1z*r3y - r2z*r3y - r1y*r3z + r2y*r3z)*
+           (-(r2z*r3y) + r2y*r3z + r2z*r4y - r3z*r4y - r2y*r4z + r3y*r4z))/
+         (Sqrt(Power(-(r1y*r2x) + r1x*r2y + r1y*r3x - r2y*r3x - r1x*r3y + r2x*r3y,2) + 
+             Power(r1z*r2x - r1x*r2z - r1z*r3x + r2z*r3x + r1x*r3z - r2x*r3z,2) + 
+             Power(-(r1z*r2y) + r1y*r2z + r1z*r3y - r2z*r3y - r1y*r3z + r2y*r3z,2))*
+           Sqrt(Power(-(r2y*r3x) + r2x*r3y + r2y*r4x - r3y*r4x - r2x*r4y + r3x*r4y,2) + 
+             Power(r2z*r3x - r2x*r3z - r2z*r4x + r3z*r4x + r2x*r4z - r3x*r4z,2) + 
+             Power(-(r2z*r3y) + r2y*r3z + r2z*r4y - r3z*r4y - r2y*r4z + r3y*r4z,2)))))/
+    (((Power(r2x,2) + Power(r2y,2) + Power(r2z,2) - 2*r2x*r3x + Power(r3x,2) - 
+           2*r2y*r3y + Power(r3y,2) - 2*r2z*r3z + Power(r3z,2))*
+         Power(-(r1x*r2z*r3y) + r1x*r2y*r3z + r2z*r3y*r4x - r2y*r3z*r4x + r1x*r2z*r4y - 
+           r2z*r3x*r4y - r1x*r3z*r4y + r2x*r3z*r4y + 
+           r1z*(r2x*r3y - r3y*r4x + r2y*(-r3x + r4x) - r2x*r4y + r3x*r4y) - 
+           r1x*r2y*r4z + r2y*r3x*r4z + r1x*r3y*r4z - r2x*r3y*r4z + 
+           r1y*(r2z*r3x - r2x*r3z - r2z*r4x + r3z*r4x + r2x*r4z - r3x*r4z),2))/
+       ((Power(r1x,2)*Power(r2y,2) + Power(r1x,2)*Power(r2z,2) - 
+           2*r1x*Power(r2y,2)*r3x - 2*r1x*Power(r2z,2)*r3x + 
+           Power(r2y,2)*Power(r3x,2) + Power(r2z,2)*Power(r3x,2) - 
+           2*Power(r1x,2)*r2y*r3y + 2*r1x*r2x*r2y*r3y + 2*r1x*r2y*r3x*r3y - 
+           2*r2x*r2y*r3x*r3y + Power(r1x,2)*Power(r3y,2) - 2*r1x*r2x*Power(r3y,2) + 
+           Power(r2x,2)*Power(r3y,2) + Power(r2z,2)*Power(r3y,2) + 
+           Power(r1z,2)*(Power(r2x,2) + Power(r2y,2) - 2*r2x*r3x + Power(r3x,2) - 
+              2*r2y*r3y + Power(r3y,2)) - 2*Power(r1x,2)*r2z*r3z + 2*r1x*r2x*r2z*r3z + 
+           2*r1x*r2z*r3x*r3z - 2*r2x*r2z*r3x*r3z - 2*r2y*r2z*r3y*r3z + 
+           Power(r1x,2)*Power(r3z,2) - 2*r1x*r2x*Power(r3z,2) + 
+           Power(r2x,2)*Power(r3z,2) + Power(r2y,2)*Power(r3z,2) + 
+           Power(r1y,2)*(Power(r2x,2) + Power(r2z,2) - 2*r2x*r3x + Power(r3x,2) - 
+              2*r2z*r3z + Power(r3z,2)) - 
+           2*r1y*(-(r2x*r2y*r3x) + r2y*Power(r3x,2) + r1x*(r2x - r3x)*(r2y - r3y) + 
+              Power(r2x,2)*r3y + Power(r2z,2)*r3y - r2x*r3x*r3y + 
+              r1z*(r2y - r3y)*(r2z - r3z) - r2y*r2z*r3z - r2z*r3y*r3z + r2y*Power(r3z,2)
+              ) - 2*r1z*(r2z*Power(r3x,2) - r2y*r2z*r3y + r2z*Power(r3y,2) + 
+              r1x*(r2x - r3x)*(r2z - r3z) + Power(r2x,2)*r3z + Power(r2y,2)*r3z - 
+              r2y*r3y*r3z - r2x*r3x*(r2z + r3z)))*
+         (Power(r2y*r3x - r2x*r3y - r2y*r4x + r3y*r4x + r2x*r4y - r3x*r4y,2) + 
+           Power(r2z*r3x - r2x*r3z - r2z*r4x + r3z*r4x + r2x*r4z - r3x*r4z,2) + 
+           Power(r2z*r3y - r2y*r3z - r2z*r4y + r3z*r4y + r2y*r4z - r3y*r4z,2))) + 
+      Power(((-(r1y*r2x) + r1x*r2y + r1y*r3x - r2y*r3x - r1x*r3y + r2x*r3y)*
+           (-(r2y*r3x) + r2x*r3y + r2y*r4x - r3y*r4x - r2x*r4y + r3x*r4y))/
+         (Sqrt(Power(-(r1y*r2x) + r1x*r2y + r1y*r3x - r2y*r3x - r1x*r3y + r2x*r3y,2) + 
+             Power(r1z*r2x - r1x*r2z - r1z*r3x + r2z*r3x + r1x*r3z - r2x*r3z,2) + 
+             Power(-(r1z*r2y) + r1y*r2z + r1z*r3y - r2z*r3y - r1y*r3z + r2y*r3z,2))*
+           Sqrt(Power(-(r2y*r3x) + r2x*r3y + r2y*r4x - r3y*r4x - r2x*r4y + r3x*r4y,2) + 
+             Power(r2z*r3x - r2x*r3z - r2z*r4x + r3z*r4x + r2x*r4z - r3x*r4z,2) + 
+             Power(-(r2z*r3y) + r2y*r3z + r2z*r4y - r3z*r4y - r2y*r4z + r3y*r4z,2))) + 
+        ((r1z*r2x - r1x*r2z - r1z*r3x + r2z*r3x + r1x*r3z - r2x*r3z)*
+           (r2z*r3x - r2x*r3z - r2z*r4x + r3z*r4x + r2x*r4z - r3x*r4z))/
+         (Sqrt(Power(-(r1y*r2x) + r1x*r2y + r1y*r3x - r2y*r3x - r1x*r3y + r2x*r3y,2) + 
+             Power(r1z*r2x - r1x*r2z - r1z*r3x + r2z*r3x + r1x*r3z - r2x*r3z,2) + 
+             Power(-(r1z*r2y) + r1y*r2z + r1z*r3y - r2z*r3y - r1y*r3z + r2y*r3z,2))*
+           Sqrt(Power(-(r2y*r3x) + r2x*r3y + r2y*r4x - r3y*r4x - r2x*r4y + r3x*r4y,2) + 
+             Power(r2z*r3x - r2x*r3z - r2z*r4x + r3z*r4x + r2x*r4z - r3x*r4z,2) + 
+             Power(-(r2z*r3y) + r2y*r3z + r2z*r4y - r3z*r4y - r2y*r4z + r3y*r4z,2))) + 
+        ((-(r1z*r2y) + r1y*r2z + r1z*r3y - r2z*r3y - r1y*r3z + r2y*r3z)*
+           (-(r2z*r3y) + r2y*r3z + r2z*r4y - r3z*r4y - r2y*r4z + r3y*r4z))/
+         (Sqrt(Power(-(r1y*r2x) + r1x*r2y + r1y*r3x - r2y*r3x - r1x*r3y + r2x*r3y,2) + 
+             Power(r1z*r2x - r1x*r2z - r1z*r3x + r2z*r3x + r1x*r3z - r2x*r3z,2) + 
+             Power(-(r1z*r2y) + r1y*r2z + r1z*r3y - r2z*r3y - r1y*r3z + r2y*r3z,2))*
+           Sqrt(Power(-(r2y*r3x) + r2x*r3y + r2y*r4x - r3y*r4x - r2x*r4y + r3x*r4y,2) + 
+             Power(r2z*r3x - r2x*r3z - r2z*r4x + r3z*r4x + r2x*r4z - r3x*r4z,2) + 
+             Power(-(r2z*r3y) + r2y*r3z + r2z*r4y - r3z*r4y - r2y*r4z + r3y*r4z,2))),2));
+	der_d_th[5] = (Sqrt(Power(r2x,2) + Power(r2y,2) + Power(r2z,2) - 2*r2x*r3x + Power(r3x,2) - 
+        2*r2y*r3y + Power(r3y,2) - 2*r2z*r3z + Power(r3z,2))*
+      (-(r1x*r2z*r3y) + r1x*r2y*r3z + r2z*r3y*r4x - r2y*r3z*r4x + r1x*r2z*r4y - 
+        r2z*r3x*r4y - r1x*r3z*r4y + r2x*r3z*r4y + 
+        r1z*(r2x*r3y - r3y*r4x + r2y*(-r3x + r4x) - r2x*r4y + r3x*r4y) - r1x*r2y*r4z + 
+        r2y*r3x*r4z + r1x*r3y*r4z - r2x*r3y*r4z + 
+        r1y*(r2z*r3x - r2x*r3z - r2z*r4x + r3z*r4x + r2x*r4z - r3x*r4z))*
+      (-((-(r1y*r2x) + r1x*r2y + r1y*r3x - r2y*r3x - r1x*r3y + r2x*r3y)*
+            (-(r2y*r3x) + r2x*r3y + r2y*r4x - r3y*r4x - r2x*r4y + r3x*r4y)*
+            (2*(r3x - r4x)*(r2z*r3x - r2x*r3z - r2z*r4x + r3z*r4x + r2x*r4z - 
+                 r3x*r4z) + 2*(-r3y + r4y)*
+               (-(r2z*r3y) + r2y*r3z + r2z*r4y - r3z*r4y - r2y*r4z + r3y*r4z)))/
+         (2.*Sqrt(Power(-(r1y*r2x) + r1x*r2y + r1y*r3x - r2y*r3x - r1x*r3y + r2x*r3y,
+              2) + Power(r1z*r2x - r1x*r2z - r1z*r3x + r2z*r3x + r1x*r3z - r2x*r3z,2) + 
+             Power(-(r1z*r2y) + r1y*r2z + r1z*r3y - r2z*r3y - r1y*r3z + r2y*r3z,2))*
+           Power(Power(-(r2y*r3x) + r2x*r3y + r2y*r4x - r3y*r4x - r2x*r4y + r3x*r4y,
+              2) + Power(r2z*r3x - r2x*r3z - r2z*r4x + r3z*r4x + r2x*r4z - r3x*r4z,2) + 
+             Power(-(r2z*r3y) + r2y*r3z + r2z*r4y - r3z*r4y - r2y*r4z + r3y*r4z,2),1.5))
+          - ((r1z*r2x - r1x*r2z - r1z*r3x + r2z*r3x + r1x*r3z - r2x*r3z)*
+           (r2z*r3x - r2x*r3z - r2z*r4x + r3z*r4x + r2x*r4z - r3x*r4z)*
+           (2*(r3x - r4x)*(r2z*r3x - r2x*r3z - r2z*r4x + r3z*r4x + r2x*r4z - r3x*r4z) + 
+             2*(-r3y + r4y)*(-(r2z*r3y) + r2y*r3z + r2z*r4y - r3z*r4y - r2y*r4z + 
+                r3y*r4z)))/
+         (2.*Sqrt(Power(-(r1y*r2x) + r1x*r2y + r1y*r3x - r2y*r3x - r1x*r3y + r2x*r3y,
+              2) + Power(r1z*r2x - r1x*r2z - r1z*r3x + r2z*r3x + r1x*r3z - r2x*r3z,2) + 
+             Power(-(r1z*r2y) + r1y*r2z + r1z*r3y - r2z*r3y - r1y*r3z + r2y*r3z,2))*
+           Power(Power(-(r2y*r3x) + r2x*r3y + r2y*r4x - r3y*r4x - r2x*r4y + r3x*r4y,
+              2) + Power(r2z*r3x - r2x*r3z - r2z*r4x + r3z*r4x + r2x*r4z - r3x*r4z,2) + 
+             Power(-(r2z*r3y) + r2y*r3z + r2z*r4y - r3z*r4y - r2y*r4z + r3y*r4z,2),1.5))
+          - ((-(r1z*r2y) + r1y*r2z + r1z*r3y - r2z*r3y - r1y*r3z + r2y*r3z)*
+           (-(r2z*r3y) + r2y*r3z + r2z*r4y - r3z*r4y - r2y*r4z + r3y*r4z)*
+           (2*(r3x - r4x)*(r2z*r3x - r2x*r3z - r2z*r4x + r3z*r4x + r2x*r4z - r3x*r4z) + 
+             2*(-r3y + r4y)*(-(r2z*r3y) + r2y*r3z + r2z*r4y - r3z*r4y - r2y*r4z + 
+                r3y*r4z)))/
+         (2.*Sqrt(Power(-(r1y*r2x) + r1x*r2y + r1y*r3x - r2y*r3x - r1x*r3y + r2x*r3y,
+              2) + Power(r1z*r2x - r1x*r2z - r1z*r3x + r2z*r3x + r1x*r3z - r2x*r3z,2) + 
+             Power(-(r1z*r2y) + r1y*r2z + r1z*r3y - r2z*r3y - r1y*r3z + r2y*r3z,2))*
+           Power(Power(-(r2y*r3x) + r2x*r3y + r2y*r4x - r3y*r4x - r2x*r4y + r3x*r4y,
+              2) + Power(r2z*r3x - r2x*r3z - r2z*r4x + r3z*r4x + r2x*r4z - r3x*r4z,2) + 
+             Power(-(r2z*r3y) + r2y*r3z + r2z*r4y - r3z*r4y - r2y*r4z + r3y*r4z,2),1.5))
+          + ((r1z*r2x - r1x*r2z - r1z*r3x + r2z*r3x + r1x*r3z - r2x*r3z)*(r3x - r4x))/
+         (Sqrt(Power(-(r1y*r2x) + r1x*r2y + r1y*r3x - r2y*r3x - r1x*r3y + r2x*r3y,2) + 
+             Power(r1z*r2x - r1x*r2z - r1z*r3x + r2z*r3x + r1x*r3z - r2x*r3z,2) + 
+             Power(-(r1z*r2y) + r1y*r2z + r1z*r3y - r2z*r3y - r1y*r3z + r2y*r3z,2))*
+           Sqrt(Power(-(r2y*r3x) + r2x*r3y + r2y*r4x - r3y*r4x - r2x*r4y + r3x*r4y,2) + 
+             Power(r2z*r3x - r2x*r3z - r2z*r4x + r3z*r4x + r2x*r4z - r3x*r4z,2) + 
+             Power(-(r2z*r3y) + r2y*r3z + r2z*r4y - r3z*r4y - r2y*r4z + r3y*r4z,2))) + 
+        ((-(r1z*r2y) + r1y*r2z + r1z*r3y - r2z*r3y - r1y*r3z + r2y*r3z)*(-r3y + r4y))/
+         (Sqrt(Power(-(r1y*r2x) + r1x*r2y + r1y*r3x - r2y*r3x - r1x*r3y + r2x*r3y,2) + 
+             Power(r1z*r2x - r1x*r2z - r1z*r3x + r2z*r3x + r1x*r3z - r2x*r3z,2) + 
+             Power(-(r1z*r2y) + r1y*r2z + r1z*r3y - r2z*r3y - r1y*r3z + r2y*r3z,2))*
+           Sqrt(Power(-(r2y*r3x) + r2x*r3y + r2y*r4x - r3y*r4x - r2x*r4y + r3x*r4y,2) + 
+             Power(r2z*r3x - r2x*r3z - r2z*r4x + r3z*r4x + r2x*r4z - r3x*r4z,2) + 
+             Power(-(r2z*r3y) + r2y*r3z + r2z*r4y - r3z*r4y - r2y*r4z + r3y*r4z,2))) - 
+        ((-(r1y*r2x) + r1x*r2y + r1y*r3x - r2y*r3x - r1x*r3y + r2x*r3y)*
+           (2*(-r1x + r3x)*(r1z*r2x - r1x*r2z - r1z*r3x + r2z*r3x + r1x*r3z - 
+                r2x*r3z) + 2*(r1y - r3y)*
+              (-(r1z*r2y) + r1y*r2z + r1z*r3y - r2z*r3y - r1y*r3z + r2y*r3z))*
+           (-(r2y*r3x) + r2x*r3y + r2y*r4x - r3y*r4x - r2x*r4y + r3x*r4y))/
+         (2.*Power(Power(-(r1y*r2x) + r1x*r2y + r1y*r3x - r2y*r3x - r1x*r3y + r2x*r3y,
+              2) + Power(r1z*r2x - r1x*r2z - r1z*r3x + r2z*r3x + r1x*r3z - r2x*r3z,2) + 
+             Power(-(r1z*r2y) + r1y*r2z + r1z*r3y - r2z*r3y - r1y*r3z + r2y*r3z,2),1.5)*
+           Sqrt(Power(-(r2y*r3x) + r2x*r3y + r2y*r4x - r3y*r4x - r2x*r4y + r3x*r4y,2) + 
+             Power(r2z*r3x - r2x*r3z - r2z*r4x + r3z*r4x + r2x*r4z - r3x*r4z,2) + 
+             Power(-(r2z*r3y) + r2y*r3z + r2z*r4y - r3z*r4y - r2y*r4z + r3y*r4z,2))) - 
+        ((r1z*r2x - r1x*r2z - r1z*r3x + r2z*r3x + r1x*r3z - r2x*r3z)*
+           (2*(-r1x + r3x)*(r1z*r2x - r1x*r2z - r1z*r3x + r2z*r3x + r1x*r3z - 
+                r2x*r3z) + 2*(r1y - r3y)*
+              (-(r1z*r2y) + r1y*r2z + r1z*r3y - r2z*r3y - r1y*r3z + r2y*r3z))*
+           (r2z*r3x - r2x*r3z - r2z*r4x + r3z*r4x + r2x*r4z - r3x*r4z))/
+         (2.*Power(Power(-(r1y*r2x) + r1x*r2y + r1y*r3x - r2y*r3x - r1x*r3y + r2x*r3y,
+              2) + Power(r1z*r2x - r1x*r2z - r1z*r3x + r2z*r3x + r1x*r3z - r2x*r3z,2) + 
+             Power(-(r1z*r2y) + r1y*r2z + r1z*r3y - r2z*r3y - r1y*r3z + r2y*r3z,2),1.5)*
+           Sqrt(Power(-(r2y*r3x) + r2x*r3y + r2y*r4x - r3y*r4x - r2x*r4y + r3x*r4y,2) + 
+             Power(r2z*r3x - r2x*r3z - r2z*r4x + r3z*r4x + r2x*r4z - r3x*r4z,2) + 
+             Power(-(r2z*r3y) + r2y*r3z + r2z*r4y - r3z*r4y - r2y*r4z + r3y*r4z,2))) + 
+        ((-r1x + r3x)*(r2z*r3x - r2x*r3z - r2z*r4x + r3z*r4x + r2x*r4z - r3x*r4z))/
+         (Sqrt(Power(-(r1y*r2x) + r1x*r2y + r1y*r3x - r2y*r3x - r1x*r3y + r2x*r3y,2) + 
+             Power(r1z*r2x - r1x*r2z - r1z*r3x + r2z*r3x + r1x*r3z - r2x*r3z,2) + 
+             Power(-(r1z*r2y) + r1y*r2z + r1z*r3y - r2z*r3y - r1y*r3z + r2y*r3z,2))*
+           Sqrt(Power(-(r2y*r3x) + r2x*r3y + r2y*r4x - r3y*r4x - r2x*r4y + r3x*r4y,2) + 
+             Power(r2z*r3x - r2x*r3z - r2z*r4x + r3z*r4x + r2x*r4z - r3x*r4z,2) + 
+             Power(-(r2z*r3y) + r2y*r3z + r2z*r4y - r3z*r4y - r2y*r4z + r3y*r4z,2))) - 
+        ((-(r1z*r2y) + r1y*r2z + r1z*r3y - r2z*r3y - r1y*r3z + r2y*r3z)*
+           (2*(-r1x + r3x)*(r1z*r2x - r1x*r2z - r1z*r3x + r2z*r3x + r1x*r3z - 
+                r2x*r3z) + 2*(r1y - r3y)*
+              (-(r1z*r2y) + r1y*r2z + r1z*r3y - r2z*r3y - r1y*r3z + r2y*r3z))*
+           (-(r2z*r3y) + r2y*r3z + r2z*r4y - r3z*r4y - r2y*r4z + r3y*r4z))/
+         (2.*Power(Power(-(r1y*r2x) + r1x*r2y + r1y*r3x - r2y*r3x - r1x*r3y + r2x*r3y,
+              2) + Power(r1z*r2x - r1x*r2z - r1z*r3x + r2z*r3x + r1x*r3z - r2x*r3z,2) + 
+             Power(-(r1z*r2y) + r1y*r2z + r1z*r3y - r2z*r3y - r1y*r3z + r2y*r3z,2),1.5)*
+           Sqrt(Power(-(r2y*r3x) + r2x*r3y + r2y*r4x - r3y*r4x - r2x*r4y + r3x*r4y,2) + 
+             Power(r2z*r3x - r2x*r3z - r2z*r4x + r3z*r4x + r2x*r4z - r3x*r4z,2) + 
+             Power(-(r2z*r3y) + r2y*r3z + r2z*r4y - r3z*r4y - r2y*r4z + r3y*r4z,2))) + 
+        ((r1y - r3y)*(-(r2z*r3y) + r2y*r3z + r2z*r4y - r3z*r4y - r2y*r4z + r3y*r4z))/
+         (Sqrt(Power(-(r1y*r2x) + r1x*r2y + r1y*r3x - r2y*r3x - r1x*r3y + r2x*r3y,2) + 
+             Power(r1z*r2x - r1x*r2z - r1z*r3x + r2z*r3x + r1x*r3z - r2x*r3z,2) + 
+             Power(-(r1z*r2y) + r1y*r2z + r1z*r3y - r2z*r3y - r1y*r3z + r2y*r3z,2))*
+           Sqrt(Power(-(r2y*r3x) + r2x*r3y + r2y*r4x - r3y*r4x - r2x*r4y + r3x*r4y,2) + 
+             Power(r2z*r3x - r2x*r3z - r2z*r4x + r3z*r4x + r2x*r4z - r3x*r4z,2) + 
+             Power(-(r2z*r3y) + r2y*r3z + r2z*r4y - r3z*r4y - r2y*r4z + r3y*r4z,2)))))/
+    (Sqrt(Power(r1x,2)*Power(r2y,2) + Power(r1x,2)*Power(r2z,2) - 
+        2*r1x*Power(r2y,2)*r3x - 2*r1x*Power(r2z,2)*r3x + Power(r2y,2)*Power(r3x,2) + 
+        Power(r2z,2)*Power(r3x,2) - 2*Power(r1x,2)*r2y*r3y + 2*r1x*r2x*r2y*r3y + 
+        2*r1x*r2y*r3x*r3y - 2*r2x*r2y*r3x*r3y + Power(r1x,2)*Power(r3y,2) - 
+        2*r1x*r2x*Power(r3y,2) + Power(r2x,2)*Power(r3y,2) + 
+        Power(r2z,2)*Power(r3y,2) + 
+        Power(r1z,2)*(Power(r2x,2) + Power(r2y,2) - 2*r2x*r3x + Power(r3x,2) - 
+           2*r2y*r3y + Power(r3y,2)) - 2*Power(r1x,2)*r2z*r3z + 2*r1x*r2x*r2z*r3z + 
+        2*r1x*r2z*r3x*r3z - 2*r2x*r2z*r3x*r3z - 2*r2y*r2z*r3y*r3z + 
+        Power(r1x,2)*Power(r3z,2) - 2*r1x*r2x*Power(r3z,2) + 
+        Power(r2x,2)*Power(r3z,2) + Power(r2y,2)*Power(r3z,2) + 
+        Power(r1y,2)*(Power(r2x,2) + Power(r2z,2) - 2*r2x*r3x + Power(r3x,2) - 
+           2*r2z*r3z + Power(r3z,2)) - 
+        2*r1y*(-(r2x*r2y*r3x) + r2y*Power(r3x,2) + r1x*(r2x - r3x)*(r2y - r3y) + 
+           Power(r2x,2)*r3y + Power(r2z,2)*r3y - r2x*r3x*r3y + 
+           r1z*(r2y - r3y)*(r2z - r3z) - r2y*r2z*r3z - r2z*r3y*r3z + r2y*Power(r3z,2))\
+         - 2*r1z*(r2z*Power(r3x,2) - r2y*r2z*r3y + r2z*Power(r3y,2) + 
+           r1x*(r2x - r3x)*(r2z - r3z) + Power(r2x,2)*r3z + Power(r2y,2)*r3z - 
+           r2y*r3y*r3z - r2x*r3x*(r2z + r3z)))*
+      Sqrt(Power(r2y*r3x - r2x*r3y - r2y*r4x + r3y*r4x + r2x*r4y - r3x*r4y,2) + 
+        Power(r2z*r3x - r2x*r3z - r2z*r4x + r3z*r4x + r2x*r4z - r3x*r4z,2) + 
+        Power(r2z*r3y - r2y*r3z - r2z*r4y + r3z*r4y + r2y*r4z - r3y*r4z,2))*
+      (((Power(r2x,2) + Power(r2y,2) + Power(r2z,2) - 2*r2x*r3x + Power(r3x,2) - 
+             2*r2y*r3y + Power(r3y,2) - 2*r2z*r3z + Power(r3z,2))*
+           Power(-(r1x*r2z*r3y) + r1x*r2y*r3z + r2z*r3y*r4x - r2y*r3z*r4x + 
+             r1x*r2z*r4y - r2z*r3x*r4y - r1x*r3z*r4y + r2x*r3z*r4y + 
+             r1z*(r2x*r3y - r3y*r4x + r2y*(-r3x + r4x) - r2x*r4y + r3x*r4y) - 
+             r1x*r2y*r4z + r2y*r3x*r4z + r1x*r3y*r4z - r2x*r3y*r4z + 
+             r1y*(r2z*r3x - r2x*r3z - r2z*r4x + r3z*r4x + r2x*r4z - r3x*r4z),2))/
+         ((Power(r1x,2)*Power(r2y,2) + Power(r1x,2)*Power(r2z,2) - 
+             2*r1x*Power(r2y,2)*r3x - 2*r1x*Power(r2z,2)*r3x + 
+             Power(r2y,2)*Power(r3x,2) + Power(r2z,2)*Power(r3x,2) - 
+             2*Power(r1x,2)*r2y*r3y + 2*r1x*r2x*r2y*r3y + 2*r1x*r2y*r3x*r3y - 
+             2*r2x*r2y*r3x*r3y + Power(r1x,2)*Power(r3y,2) - 2*r1x*r2x*Power(r3y,2) + 
+             Power(r2x,2)*Power(r3y,2) + Power(r2z,2)*Power(r3y,2) + 
+             Power(r1z,2)*(Power(r2x,2) + Power(r2y,2) - 2*r2x*r3x + Power(r3x,2) - 
+                2*r2y*r3y + Power(r3y,2)) - 2*Power(r1x,2)*r2z*r3z + 
+             2*r1x*r2x*r2z*r3z + 2*r1x*r2z*r3x*r3z - 2*r2x*r2z*r3x*r3z - 
+             2*r2y*r2z*r3y*r3z + Power(r1x,2)*Power(r3z,2) - 2*r1x*r2x*Power(r3z,2) + 
+             Power(r2x,2)*Power(r3z,2) + Power(r2y,2)*Power(r3z,2) + 
+             Power(r1y,2)*(Power(r2x,2) + Power(r2z,2) - 2*r2x*r3x + Power(r3x,2) - 
+                2*r2z*r3z + Power(r3z,2)) - 
+             2*r1y*(-(r2x*r2y*r3x) + r2y*Power(r3x,2) + r1x*(r2x - r3x)*(r2y - r3y) + 
+                Power(r2x,2)*r3y + Power(r2z,2)*r3y - r2x*r3x*r3y + 
+                r1z*(r2y - r3y)*(r2z - r3z) - r2y*r2z*r3z - r2z*r3y*r3z + 
+                r2y*Power(r3z,2)) - 
+             2*r1z*(r2z*Power(r3x,2) - r2y*r2z*r3y + r2z*Power(r3y,2) + 
+                r1x*(r2x - r3x)*(r2z - r3z) + Power(r2x,2)*r3z + Power(r2y,2)*r3z - 
+                r2y*r3y*r3z - r2x*r3x*(r2z + r3z)))*
+           (Power(r2y*r3x - r2x*r3y - r2y*r4x + r3y*r4x + r2x*r4y - r3x*r4y,2) + 
+             Power(r2z*r3x - r2x*r3z - r2z*r4x + r3z*r4x + r2x*r4z - r3x*r4z,2) + 
+             Power(r2z*r3y - r2y*r3z - r2z*r4y + r3z*r4y + r2y*r4z - r3y*r4z,2))) + 
+        Power(((-(r1y*r2x) + r1x*r2y + r1y*r3x - r2y*r3x - r1x*r3y + r2x*r3y)*
+             (-(r2y*r3x) + r2x*r3y + r2y*r4x - r3y*r4x - r2x*r4y + r3x*r4y))/
+           (Sqrt(Power(-(r1y*r2x) + r1x*r2y + r1y*r3x - r2y*r3x - r1x*r3y + r2x*r3y,
+                2) + Power(r1z*r2x - r1x*r2z - r1z*r3x + r2z*r3x + r1x*r3z - r2x*r3z,
+                2) + Power(-(r1z*r2y) + r1y*r2z + r1z*r3y - r2z*r3y - r1y*r3z + r2y*r3z,
+                2))*Sqrt(Power(-(r2y*r3x) + r2x*r3y + r2y*r4x - r3y*r4x - r2x*r4y + 
+                 r3x*r4y,2) + Power(r2z*r3x - r2x*r3z - r2z*r4x + r3z*r4x + r2x*r4z - 
+                 r3x*r4z,2) + Power(-(r2z*r3y) + r2y*r3z + r2z*r4y - r3z*r4y - 
+                 r2y*r4z + r3y*r4z,2))) + 
+          ((r1z*r2x - r1x*r2z - r1z*r3x + r2z*r3x + r1x*r3z - r2x*r3z)*
+             (r2z*r3x - r2x*r3z - r2z*r4x + r3z*r4x + r2x*r4z - r3x*r4z))/
+           (Sqrt(Power(-(r1y*r2x) + r1x*r2y + r1y*r3x - r2y*r3x - r1x*r3y + r2x*r3y,
+                2) + Power(r1z*r2x - r1x*r2z - r1z*r3x + r2z*r3x + r1x*r3z - r2x*r3z,
+                2) + Power(-(r1z*r2y) + r1y*r2z + r1z*r3y - r2z*r3y - r1y*r3z + r2y*r3z,
+                2))*Sqrt(Power(-(r2y*r3x) + r2x*r3y + r2y*r4x - r3y*r4x - r2x*r4y + 
+                 r3x*r4y,2) + Power(r2z*r3x - r2x*r3z - r2z*r4x + r3z*r4x + r2x*r4z - 
+                 r3x*r4z,2) + Power(-(r2z*r3y) + r2y*r3z + r2z*r4y - r3z*r4y - 
+                 r2y*r4z + r3y*r4z,2))) + 
+          ((-(r1z*r2y) + r1y*r2z + r1z*r3y - r2z*r3y - r1y*r3z + r2y*r3z)*
+             (-(r2z*r3y) + r2y*r3z + r2z*r4y - r3z*r4y - r2y*r4z + r3y*r4z))/
+           (Sqrt(Power(-(r1y*r2x) + r1x*r2y + r1y*r3x - r2y*r3x - r1x*r3y + r2x*r3y,
+                2) + Power(r1z*r2x - r1x*r2z - r1z*r3x + r2z*r3x + r1x*r3z - r2x*r3z,
+                2) + Power(-(r1z*r2y) + r1y*r2z + r1z*r3y - r2z*r3y - r1y*r3z + r2y*r3z,
+                2))*Sqrt(Power(-(r2y*r3x) + r2x*r3y + r2y*r4x - r3y*r4x - r2x*r4y + 
+                 r3x*r4y,2) + Power(r2z*r3x - r2x*r3z - r2z*r4x + r3z*r4x + r2x*r4z - 
+                 r3x*r4z,2) + Power(-(r2z*r3y) + r2y*r3z + r2z*r4y - r3z*r4y - 
+                 r2y*r4z + r3y*r4z,2))),2))) + 
+   ((-(Sqrt(Power(r2x,2) + Power(r2y,2) + Power(r2z,2) - 2*r2x*r3x + Power(r3x,2) - 
+              2*r2y*r3y + Power(r3y,2) - 2*r2z*r3z + Power(r3z,2))*
+            (-(r1x*r2z*r3y) + r1x*r2y*r3z + r2z*r3y*r4x - r2y*r3z*r4x + r1x*r2z*r4y - 
+              r2z*r3x*r4y - r1x*r3z*r4y + r2x*r3z*r4y + 
+              r1z*(r2x*r3y - r3y*r4x + r2y*(-r3x + r4x) - r2x*r4y + r3x*r4y) - 
+              r1x*r2y*r4z + r2y*r3x*r4z + r1x*r3y*r4z - r2x*r3y*r4z + 
+              r1y*(r2z*r3x - r2x*r3z - r2z*r4x + r3z*r4x + r2x*r4z - r3x*r4z))*
+            (2*(r3x - r4x)*(r2z*r3x - r2x*r3z - r2z*r4x + r3z*r4x + r2x*r4z - 
+                 r3x*r4z) + 2*(r3y - r4y)*
+               (r2z*r3y - r2y*r3z - r2z*r4y + r3z*r4y + r2y*r4z - r3y*r4z)))/
+         (2.*Sqrt(Power(r1x,2)*Power(r2y,2) + Power(r1x,2)*Power(r2z,2) - 
+             2*r1x*Power(r2y,2)*r3x - 2*r1x*Power(r2z,2)*r3x + 
+             Power(r2y,2)*Power(r3x,2) + Power(r2z,2)*Power(r3x,2) - 
+             2*Power(r1x,2)*r2y*r3y + 2*r1x*r2x*r2y*r3y + 2*r1x*r2y*r3x*r3y - 
+             2*r2x*r2y*r3x*r3y + Power(r1x,2)*Power(r3y,2) - 2*r1x*r2x*Power(r3y,2) + 
+             Power(r2x,2)*Power(r3y,2) + Power(r2z,2)*Power(r3y,2) + 
+             Power(r1z,2)*(Power(r2x,2) + Power(r2y,2) - 2*r2x*r3x + Power(r3x,2) - 
+                2*r2y*r3y + Power(r3y,2)) - 2*Power(r1x,2)*r2z*r3z + 
+             2*r1x*r2x*r2z*r3z + 2*r1x*r2z*r3x*r3z - 2*r2x*r2z*r3x*r3z - 
+             2*r2y*r2z*r3y*r3z + Power(r1x,2)*Power(r3z,2) - 2*r1x*r2x*Power(r3z,2) + 
+             Power(r2x,2)*Power(r3z,2) + Power(r2y,2)*Power(r3z,2) + 
+             Power(r1y,2)*(Power(r2x,2) + Power(r2z,2) - 2*r2x*r3x + Power(r3x,2) - 
+                2*r2z*r3z + Power(r3z,2)) - 
+             2*r1y*(-(r2x*r2y*r3x) + r2y*Power(r3x,2) + r1x*(r2x - r3x)*(r2y - r3y) + 
+                Power(r2x,2)*r3y + Power(r2z,2)*r3y - r2x*r3x*r3y + 
+                r1z*(r2y - r3y)*(r2z - r3z) - r2y*r2z*r3z - r2z*r3y*r3z + 
+                r2y*Power(r3z,2)) - 
+             2*r1z*(r2z*Power(r3x,2) - r2y*r2z*r3y + r2z*Power(r3y,2) + 
+                r1x*(r2x - r3x)*(r2z - r3z) + Power(r2x,2)*r3z + Power(r2y,2)*r3z - 
+                r2y*r3y*r3z - r2x*r3x*(r2z + r3z)))*
+           Power(Power(r2y*r3x - r2x*r3y - r2y*r4x + r3y*r4x + r2x*r4y - r3x*r4y,2) + 
+             Power(r2z*r3x - r2x*r3z - r2z*r4x + r3z*r4x + r2x*r4z - r3x*r4z,2) + 
+             Power(r2z*r3y - r2y*r3z - r2z*r4y + r3z*r4y + r2y*r4z - r3y*r4z,2),1.5)) + 
+        (Sqrt(Power(r2x,2) + Power(r2y,2) + Power(r2z,2) - 2*r2x*r3x + Power(r3x,2) - 
+             2*r2y*r3y + Power(r3y,2) - 2*r2z*r3z + Power(r3z,2))*
+           (-(r1x*r3y) + r1y*(r3x - r4x) + r3y*r4x + r1x*r4y - r3x*r4y))/
+         (Sqrt(Power(r1x,2)*Power(r2y,2) + Power(r1x,2)*Power(r2z,2) - 
+             2*r1x*Power(r2y,2)*r3x - 2*r1x*Power(r2z,2)*r3x + 
+             Power(r2y,2)*Power(r3x,2) + Power(r2z,2)*Power(r3x,2) - 
+             2*Power(r1x,2)*r2y*r3y + 2*r1x*r2x*r2y*r3y + 2*r1x*r2y*r3x*r3y - 
+             2*r2x*r2y*r3x*r3y + Power(r1x,2)*Power(r3y,2) - 2*r1x*r2x*Power(r3y,2) + 
+             Power(r2x,2)*Power(r3y,2) + Power(r2z,2)*Power(r3y,2) + 
+             Power(r1z,2)*(Power(r2x,2) + Power(r2y,2) - 2*r2x*r3x + Power(r3x,2) - 
+                2*r2y*r3y + Power(r3y,2)) - 2*Power(r1x,2)*r2z*r3z + 
+             2*r1x*r2x*r2z*r3z + 2*r1x*r2z*r3x*r3z - 2*r2x*r2z*r3x*r3z - 
+             2*r2y*r2z*r3y*r3z + Power(r1x,2)*Power(r3z,2) - 2*r1x*r2x*Power(r3z,2) + 
+             Power(r2x,2)*Power(r3z,2) + Power(r2y,2)*Power(r3z,2) + 
+             Power(r1y,2)*(Power(r2x,2) + Power(r2z,2) - 2*r2x*r3x + Power(r3x,2) - 
+                2*r2z*r3z + Power(r3z,2)) - 
+             2*r1y*(-(r2x*r2y*r3x) + r2y*Power(r3x,2) + r1x*(r2x - r3x)*(r2y - r3y) + 
+                Power(r2x,2)*r3y + Power(r2z,2)*r3y - r2x*r3x*r3y + 
+                r1z*(r2y - r3y)*(r2z - r3z) - r2y*r2z*r3z - r2z*r3y*r3z + 
+                r2y*Power(r3z,2)) - 
+             2*r1z*(r2z*Power(r3x,2) - r2y*r2z*r3y + r2z*Power(r3y,2) + 
+                r1x*(r2x - r3x)*(r2z - r3z) + Power(r2x,2)*r3z + Power(r2y,2)*r3z - 
+                r2y*r3y*r3z - r2x*r3x*(r2z + r3z)))*
+           Sqrt(Power(r2y*r3x - r2x*r3y - r2y*r4x + r3y*r4x + r2x*r4y - r3x*r4y,2) + 
+             Power(r2z*r3x - r2x*r3z - r2z*r4x + r3z*r4x + r2x*r4z - r3x*r4z,2) + 
+             Power(r2z*r3y - r2y*r3z - r2z*r4y + r3z*r4y + r2y*r4z - r3y*r4z,2))) - 
+        (Sqrt(Power(r2x,2) + Power(r2y,2) + Power(r2z,2) - 2*r2x*r3x + Power(r3x,2) - 
+             2*r2y*r3y + Power(r3y,2) - 2*r2z*r3z + Power(r3z,2))*
+           (2*Power(r1x,2)*r2z - 4*r1x*r2z*r3x + 2*r2z*Power(r3x,2) + 
+             2*r2z*Power(r3y,2) - 2*r1z*
+              (r1x*(r2x - r3x) - r2x*r3x + Power(r3x,2) - r2y*r3y + Power(r3y,2)) + 
+             Power(r1y,2)*(2*r2z - 2*r3z) - 2*Power(r1x,2)*r3z + 2*r1x*r2x*r3z + 
+             2*r1x*r3x*r3z - 2*r2x*r3x*r3z - 2*r2y*r3y*r3z - 
+             2*r1y*(r1z*(r2y - r3y) + 2*r2z*r3y - r2y*r3z - r3y*r3z))*
+           (-(r1x*r2z*r3y) + r1x*r2y*r3z + r2z*r3y*r4x - r2y*r3z*r4x + r1x*r2z*r4y - 
+             r2z*r3x*r4y - r1x*r3z*r4y + r2x*r3z*r4y + 
+             r1z*(r2x*r3y - r3y*r4x + r2y*(-r3x + r4x) - r2x*r4y + r3x*r4y) - 
+             r1x*r2y*r4z + r2y*r3x*r4z + r1x*r3y*r4z - r2x*r3y*r4z + 
+             r1y*(r2z*r3x - r2x*r3z - r2z*r4x + r3z*r4x + r2x*r4z - r3x*r4z)))/
+         (2.*Power(Power(r1x,2)*Power(r2y,2) + Power(r1x,2)*Power(r2z,2) - 
+             2*r1x*Power(r2y,2)*r3x - 2*r1x*Power(r2z,2)*r3x + 
+             Power(r2y,2)*Power(r3x,2) + Power(r2z,2)*Power(r3x,2) - 
+             2*Power(r1x,2)*r2y*r3y + 2*r1x*r2x*r2y*r3y + 2*r1x*r2y*r3x*r3y - 
+             2*r2x*r2y*r3x*r3y + Power(r1x,2)*Power(r3y,2) - 2*r1x*r2x*Power(r3y,2) + 
+             Power(r2x,2)*Power(r3y,2) + Power(r2z,2)*Power(r3y,2) + 
+             Power(r1z,2)*(Power(r2x,2) + Power(r2y,2) - 2*r2x*r3x + Power(r3x,2) - 
+                2*r2y*r3y + Power(r3y,2)) - 2*Power(r1x,2)*r2z*r3z + 
+             2*r1x*r2x*r2z*r3z + 2*r1x*r2z*r3x*r3z - 2*r2x*r2z*r3x*r3z - 
+             2*r2y*r2z*r3y*r3z + Power(r1x,2)*Power(r3z,2) - 2*r1x*r2x*Power(r3z,2) + 
+             Power(r2x,2)*Power(r3z,2) + Power(r2y,2)*Power(r3z,2) + 
+             Power(r1y,2)*(Power(r2x,2) + Power(r2z,2) - 2*r2x*r3x + Power(r3x,2) - 
+                2*r2z*r3z + Power(r3z,2)) - 
+             2*r1y*(-(r2x*r2y*r3x) + r2y*Power(r3x,2) + r1x*(r2x - r3x)*(r2y - r3y) + 
+                Power(r2x,2)*r3y + Power(r2z,2)*r3y - r2x*r3x*r3y + 
+                r1z*(r2y - r3y)*(r2z - r3z) - r2y*r2z*r3z - r2z*r3y*r3z + 
+                r2y*Power(r3z,2)) - 
+             2*r1z*(r2z*Power(r3x,2) - r2y*r2z*r3y + r2z*Power(r3y,2) + 
+                r1x*(r2x - r3x)*(r2z - r3z) + Power(r2x,2)*r3z + Power(r2y,2)*r3z - 
+                r2y*r3y*r3z - r2x*r3x*(r2z + r3z)),1.5)*
+           Sqrt(Power(r2y*r3x - r2x*r3y - r2y*r4x + r3y*r4x + r2x*r4y - r3x*r4y,2) + 
+             Power(r2z*r3x - r2x*r3z - r2z*r4x + r3z*r4x + r2x*r4z - r3x*r4z,2) + 
+             Power(r2z*r3y - r2y*r3z - r2z*r4y + r3z*r4y + r2y*r4z - r3y*r4z,2))) + 
+        ((2*r2z - 2*r3z)*(-(r1x*r2z*r3y) + r1x*r2y*r3z + r2z*r3y*r4x - r2y*r3z*r4x + 
+             r1x*r2z*r4y - r2z*r3x*r4y - r1x*r3z*r4y + r2x*r3z*r4y + 
+             r1z*(r2x*r3y - r3y*r4x + r2y*(-r3x + r4x) - r2x*r4y + r3x*r4y) - 
+             r1x*r2y*r4z + r2y*r3x*r4z + r1x*r3y*r4z - r2x*r3y*r4z + 
+             r1y*(r2z*r3x - r2x*r3z - r2z*r4x + r3z*r4x + r2x*r4z - r3x*r4z)))/
+         (2.*Sqrt(Power(r2x,2) + Power(r2y,2) + Power(r2z,2) - 2*r2x*r3x + 
+             Power(r3x,2) - 2*r2y*r3y + Power(r3y,2) - 2*r2z*r3z + Power(r3z,2))*
+           Sqrt(Power(r1x,2)*Power(r2y,2) + Power(r1x,2)*Power(r2z,2) - 
+             2*r1x*Power(r2y,2)*r3x - 2*r1x*Power(r2z,2)*r3x + 
+             Power(r2y,2)*Power(r3x,2) + Power(r2z,2)*Power(r3x,2) - 
+             2*Power(r1x,2)*r2y*r3y + 2*r1x*r2x*r2y*r3y + 2*r1x*r2y*r3x*r3y - 
+             2*r2x*r2y*r3x*r3y + Power(r1x,2)*Power(r3y,2) - 2*r1x*r2x*Power(r3y,2) + 
+             Power(r2x,2)*Power(r3y,2) + Power(r2z,2)*Power(r3y,2) + 
+             Power(r1z,2)*(Power(r2x,2) + Power(r2y,2) - 2*r2x*r3x + Power(r3x,2) - 
+                2*r2y*r3y + Power(r3y,2)) - 2*Power(r1x,2)*r2z*r3z + 
+             2*r1x*r2x*r2z*r3z + 2*r1x*r2z*r3x*r3z - 2*r2x*r2z*r3x*r3z - 
+             2*r2y*r2z*r3y*r3z + Power(r1x,2)*Power(r3z,2) - 2*r1x*r2x*Power(r3z,2) + 
+             Power(r2x,2)*Power(r3z,2) + Power(r2y,2)*Power(r3z,2) + 
+             Power(r1y,2)*(Power(r2x,2) + Power(r2z,2) - 2*r2x*r3x + Power(r3x,2) - 
+                2*r2z*r3z + Power(r3z,2)) - 
+             2*r1y*(-(r2x*r2y*r3x) + r2y*Power(r3x,2) + r1x*(r2x - r3x)*(r2y - r3y) + 
+                Power(r2x,2)*r3y + Power(r2z,2)*r3y - r2x*r3x*r3y + 
+                r1z*(r2y - r3y)*(r2z - r3z) - r2y*r2z*r3z - r2z*r3y*r3z + 
+                r2y*Power(r3z,2)) - 
+             2*r1z*(r2z*Power(r3x,2) - r2y*r2z*r3y + r2z*Power(r3y,2) + 
+                r1x*(r2x - r3x)*(r2z - r3z) + Power(r2x,2)*r3z + Power(r2y,2)*r3z - 
+                r2y*r3y*r3z - r2x*r3x*(r2z + r3z)))*
+           Sqrt(Power(r2y*r3x - r2x*r3y - r2y*r4x + r3y*r4x + r2x*r4y - r3x*r4y,2) + 
+             Power(r2z*r3x - r2x*r3z - r2z*r4x + r3z*r4x + r2x*r4z - r3x*r4z,2) + 
+             Power(r2z*r3y - r2y*r3z - r2z*r4y + r3z*r4y + r2y*r4z - r3y*r4z,2))))*
+      (-(((-(r1y*r2x) + r1x*r2y + r1y*r3x - r2y*r3x - r1x*r3y + r2x*r3y)*
+             (-(r2y*r3x) + r2x*r3y + r2y*r4x - r3y*r4x - r2x*r4y + r3x*r4y))/
+           (Sqrt(Power(-(r1y*r2x) + r1x*r2y + r1y*r3x - r2y*r3x - r1x*r3y + r2x*r3y,
+                2) + Power(r1z*r2x - r1x*r2z - r1z*r3x + r2z*r3x + r1x*r3z - r2x*r3z,
+                2) + Power(-(r1z*r2y) + r1y*r2z + r1z*r3y - r2z*r3y - r1y*r3z + r2y*r3z,
+                2))*Sqrt(Power(-(r2y*r3x) + r2x*r3y + r2y*r4x - r3y*r4x - r2x*r4y + 
+                 r3x*r4y,2) + Power(r2z*r3x - r2x*r3z - r2z*r4x + r3z*r4x + r2x*r4z - 
+                 r3x*r4z,2) + Power(-(r2z*r3y) + r2y*r3z + r2z*r4y - r3z*r4y - 
+                 r2y*r4z + r3y*r4z,2)))) - 
+        ((r1z*r2x - r1x*r2z - r1z*r3x + r2z*r3x + r1x*r3z - r2x*r3z)*
+           (r2z*r3x - r2x*r3z - r2z*r4x + r3z*r4x + r2x*r4z - r3x*r4z))/
+         (Sqrt(Power(-(r1y*r2x) + r1x*r2y + r1y*r3x - r2y*r3x - r1x*r3y + r2x*r3y,2) + 
+             Power(r1z*r2x - r1x*r2z - r1z*r3x + r2z*r3x + r1x*r3z - r2x*r3z,2) + 
+             Power(-(r1z*r2y) + r1y*r2z + r1z*r3y - r2z*r3y - r1y*r3z + r2y*r3z,2))*
+           Sqrt(Power(-(r2y*r3x) + r2x*r3y + r2y*r4x - r3y*r4x - r2x*r4y + r3x*r4y,2) + 
+             Power(r2z*r3x - r2x*r3z - r2z*r4x + r3z*r4x + r2x*r4z - r3x*r4z,2) + 
+             Power(-(r2z*r3y) + r2y*r3z + r2z*r4y - r3z*r4y - r2y*r4z + r3y*r4z,2))) - 
+        ((-(r1z*r2y) + r1y*r2z + r1z*r3y - r2z*r3y - r1y*r3z + r2y*r3z)*
+           (-(r2z*r3y) + r2y*r3z + r2z*r4y - r3z*r4y - r2y*r4z + r3y*r4z))/
+         (Sqrt(Power(-(r1y*r2x) + r1x*r2y + r1y*r3x - r2y*r3x - r1x*r3y + r2x*r3y,2) + 
+             Power(r1z*r2x - r1x*r2z - r1z*r3x + r2z*r3x + r1x*r3z - r2x*r3z,2) + 
+             Power(-(r1z*r2y) + r1y*r2z + r1z*r3y - r2z*r3y - r1y*r3z + r2y*r3z,2))*
+           Sqrt(Power(-(r2y*r3x) + r2x*r3y + r2y*r4x - r3y*r4x - r2x*r4y + r3x*r4y,2) + 
+             Power(r2z*r3x - r2x*r3z - r2z*r4x + r3z*r4x + r2x*r4z - r3x*r4z,2) + 
+             Power(-(r2z*r3y) + r2y*r3z + r2z*r4y - r3z*r4y - r2y*r4z + r3y*r4z,2)))))/
+    (((Power(r2x,2) + Power(r2y,2) + Power(r2z,2) - 2*r2x*r3x + Power(r3x,2) - 
+           2*r2y*r3y + Power(r3y,2) - 2*r2z*r3z + Power(r3z,2))*
+         Power(-(r1x*r2z*r3y) + r1x*r2y*r3z + r2z*r3y*r4x - r2y*r3z*r4x + r1x*r2z*r4y - 
+           r2z*r3x*r4y - r1x*r3z*r4y + r2x*r3z*r4y + 
+           r1z*(r2x*r3y - r3y*r4x + r2y*(-r3x + r4x) - r2x*r4y + r3x*r4y) - 
+           r1x*r2y*r4z + r2y*r3x*r4z + r1x*r3y*r4z - r2x*r3y*r4z + 
+           r1y*(r2z*r3x - r2x*r3z - r2z*r4x + r3z*r4x + r2x*r4z - r3x*r4z),2))/
+       ((Power(r1x,2)*Power(r2y,2) + Power(r1x,2)*Power(r2z,2) - 
+           2*r1x*Power(r2y,2)*r3x - 2*r1x*Power(r2z,2)*r3x + 
+           Power(r2y,2)*Power(r3x,2) + Power(r2z,2)*Power(r3x,2) - 
+           2*Power(r1x,2)*r2y*r3y + 2*r1x*r2x*r2y*r3y + 2*r1x*r2y*r3x*r3y - 
+           2*r2x*r2y*r3x*r3y + Power(r1x,2)*Power(r3y,2) - 2*r1x*r2x*Power(r3y,2) + 
+           Power(r2x,2)*Power(r3y,2) + Power(r2z,2)*Power(r3y,2) + 
+           Power(r1z,2)*(Power(r2x,2) + Power(r2y,2) - 2*r2x*r3x + Power(r3x,2) - 
+              2*r2y*r3y + Power(r3y,2)) - 2*Power(r1x,2)*r2z*r3z + 2*r1x*r2x*r2z*r3z + 
+           2*r1x*r2z*r3x*r3z - 2*r2x*r2z*r3x*r3z - 2*r2y*r2z*r3y*r3z + 
+           Power(r1x,2)*Power(r3z,2) - 2*r1x*r2x*Power(r3z,2) + 
+           Power(r2x,2)*Power(r3z,2) + Power(r2y,2)*Power(r3z,2) + 
+           Power(r1y,2)*(Power(r2x,2) + Power(r2z,2) - 2*r2x*r3x + Power(r3x,2) - 
+              2*r2z*r3z + Power(r3z,2)) - 
+           2*r1y*(-(r2x*r2y*r3x) + r2y*Power(r3x,2) + r1x*(r2x - r3x)*(r2y - r3y) + 
+              Power(r2x,2)*r3y + Power(r2z,2)*r3y - r2x*r3x*r3y + 
+              r1z*(r2y - r3y)*(r2z - r3z) - r2y*r2z*r3z - r2z*r3y*r3z + r2y*Power(r3z,2)
+              ) - 2*r1z*(r2z*Power(r3x,2) - r2y*r2z*r3y + r2z*Power(r3y,2) + 
+              r1x*(r2x - r3x)*(r2z - r3z) + Power(r2x,2)*r3z + Power(r2y,2)*r3z - 
+              r2y*r3y*r3z - r2x*r3x*(r2z + r3z)))*
+         (Power(r2y*r3x - r2x*r3y - r2y*r4x + r3y*r4x + r2x*r4y - r3x*r4y,2) + 
+           Power(r2z*r3x - r2x*r3z - r2z*r4x + r3z*r4x + r2x*r4z - r3x*r4z,2) + 
+           Power(r2z*r3y - r2y*r3z - r2z*r4y + r3z*r4y + r2y*r4z - r3y*r4z,2))) + 
+      Power(((-(r1y*r2x) + r1x*r2y + r1y*r3x - r2y*r3x - r1x*r3y + r2x*r3y)*
+           (-(r2y*r3x) + r2x*r3y + r2y*r4x - r3y*r4x - r2x*r4y + r3x*r4y))/
+         (Sqrt(Power(-(r1y*r2x) + r1x*r2y + r1y*r3x - r2y*r3x - r1x*r3y + r2x*r3y,2) + 
+             Power(r1z*r2x - r1x*r2z - r1z*r3x + r2z*r3x + r1x*r3z - r2x*r3z,2) + 
+             Power(-(r1z*r2y) + r1y*r2z + r1z*r3y - r2z*r3y - r1y*r3z + r2y*r3z,2))*
+           Sqrt(Power(-(r2y*r3x) + r2x*r3y + r2y*r4x - r3y*r4x - r2x*r4y + r3x*r4y,2) + 
+             Power(r2z*r3x - r2x*r3z - r2z*r4x + r3z*r4x + r2x*r4z - r3x*r4z,2) + 
+             Power(-(r2z*r3y) + r2y*r3z + r2z*r4y - r3z*r4y - r2y*r4z + r3y*r4z,2))) + 
+        ((r1z*r2x - r1x*r2z - r1z*r3x + r2z*r3x + r1x*r3z - r2x*r3z)*
+           (r2z*r3x - r2x*r3z - r2z*r4x + r3z*r4x + r2x*r4z - r3x*r4z))/
+         (Sqrt(Power(-(r1y*r2x) + r1x*r2y + r1y*r3x - r2y*r3x - r1x*r3y + r2x*r3y,2) + 
+             Power(r1z*r2x - r1x*r2z - r1z*r3x + r2z*r3x + r1x*r3z - r2x*r3z,2) + 
+             Power(-(r1z*r2y) + r1y*r2z + r1z*r3y - r2z*r3y - r1y*r3z + r2y*r3z,2))*
+           Sqrt(Power(-(r2y*r3x) + r2x*r3y + r2y*r4x - r3y*r4x - r2x*r4y + r3x*r4y,2) + 
+             Power(r2z*r3x - r2x*r3z - r2z*r4x + r3z*r4x + r2x*r4z - r3x*r4z,2) + 
+             Power(-(r2z*r3y) + r2y*r3z + r2z*r4y - r3z*r4y - r2y*r4z + r3y*r4z,2))) + 
+        ((-(r1z*r2y) + r1y*r2z + r1z*r3y - r2z*r3y - r1y*r3z + r2y*r3z)*
+           (-(r2z*r3y) + r2y*r3z + r2z*r4y - r3z*r4y - r2y*r4z + r3y*r4z))/
+         (Sqrt(Power(-(r1y*r2x) + r1x*r2y + r1y*r3x - r2y*r3x - r1x*r3y + r2x*r3y,2) + 
+             Power(r1z*r2x - r1x*r2z - r1z*r3x + r2z*r3x + r1x*r3z - r2x*r3z,2) + 
+             Power(-(r1z*r2y) + r1y*r2z + r1z*r3y - r2z*r3y - r1y*r3z + r2y*r3z,2))*
+           Sqrt(Power(-(r2y*r3x) + r2x*r3y + r2y*r4x - r3y*r4x - r2x*r4y + r3x*r4y,2) + 
+             Power(r2z*r3x - r2x*r3z - r2z*r4x + r3z*r4x + r2x*r4z - r3x*r4z,2) + 
+             Power(-(r2z*r3y) + r2y*r3z + r2z*r4y - r3z*r4y - r2y*r4z + r3y*r4z,2))),2));
+	der_d_th[6] = (Sqrt(Power(r2x,2) + Power(r2y,2) + Power(r2z,2) - 2*r2x*r3x + Power(r3x,2) - 
+        2*r2y*r3y + Power(r3y,2) - 2*r2z*r3z + Power(r3z,2))*
+      (-(r1x*r2z*r3y) + r1x*r2y*r3z + r2z*r3y*r4x - r2y*r3z*r4x + r1x*r2z*r4y - 
+        r2z*r3x*r4y - r1x*r3z*r4y + r2x*r3z*r4y + 
+        r1z*(r2x*r3y - r3y*r4x + r2y*(-r3x + r4x) - r2x*r4y + r3x*r4y) - r1x*r2y*r4z + 
+        r2y*r3x*r4z + r1x*r3y*r4z - r2x*r3y*r4z + 
+        r1y*(r2z*r3x - r2x*r3z - r2z*r4x + r3z*r4x + r2x*r4z - r3x*r4z))*
+      (-((-(r1y*r2x) + r1x*r2y + r1y*r3x - r2y*r3x - r1x*r3y + r2x*r3y)*
+            (-(r2y*r3x) + r2x*r3y + r2y*r4x - r3y*r4x - r2x*r4y + r3x*r4y)*
+            (2*(-r2y + r4y)*(-(r2y*r3x) + r2x*r3y + r2y*r4x - r3y*r4x - r2x*r4y + 
+                 r3x*r4y) + 2*(r2z - r4z)*
+               (r2z*r3x - r2x*r3z - r2z*r4x + r3z*r4x + r2x*r4z - r3x*r4z)))/
+         (2.*Sqrt(Power(-(r1y*r2x) + r1x*r2y + r1y*r3x - r2y*r3x - r1x*r3y + r2x*r3y,
+              2) + Power(r1z*r2x - r1x*r2z - r1z*r3x + r2z*r3x + r1x*r3z - r2x*r3z,2) + 
+             Power(-(r1z*r2y) + r1y*r2z + r1z*r3y - r2z*r3y - r1y*r3z + r2y*r3z,2))*
+           Power(Power(-(r2y*r3x) + r2x*r3y + r2y*r4x - r3y*r4x - r2x*r4y + r3x*r4y,
+              2) + Power(r2z*r3x - r2x*r3z - r2z*r4x + r3z*r4x + r2x*r4z - r3x*r4z,2) + 
+             Power(-(r2z*r3y) + r2y*r3z + r2z*r4y - r3z*r4y - r2y*r4z + r3y*r4z,2),1.5))
+          - ((r1z*r2x - r1x*r2z - r1z*r3x + r2z*r3x + r1x*r3z - r2x*r3z)*
+           (r2z*r3x - r2x*r3z - r2z*r4x + r3z*r4x + r2x*r4z - r3x*r4z)*
+           (2*(-r2y + r4y)*(-(r2y*r3x) + r2x*r3y + r2y*r4x - r3y*r4x - r2x*r4y + 
+                r3x*r4y) + 2*(r2z - r4z)*
+              (r2z*r3x - r2x*r3z - r2z*r4x + r3z*r4x + r2x*r4z - r3x*r4z)))/
+         (2.*Sqrt(Power(-(r1y*r2x) + r1x*r2y + r1y*r3x - r2y*r3x - r1x*r3y + r2x*r3y,
+              2) + Power(r1z*r2x - r1x*r2z - r1z*r3x + r2z*r3x + r1x*r3z - r2x*r3z,2) + 
+             Power(-(r1z*r2y) + r1y*r2z + r1z*r3y - r2z*r3y - r1y*r3z + r2y*r3z,2))*
+           Power(Power(-(r2y*r3x) + r2x*r3y + r2y*r4x - r3y*r4x - r2x*r4y + r3x*r4y,
+              2) + Power(r2z*r3x - r2x*r3z - r2z*r4x + r3z*r4x + r2x*r4z - r3x*r4z,2) + 
+             Power(-(r2z*r3y) + r2y*r3z + r2z*r4y - r3z*r4y - r2y*r4z + r3y*r4z,2),1.5))
+          - ((-(r1z*r2y) + r1y*r2z + r1z*r3y - r2z*r3y - r1y*r3z + r2y*r3z)*
+           (-(r2z*r3y) + r2y*r3z + r2z*r4y - r3z*r4y - r2y*r4z + r3y*r4z)*
+           (2*(-r2y + r4y)*(-(r2y*r3x) + r2x*r3y + r2y*r4x - r3y*r4x - r2x*r4y + 
+                r3x*r4y) + 2*(r2z - r4z)*
+              (r2z*r3x - r2x*r3z - r2z*r4x + r3z*r4x + r2x*r4z - r3x*r4z)))/
+         (2.*Sqrt(Power(-(r1y*r2x) + r1x*r2y + r1y*r3x - r2y*r3x - r1x*r3y + r2x*r3y,
+              2) + Power(r1z*r2x - r1x*r2z - r1z*r3x + r2z*r3x + r1x*r3z - r2x*r3z,2) + 
+             Power(-(r1z*r2y) + r1y*r2z + r1z*r3y - r2z*r3y - r1y*r3z + r2y*r3z,2))*
+           Power(Power(-(r2y*r3x) + r2x*r3y + r2y*r4x - r3y*r4x - r2x*r4y + r3x*r4y,
+              2) + Power(r2z*r3x - r2x*r3z - r2z*r4x + r3z*r4x + r2x*r4z - r3x*r4z,2) + 
+             Power(-(r2z*r3y) + r2y*r3z + r2z*r4y - r3z*r4y - r2y*r4z + r3y*r4z,2),1.5))
+          + ((-(r1y*r2x) + r1x*r2y + r1y*r3x - r2y*r3x - r1x*r3y + r2x*r3y)*
+           (-r2y + r4y))/
+         (Sqrt(Power(-(r1y*r2x) + r1x*r2y + r1y*r3x - r2y*r3x - r1x*r3y + r2x*r3y,2) + 
+             Power(r1z*r2x - r1x*r2z - r1z*r3x + r2z*r3x + r1x*r3z - r2x*r3z,2) + 
+             Power(-(r1z*r2y) + r1y*r2z + r1z*r3y - r2z*r3y - r1y*r3z + r2y*r3z,2))*
+           Sqrt(Power(-(r2y*r3x) + r2x*r3y + r2y*r4x - r3y*r4x - r2x*r4y + r3x*r4y,2) + 
+             Power(r2z*r3x - r2x*r3z - r2z*r4x + r3z*r4x + r2x*r4z - r3x*r4z,2) + 
+             Power(-(r2z*r3y) + r2y*r3z + r2z*r4y - r3z*r4y - r2y*r4z + r3y*r4z,2))) - 
+        ((-(r1y*r2x) + r1x*r2y + r1y*r3x - r2y*r3x - r1x*r3y + r2x*r3y)*
+           (2*(r1y - r2y)*(-(r1y*r2x) + r1x*r2y + r1y*r3x - r2y*r3x - r1x*r3y + 
+                r2x*r3y) + 2*(-r1z + r2z)*
+              (r1z*r2x - r1x*r2z - r1z*r3x + r2z*r3x + r1x*r3z - r2x*r3z))*
+           (-(r2y*r3x) + r2x*r3y + r2y*r4x - r3y*r4x - r2x*r4y + r3x*r4y))/
+         (2.*Power(Power(-(r1y*r2x) + r1x*r2y + r1y*r3x - r2y*r3x - r1x*r3y + r2x*r3y,
+              2) + Power(r1z*r2x - r1x*r2z - r1z*r3x + r2z*r3x + r1x*r3z - r2x*r3z,2) + 
+             Power(-(r1z*r2y) + r1y*r2z + r1z*r3y - r2z*r3y - r1y*r3z + r2y*r3z,2),1.5)*
+           Sqrt(Power(-(r2y*r3x) + r2x*r3y + r2y*r4x - r3y*r4x - r2x*r4y + r3x*r4y,2) + 
+             Power(r2z*r3x - r2x*r3z - r2z*r4x + r3z*r4x + r2x*r4z - r3x*r4z,2) + 
+             Power(-(r2z*r3y) + r2y*r3z + r2z*r4y - r3z*r4y - r2y*r4z + r3y*r4z,2))) + 
+        ((r1y - r2y)*(-(r2y*r3x) + r2x*r3y + r2y*r4x - r3y*r4x - r2x*r4y + r3x*r4y))/
+         (Sqrt(Power(-(r1y*r2x) + r1x*r2y + r1y*r3x - r2y*r3x - r1x*r3y + r2x*r3y,2) + 
+             Power(r1z*r2x - r1x*r2z - r1z*r3x + r2z*r3x + r1x*r3z - r2x*r3z,2) + 
+             Power(-(r1z*r2y) + r1y*r2z + r1z*r3y - r2z*r3y - r1y*r3z + r2y*r3z,2))*
+           Sqrt(Power(-(r2y*r3x) + r2x*r3y + r2y*r4x - r3y*r4x - r2x*r4y + r3x*r4y,2) + 
+             Power(r2z*r3x - r2x*r3z - r2z*r4x + r3z*r4x + r2x*r4z - r3x*r4z,2) + 
+             Power(-(r2z*r3y) + r2y*r3z + r2z*r4y - r3z*r4y - r2y*r4z + r3y*r4z,2))) + 
+        ((r1z*r2x - r1x*r2z - r1z*r3x + r2z*r3x + r1x*r3z - r2x*r3z)*(r2z - r4z))/
+         (Sqrt(Power(-(r1y*r2x) + r1x*r2y + r1y*r3x - r2y*r3x - r1x*r3y + r2x*r3y,2) + 
+             Power(r1z*r2x - r1x*r2z - r1z*r3x + r2z*r3x + r1x*r3z - r2x*r3z,2) + 
+             Power(-(r1z*r2y) + r1y*r2z + r1z*r3y - r2z*r3y - r1y*r3z + r2y*r3z,2))*
+           Sqrt(Power(-(r2y*r3x) + r2x*r3y + r2y*r4x - r3y*r4x - r2x*r4y + r3x*r4y,2) + 
+             Power(r2z*r3x - r2x*r3z - r2z*r4x + r3z*r4x + r2x*r4z - r3x*r4z,2) + 
+             Power(-(r2z*r3y) + r2y*r3z + r2z*r4y - r3z*r4y - r2y*r4z + r3y*r4z,2))) - 
+        ((r1z*r2x - r1x*r2z - r1z*r3x + r2z*r3x + r1x*r3z - r2x*r3z)*
+           (2*(r1y - r2y)*(-(r1y*r2x) + r1x*r2y + r1y*r3x - r2y*r3x - r1x*r3y + 
+                r2x*r3y) + 2*(-r1z + r2z)*
+              (r1z*r2x - r1x*r2z - r1z*r3x + r2z*r3x + r1x*r3z - r2x*r3z))*
+           (r2z*r3x - r2x*r3z - r2z*r4x + r3z*r4x + r2x*r4z - r3x*r4z))/
+         (2.*Power(Power(-(r1y*r2x) + r1x*r2y + r1y*r3x - r2y*r3x - r1x*r3y + r2x*r3y,
+              2) + Power(r1z*r2x - r1x*r2z - r1z*r3x + r2z*r3x + r1x*r3z - r2x*r3z,2) + 
+             Power(-(r1z*r2y) + r1y*r2z + r1z*r3y - r2z*r3y - r1y*r3z + r2y*r3z,2),1.5)*
+           Sqrt(Power(-(r2y*r3x) + r2x*r3y + r2y*r4x - r3y*r4x - r2x*r4y + r3x*r4y,2) + 
+             Power(r2z*r3x - r2x*r3z - r2z*r4x + r3z*r4x + r2x*r4z - r3x*r4z,2) + 
+             Power(-(r2z*r3y) + r2y*r3z + r2z*r4y - r3z*r4y - r2y*r4z + r3y*r4z,2))) + 
+        ((-r1z + r2z)*(r2z*r3x - r2x*r3z - r2z*r4x + r3z*r4x + r2x*r4z - r3x*r4z))/
+         (Sqrt(Power(-(r1y*r2x) + r1x*r2y + r1y*r3x - r2y*r3x - r1x*r3y + r2x*r3y,2) + 
+             Power(r1z*r2x - r1x*r2z - r1z*r3x + r2z*r3x + r1x*r3z - r2x*r3z,2) + 
+             Power(-(r1z*r2y) + r1y*r2z + r1z*r3y - r2z*r3y - r1y*r3z + r2y*r3z,2))*
+           Sqrt(Power(-(r2y*r3x) + r2x*r3y + r2y*r4x - r3y*r4x - r2x*r4y + r3x*r4y,2) + 
+             Power(r2z*r3x - r2x*r3z - r2z*r4x + r3z*r4x + r2x*r4z - r3x*r4z,2) + 
+             Power(-(r2z*r3y) + r2y*r3z + r2z*r4y - r3z*r4y - r2y*r4z + r3y*r4z,2))) - 
+        ((-(r1z*r2y) + r1y*r2z + r1z*r3y - r2z*r3y - r1y*r3z + r2y*r3z)*
+           (2*(r1y - r2y)*(-(r1y*r2x) + r1x*r2y + r1y*r3x - r2y*r3x - r1x*r3y + 
+                r2x*r3y) + 2*(-r1z + r2z)*
+              (r1z*r2x - r1x*r2z - r1z*r3x + r2z*r3x + r1x*r3z - r2x*r3z))*
+           (-(r2z*r3y) + r2y*r3z + r2z*r4y - r3z*r4y - r2y*r4z + r3y*r4z))/
+         (2.*Power(Power(-(r1y*r2x) + r1x*r2y + r1y*r3x - r2y*r3x - r1x*r3y + r2x*r3y,
+              2) + Power(r1z*r2x - r1x*r2z - r1z*r3x + r2z*r3x + r1x*r3z - r2x*r3z,2) + 
+             Power(-(r1z*r2y) + r1y*r2z + r1z*r3y - r2z*r3y - r1y*r3z + r2y*r3z,2),1.5)*
+           Sqrt(Power(-(r2y*r3x) + r2x*r3y + r2y*r4x - r3y*r4x - r2x*r4y + r3x*r4y,2) + 
+             Power(r2z*r3x - r2x*r3z - r2z*r4x + r3z*r4x + r2x*r4z - r3x*r4z,2) + 
+             Power(-(r2z*r3y) + r2y*r3z + r2z*r4y - r3z*r4y - r2y*r4z + r3y*r4z,2)))))/
+    (Sqrt(Power(r1x,2)*Power(r2y,2) + Power(r1x,2)*Power(r2z,2) - 
+        2*r1x*Power(r2y,2)*r3x - 2*r1x*Power(r2z,2)*r3x + Power(r2y,2)*Power(r3x,2) + 
+        Power(r2z,2)*Power(r3x,2) - 2*Power(r1x,2)*r2y*r3y + 2*r1x*r2x*r2y*r3y + 
+        2*r1x*r2y*r3x*r3y - 2*r2x*r2y*r3x*r3y + Power(r1x,2)*Power(r3y,2) - 
+        2*r1x*r2x*Power(r3y,2) + Power(r2x,2)*Power(r3y,2) + 
+        Power(r2z,2)*Power(r3y,2) + 
+        Power(r1z,2)*(Power(r2x,2) + Power(r2y,2) - 2*r2x*r3x + Power(r3x,2) - 
+           2*r2y*r3y + Power(r3y,2)) - 2*Power(r1x,2)*r2z*r3z + 2*r1x*r2x*r2z*r3z + 
+        2*r1x*r2z*r3x*r3z - 2*r2x*r2z*r3x*r3z - 2*r2y*r2z*r3y*r3z + 
+        Power(r1x,2)*Power(r3z,2) - 2*r1x*r2x*Power(r3z,2) + 
+        Power(r2x,2)*Power(r3z,2) + Power(r2y,2)*Power(r3z,2) + 
+        Power(r1y,2)*(Power(r2x,2) + Power(r2z,2) - 2*r2x*r3x + Power(r3x,2) - 
+           2*r2z*r3z + Power(r3z,2)) - 
+        2*r1y*(-(r2x*r2y*r3x) + r2y*Power(r3x,2) + r1x*(r2x - r3x)*(r2y - r3y) + 
+           Power(r2x,2)*r3y + Power(r2z,2)*r3y - r2x*r3x*r3y + 
+           r1z*(r2y - r3y)*(r2z - r3z) - r2y*r2z*r3z - r2z*r3y*r3z + r2y*Power(r3z,2))\
+         - 2*r1z*(r2z*Power(r3x,2) - r2y*r2z*r3y + r2z*Power(r3y,2) + 
+           r1x*(r2x - r3x)*(r2z - r3z) + Power(r2x,2)*r3z + Power(r2y,2)*r3z - 
+           r2y*r3y*r3z - r2x*r3x*(r2z + r3z)))*
+      Sqrt(Power(r2y*r3x - r2x*r3y - r2y*r4x + r3y*r4x + r2x*r4y - r3x*r4y,2) + 
+        Power(r2z*r3x - r2x*r3z - r2z*r4x + r3z*r4x + r2x*r4z - r3x*r4z,2) + 
+        Power(r2z*r3y - r2y*r3z - r2z*r4y + r3z*r4y + r2y*r4z - r3y*r4z,2))*
+      (((Power(r2x,2) + Power(r2y,2) + Power(r2z,2) - 2*r2x*r3x + Power(r3x,2) - 
+             2*r2y*r3y + Power(r3y,2) - 2*r2z*r3z + Power(r3z,2))*
+           Power(-(r1x*r2z*r3y) + r1x*r2y*r3z + r2z*r3y*r4x - r2y*r3z*r4x + 
+             r1x*r2z*r4y - r2z*r3x*r4y - r1x*r3z*r4y + r2x*r3z*r4y + 
+             r1z*(r2x*r3y - r3y*r4x + r2y*(-r3x + r4x) - r2x*r4y + r3x*r4y) - 
+             r1x*r2y*r4z + r2y*r3x*r4z + r1x*r3y*r4z - r2x*r3y*r4z + 
+             r1y*(r2z*r3x - r2x*r3z - r2z*r4x + r3z*r4x + r2x*r4z - r3x*r4z),2))/
+         ((Power(r1x,2)*Power(r2y,2) + Power(r1x,2)*Power(r2z,2) - 
+             2*r1x*Power(r2y,2)*r3x - 2*r1x*Power(r2z,2)*r3x + 
+             Power(r2y,2)*Power(r3x,2) + Power(r2z,2)*Power(r3x,2) - 
+             2*Power(r1x,2)*r2y*r3y + 2*r1x*r2x*r2y*r3y + 2*r1x*r2y*r3x*r3y - 
+             2*r2x*r2y*r3x*r3y + Power(r1x,2)*Power(r3y,2) - 2*r1x*r2x*Power(r3y,2) + 
+             Power(r2x,2)*Power(r3y,2) + Power(r2z,2)*Power(r3y,2) + 
+             Power(r1z,2)*(Power(r2x,2) + Power(r2y,2) - 2*r2x*r3x + Power(r3x,2) - 
+                2*r2y*r3y + Power(r3y,2)) - 2*Power(r1x,2)*r2z*r3z + 
+             2*r1x*r2x*r2z*r3z + 2*r1x*r2z*r3x*r3z - 2*r2x*r2z*r3x*r3z - 
+             2*r2y*r2z*r3y*r3z + Power(r1x,2)*Power(r3z,2) - 2*r1x*r2x*Power(r3z,2) + 
+             Power(r2x,2)*Power(r3z,2) + Power(r2y,2)*Power(r3z,2) + 
+             Power(r1y,2)*(Power(r2x,2) + Power(r2z,2) - 2*r2x*r3x + Power(r3x,2) - 
+                2*r2z*r3z + Power(r3z,2)) - 
+             2*r1y*(-(r2x*r2y*r3x) + r2y*Power(r3x,2) + r1x*(r2x - r3x)*(r2y - r3y) + 
+                Power(r2x,2)*r3y + Power(r2z,2)*r3y - r2x*r3x*r3y + 
+                r1z*(r2y - r3y)*(r2z - r3z) - r2y*r2z*r3z - r2z*r3y*r3z + 
+                r2y*Power(r3z,2)) - 
+             2*r1z*(r2z*Power(r3x,2) - r2y*r2z*r3y + r2z*Power(r3y,2) + 
+                r1x*(r2x - r3x)*(r2z - r3z) + Power(r2x,2)*r3z + Power(r2y,2)*r3z - 
+                r2y*r3y*r3z - r2x*r3x*(r2z + r3z)))*
+           (Power(r2y*r3x - r2x*r3y - r2y*r4x + r3y*r4x + r2x*r4y - r3x*r4y,2) + 
+             Power(r2z*r3x - r2x*r3z - r2z*r4x + r3z*r4x + r2x*r4z - r3x*r4z,2) + 
+             Power(r2z*r3y - r2y*r3z - r2z*r4y + r3z*r4y + r2y*r4z - r3y*r4z,2))) + 
+        Power(((-(r1y*r2x) + r1x*r2y + r1y*r3x - r2y*r3x - r1x*r3y + r2x*r3y)*
+             (-(r2y*r3x) + r2x*r3y + r2y*r4x - r3y*r4x - r2x*r4y + r3x*r4y))/
+           (Sqrt(Power(-(r1y*r2x) + r1x*r2y + r1y*r3x - r2y*r3x - r1x*r3y + r2x*r3y,
+                2) + Power(r1z*r2x - r1x*r2z - r1z*r3x + r2z*r3x + r1x*r3z - r2x*r3z,
+                2) + Power(-(r1z*r2y) + r1y*r2z + r1z*r3y - r2z*r3y - r1y*r3z + r2y*r3z,
+                2))*Sqrt(Power(-(r2y*r3x) + r2x*r3y + r2y*r4x - r3y*r4x - r2x*r4y + 
+                 r3x*r4y,2) + Power(r2z*r3x - r2x*r3z - r2z*r4x + r3z*r4x + r2x*r4z - 
+                 r3x*r4z,2) + Power(-(r2z*r3y) + r2y*r3z + r2z*r4y - r3z*r4y - 
+                 r2y*r4z + r3y*r4z,2))) + 
+          ((r1z*r2x - r1x*r2z - r1z*r3x + r2z*r3x + r1x*r3z - r2x*r3z)*
+             (r2z*r3x - r2x*r3z - r2z*r4x + r3z*r4x + r2x*r4z - r3x*r4z))/
+           (Sqrt(Power(-(r1y*r2x) + r1x*r2y + r1y*r3x - r2y*r3x - r1x*r3y + r2x*r3y,
+                2) + Power(r1z*r2x - r1x*r2z - r1z*r3x + r2z*r3x + r1x*r3z - r2x*r3z,
+                2) + Power(-(r1z*r2y) + r1y*r2z + r1z*r3y - r2z*r3y - r1y*r3z + r2y*r3z,
+                2))*Sqrt(Power(-(r2y*r3x) + r2x*r3y + r2y*r4x - r3y*r4x - r2x*r4y + 
+                 r3x*r4y,2) + Power(r2z*r3x - r2x*r3z - r2z*r4x + r3z*r4x + r2x*r4z - 
+                 r3x*r4z,2) + Power(-(r2z*r3y) + r2y*r3z + r2z*r4y - r3z*r4y - 
+                 r2y*r4z + r3y*r4z,2))) + 
+          ((-(r1z*r2y) + r1y*r2z + r1z*r3y - r2z*r3y - r1y*r3z + r2y*r3z)*
+             (-(r2z*r3y) + r2y*r3z + r2z*r4y - r3z*r4y - r2y*r4z + r3y*r4z))/
+           (Sqrt(Power(-(r1y*r2x) + r1x*r2y + r1y*r3x - r2y*r3x - r1x*r3y + r2x*r3y,
+                2) + Power(r1z*r2x - r1x*r2z - r1z*r3x + r2z*r3x + r1x*r3z - r2x*r3z,
+                2) + Power(-(r1z*r2y) + r1y*r2z + r1z*r3y - r2z*r3y - r1y*r3z + r2y*r3z,
+                2))*Sqrt(Power(-(r2y*r3x) + r2x*r3y + r2y*r4x - r3y*r4x - r2x*r4y + 
+                 r3x*r4y,2) + Power(r2z*r3x - r2x*r3z - r2z*r4x + r3z*r4x + r2x*r4z - 
+                 r3x*r4z,2) + Power(-(r2z*r3y) + r2y*r3z + r2z*r4y - r3z*r4y - 
+                 r2y*r4z + r3y*r4z,2))),2))) + 
+   ((-(Sqrt(Power(r2x,2) + Power(r2y,2) + Power(r2z,2) - 2*r2x*r3x + Power(r3x,2) - 
+              2*r2y*r3y + Power(r3y,2) - 2*r2z*r3z + Power(r3z,2))*
+            (-(r1x*r2z*r3y) + r1x*r2y*r3z + r2z*r3y*r4x - r2y*r3z*r4x + r1x*r2z*r4y - 
+              r2z*r3x*r4y - r1x*r3z*r4y + r2x*r3z*r4y + 
+              r1z*(r2x*r3y - r3y*r4x + r2y*(-r3x + r4x) - r2x*r4y + r3x*r4y) - 
+              r1x*r2y*r4z + r2y*r3x*r4z + r1x*r3y*r4z - r2x*r3y*r4z + 
+              r1y*(r2z*r3x - r2x*r3z - r2z*r4x + r3z*r4x + r2x*r4z - r3x*r4z))*
+            (2*(r2y - r4y)*(r2y*r3x - r2x*r3y - r2y*r4x + r3y*r4x + r2x*r4y - 
+                 r3x*r4y) + 2*(r2z - r4z)*
+               (r2z*r3x - r2x*r3z - r2z*r4x + r3z*r4x + r2x*r4z - r3x*r4z)))/
+         (2.*Sqrt(Power(r1x,2)*Power(r2y,2) + Power(r1x,2)*Power(r2z,2) - 
+             2*r1x*Power(r2y,2)*r3x - 2*r1x*Power(r2z,2)*r3x + 
+             Power(r2y,2)*Power(r3x,2) + Power(r2z,2)*Power(r3x,2) - 
+             2*Power(r1x,2)*r2y*r3y + 2*r1x*r2x*r2y*r3y + 2*r1x*r2y*r3x*r3y - 
+             2*r2x*r2y*r3x*r3y + Power(r1x,2)*Power(r3y,2) - 2*r1x*r2x*Power(r3y,2) + 
+             Power(r2x,2)*Power(r3y,2) + Power(r2z,2)*Power(r3y,2) + 
+             Power(r1z,2)*(Power(r2x,2) + Power(r2y,2) - 2*r2x*r3x + Power(r3x,2) - 
+                2*r2y*r3y + Power(r3y,2)) - 2*Power(r1x,2)*r2z*r3z + 
+             2*r1x*r2x*r2z*r3z + 2*r1x*r2z*r3x*r3z - 2*r2x*r2z*r3x*r3z - 
+             2*r2y*r2z*r3y*r3z + Power(r1x,2)*Power(r3z,2) - 2*r1x*r2x*Power(r3z,2) + 
+             Power(r2x,2)*Power(r3z,2) + Power(r2y,2)*Power(r3z,2) + 
+             Power(r1y,2)*(Power(r2x,2) + Power(r2z,2) - 2*r2x*r3x + Power(r3x,2) - 
+                2*r2z*r3z + Power(r3z,2)) - 
+             2*r1y*(-(r2x*r2y*r3x) + r2y*Power(r3x,2) + r1x*(r2x - r3x)*(r2y - r3y) + 
+                Power(r2x,2)*r3y + Power(r2z,2)*r3y - r2x*r3x*r3y + 
+                r1z*(r2y - r3y)*(r2z - r3z) - r2y*r2z*r3z - r2z*r3y*r3z + 
+                r2y*Power(r3z,2)) - 
+             2*r1z*(r2z*Power(r3x,2) - r2y*r2z*r3y + r2z*Power(r3y,2) + 
+                r1x*(r2x - r3x)*(r2z - r3z) + Power(r2x,2)*r3z + Power(r2y,2)*r3z - 
+                r2y*r3y*r3z - r2x*r3x*(r2z + r3z)))*
+           Power(Power(r2y*r3x - r2x*r3y - r2y*r4x + r3y*r4x + r2x*r4y - r3x*r4y,2) + 
+             Power(r2z*r3x - r2x*r3z - r2z*r4x + r3z*r4x + r2x*r4z - r3x*r4z,2) + 
+             Power(r2z*r3y - r2y*r3z - r2z*r4y + r3z*r4y + r2y*r4z - r3y*r4z,2),1.5)) + 
+        (Sqrt(Power(r2x,2) + Power(r2y,2) + Power(r2z,2) - 2*r2x*r3x + Power(r3x,2) - 
+             2*r2y*r3y + Power(r3y,2) - 2*r2z*r3z + Power(r3z,2))*
+           (-(r2z*r4y) + r1z*(-r2y + r4y) + r1y*(r2z - r4z) + r2y*r4z))/
+         (Sqrt(Power(r1x,2)*Power(r2y,2) + Power(r1x,2)*Power(r2z,2) - 
+             2*r1x*Power(r2y,2)*r3x - 2*r1x*Power(r2z,2)*r3x + 
+             Power(r2y,2)*Power(r3x,2) + Power(r2z,2)*Power(r3x,2) - 
+             2*Power(r1x,2)*r2y*r3y + 2*r1x*r2x*r2y*r3y + 2*r1x*r2y*r3x*r3y - 
+             2*r2x*r2y*r3x*r3y + Power(r1x,2)*Power(r3y,2) - 2*r1x*r2x*Power(r3y,2) + 
+             Power(r2x,2)*Power(r3y,2) + Power(r2z,2)*Power(r3y,2) + 
+             Power(r1z,2)*(Power(r2x,2) + Power(r2y,2) - 2*r2x*r3x + Power(r3x,2) - 
+                2*r2y*r3y + Power(r3y,2)) - 2*Power(r1x,2)*r2z*r3z + 
+             2*r1x*r2x*r2z*r3z + 2*r1x*r2z*r3x*r3z - 2*r2x*r2z*r3x*r3z - 
+             2*r2y*r2z*r3y*r3z + Power(r1x,2)*Power(r3z,2) - 2*r1x*r2x*Power(r3z,2) + 
+             Power(r2x,2)*Power(r3z,2) + Power(r2y,2)*Power(r3z,2) + 
+             Power(r1y,2)*(Power(r2x,2) + Power(r2z,2) - 2*r2x*r3x + Power(r3x,2) - 
+                2*r2z*r3z + Power(r3z,2)) - 
+             2*r1y*(-(r2x*r2y*r3x) + r2y*Power(r3x,2) + r1x*(r2x - r3x)*(r2y - r3y) + 
+                Power(r2x,2)*r3y + Power(r2z,2)*r3y - r2x*r3x*r3y + 
+                r1z*(r2y - r3y)*(r2z - r3z) - r2y*r2z*r3z - r2z*r3y*r3z + 
+                r2y*Power(r3z,2)) - 
+             2*r1z*(r2z*Power(r3x,2) - r2y*r2z*r3y + r2z*Power(r3y,2) + 
+                r1x*(r2x - r3x)*(r2z - r3z) + Power(r2x,2)*r3z + Power(r2y,2)*r3z - 
+                r2y*r3y*r3z - r2x*r3x*(r2z + r3z)))*
+           Sqrt(Power(r2y*r3x - r2x*r3y - r2y*r4x + r3y*r4x + r2x*r4y - r3x*r4y,2) + 
+             Power(r2z*r3x - r2x*r3z - r2z*r4x + r3z*r4x + r2x*r4z - r3x*r4z,2) + 
+             Power(r2z*r3y - r2y*r3z - r2z*r4y + r3z*r4y + r2y*r4z - r3y*r4z,2))) - 
+        (Sqrt(Power(r2x,2) + Power(r2y,2) + Power(r2z,2) - 2*r2x*r3x + Power(r3x,2) - 
+             2*r2y*r3y + Power(r3y,2) - 2*r2z*r3z + Power(r3z,2))*
+           (-2*r1x*Power(r2y,2) - 2*r1x*Power(r2z,2) + 2*Power(r2y,2)*r3x + 
+             2*Power(r2z,2)*r3x + Power(r1y,2)*(-2*r2x + 2*r3x) + 
+             Power(r1z,2)*(-2*r2x + 2*r3x) + 2*r1x*r2y*r3y - 2*r2x*r2y*r3y - 
+             2*r1y*(-(r2x*r2y) + 2*r2y*r3x - r1x*(r2y - r3y) - r2x*r3y) + 
+             2*r1x*r2z*r3z - 2*r2x*r2z*r3z - 
+             2*r1z*(2*r2z*r3x - r1x*(r2z - r3z) - r2x*(r2z + r3z)))*
+           (-(r1x*r2z*r3y) + r1x*r2y*r3z + r2z*r3y*r4x - r2y*r3z*r4x + r1x*r2z*r4y - 
+             r2z*r3x*r4y - r1x*r3z*r4y + r2x*r3z*r4y + 
+             r1z*(r2x*r3y - r3y*r4x + r2y*(-r3x + r4x) - r2x*r4y + r3x*r4y) - 
+             r1x*r2y*r4z + r2y*r3x*r4z + r1x*r3y*r4z - r2x*r3y*r4z + 
+             r1y*(r2z*r3x - r2x*r3z - r2z*r4x + r3z*r4x + r2x*r4z - r3x*r4z)))/
+         (2.*Power(Power(r1x,2)*Power(r2y,2) + Power(r1x,2)*Power(r2z,2) - 
+             2*r1x*Power(r2y,2)*r3x - 2*r1x*Power(r2z,2)*r3x + 
+             Power(r2y,2)*Power(r3x,2) + Power(r2z,2)*Power(r3x,2) - 
+             2*Power(r1x,2)*r2y*r3y + 2*r1x*r2x*r2y*r3y + 2*r1x*r2y*r3x*r3y - 
+             2*r2x*r2y*r3x*r3y + Power(r1x,2)*Power(r3y,2) - 2*r1x*r2x*Power(r3y,2) + 
+             Power(r2x,2)*Power(r3y,2) + Power(r2z,2)*Power(r3y,2) + 
+             Power(r1z,2)*(Power(r2x,2) + Power(r2y,2) - 2*r2x*r3x + Power(r3x,2) - 
+                2*r2y*r3y + Power(r3y,2)) - 2*Power(r1x,2)*r2z*r3z + 
+             2*r1x*r2x*r2z*r3z + 2*r1x*r2z*r3x*r3z - 2*r2x*r2z*r3x*r3z - 
+             2*r2y*r2z*r3y*r3z + Power(r1x,2)*Power(r3z,2) - 2*r1x*r2x*Power(r3z,2) + 
+             Power(r2x,2)*Power(r3z,2) + Power(r2y,2)*Power(r3z,2) + 
+             Power(r1y,2)*(Power(r2x,2) + Power(r2z,2) - 2*r2x*r3x + Power(r3x,2) - 
+                2*r2z*r3z + Power(r3z,2)) - 
+             2*r1y*(-(r2x*r2y*r3x) + r2y*Power(r3x,2) + r1x*(r2x - r3x)*(r2y - r3y) + 
+                Power(r2x,2)*r3y + Power(r2z,2)*r3y - r2x*r3x*r3y + 
+                r1z*(r2y - r3y)*(r2z - r3z) - r2y*r2z*r3z - r2z*r3y*r3z + 
+                r2y*Power(r3z,2)) - 
+             2*r1z*(r2z*Power(r3x,2) - r2y*r2z*r3y + r2z*Power(r3y,2) + 
+                r1x*(r2x - r3x)*(r2z - r3z) + Power(r2x,2)*r3z + Power(r2y,2)*r3z - 
+                r2y*r3y*r3z - r2x*r3x*(r2z + r3z)),1.5)*
+           Sqrt(Power(r2y*r3x - r2x*r3y - r2y*r4x + r3y*r4x + r2x*r4y - r3x*r4y,2) + 
+             Power(r2z*r3x - r2x*r3z - r2z*r4x + r3z*r4x + r2x*r4z - r3x*r4z,2) + 
+             Power(r2z*r3y - r2y*r3z - r2z*r4y + r3z*r4y + r2y*r4z - r3y*r4z,2))) + 
+        ((-2*r2x + 2*r3x)*(-(r1x*r2z*r3y) + r1x*r2y*r3z + r2z*r3y*r4x - r2y*r3z*r4x + 
+             r1x*r2z*r4y - r2z*r3x*r4y - r1x*r3z*r4y + r2x*r3z*r4y + 
+             r1z*(r2x*r3y - r3y*r4x + r2y*(-r3x + r4x) - r2x*r4y + r3x*r4y) - 
+             r1x*r2y*r4z + r2y*r3x*r4z + r1x*r3y*r4z - r2x*r3y*r4z + 
+             r1y*(r2z*r3x - r2x*r3z - r2z*r4x + r3z*r4x + r2x*r4z - r3x*r4z)))/
+         (2.*Sqrt(Power(r2x,2) + Power(r2y,2) + Power(r2z,2) - 2*r2x*r3x + 
+             Power(r3x,2) - 2*r2y*r3y + Power(r3y,2) - 2*r2z*r3z + Power(r3z,2))*
+           Sqrt(Power(r1x,2)*Power(r2y,2) + Power(r1x,2)*Power(r2z,2) - 
+             2*r1x*Power(r2y,2)*r3x - 2*r1x*Power(r2z,2)*r3x + 
+             Power(r2y,2)*Power(r3x,2) + Power(r2z,2)*Power(r3x,2) - 
+             2*Power(r1x,2)*r2y*r3y + 2*r1x*r2x*r2y*r3y + 2*r1x*r2y*r3x*r3y - 
+             2*r2x*r2y*r3x*r3y + Power(r1x,2)*Power(r3y,2) - 2*r1x*r2x*Power(r3y,2) + 
+             Power(r2x,2)*Power(r3y,2) + Power(r2z,2)*Power(r3y,2) + 
+             Power(r1z,2)*(Power(r2x,2) + Power(r2y,2) - 2*r2x*r3x + Power(r3x,2) - 
+                2*r2y*r3y + Power(r3y,2)) - 2*Power(r1x,2)*r2z*r3z + 
+             2*r1x*r2x*r2z*r3z + 2*r1x*r2z*r3x*r3z - 2*r2x*r2z*r3x*r3z - 
+             2*r2y*r2z*r3y*r3z + Power(r1x,2)*Power(r3z,2) - 2*r1x*r2x*Power(r3z,2) + 
+             Power(r2x,2)*Power(r3z,2) + Power(r2y,2)*Power(r3z,2) + 
+             Power(r1y,2)*(Power(r2x,2) + Power(r2z,2) - 2*r2x*r3x + Power(r3x,2) - 
+                2*r2z*r3z + Power(r3z,2)) - 
+             2*r1y*(-(r2x*r2y*r3x) + r2y*Power(r3x,2) + r1x*(r2x - r3x)*(r2y - r3y) + 
+                Power(r2x,2)*r3y + Power(r2z,2)*r3y - r2x*r3x*r3y + 
+                r1z*(r2y - r3y)*(r2z - r3z) - r2y*r2z*r3z - r2z*r3y*r3z + 
+                r2y*Power(r3z,2)) - 
+             2*r1z*(r2z*Power(r3x,2) - r2y*r2z*r3y + r2z*Power(r3y,2) + 
+                r1x*(r2x - r3x)*(r2z - r3z) + Power(r2x,2)*r3z + Power(r2y,2)*r3z - 
+                r2y*r3y*r3z - r2x*r3x*(r2z + r3z)))*
+           Sqrt(Power(r2y*r3x - r2x*r3y - r2y*r4x + r3y*r4x + r2x*r4y - r3x*r4y,2) + 
+             Power(r2z*r3x - r2x*r3z - r2z*r4x + r3z*r4x + r2x*r4z - r3x*r4z,2) + 
+             Power(r2z*r3y - r2y*r3z - r2z*r4y + r3z*r4y + r2y*r4z - r3y*r4z,2))))*
+      (-(((-(r1y*r2x) + r1x*r2y + r1y*r3x - r2y*r3x - r1x*r3y + r2x*r3y)*
+             (-(r2y*r3x) + r2x*r3y + r2y*r4x - r3y*r4x - r2x*r4y + r3x*r4y))/
+           (Sqrt(Power(-(r1y*r2x) + r1x*r2y + r1y*r3x - r2y*r3x - r1x*r3y + r2x*r3y,
+                2) + Power(r1z*r2x - r1x*r2z - r1z*r3x + r2z*r3x + r1x*r3z - r2x*r3z,
+                2) + Power(-(r1z*r2y) + r1y*r2z + r1z*r3y - r2z*r3y - r1y*r3z + r2y*r3z,
+                2))*Sqrt(Power(-(r2y*r3x) + r2x*r3y + r2y*r4x - r3y*r4x - r2x*r4y + 
+                 r3x*r4y,2) + Power(r2z*r3x - r2x*r3z - r2z*r4x + r3z*r4x + r2x*r4z - 
+                 r3x*r4z,2) + Power(-(r2z*r3y) + r2y*r3z + r2z*r4y - r3z*r4y - 
+                 r2y*r4z + r3y*r4z,2)))) - 
+        ((r1z*r2x - r1x*r2z - r1z*r3x + r2z*r3x + r1x*r3z - r2x*r3z)*
+           (r2z*r3x - r2x*r3z - r2z*r4x + r3z*r4x + r2x*r4z - r3x*r4z))/
+         (Sqrt(Power(-(r1y*r2x) + r1x*r2y + r1y*r3x - r2y*r3x - r1x*r3y + r2x*r3y,2) + 
+             Power(r1z*r2x - r1x*r2z - r1z*r3x + r2z*r3x + r1x*r3z - r2x*r3z,2) + 
+             Power(-(r1z*r2y) + r1y*r2z + r1z*r3y - r2z*r3y - r1y*r3z + r2y*r3z,2))*
+           Sqrt(Power(-(r2y*r3x) + r2x*r3y + r2y*r4x - r3y*r4x - r2x*r4y + r3x*r4y,2) + 
+             Power(r2z*r3x - r2x*r3z - r2z*r4x + r3z*r4x + r2x*r4z - r3x*r4z,2) + 
+             Power(-(r2z*r3y) + r2y*r3z + r2z*r4y - r3z*r4y - r2y*r4z + r3y*r4z,2))) - 
+        ((-(r1z*r2y) + r1y*r2z + r1z*r3y - r2z*r3y - r1y*r3z + r2y*r3z)*
+           (-(r2z*r3y) + r2y*r3z + r2z*r4y - r3z*r4y - r2y*r4z + r3y*r4z))/
+         (Sqrt(Power(-(r1y*r2x) + r1x*r2y + r1y*r3x - r2y*r3x - r1x*r3y + r2x*r3y,2) + 
+             Power(r1z*r2x - r1x*r2z - r1z*r3x + r2z*r3x + r1x*r3z - r2x*r3z,2) + 
+             Power(-(r1z*r2y) + r1y*r2z + r1z*r3y - r2z*r3y - r1y*r3z + r2y*r3z,2))*
+           Sqrt(Power(-(r2y*r3x) + r2x*r3y + r2y*r4x - r3y*r4x - r2x*r4y + r3x*r4y,2) + 
+             Power(r2z*r3x - r2x*r3z - r2z*r4x + r3z*r4x + r2x*r4z - r3x*r4z,2) + 
+             Power(-(r2z*r3y) + r2y*r3z + r2z*r4y - r3z*r4y - r2y*r4z + r3y*r4z,2)))))/
+    (((Power(r2x,2) + Power(r2y,2) + Power(r2z,2) - 2*r2x*r3x + Power(r3x,2) - 
+           2*r2y*r3y + Power(r3y,2) - 2*r2z*r3z + Power(r3z,2))*
+         Power(-(r1x*r2z*r3y) + r1x*r2y*r3z + r2z*r3y*r4x - r2y*r3z*r4x + r1x*r2z*r4y - 
+           r2z*r3x*r4y - r1x*r3z*r4y + r2x*r3z*r4y + 
+           r1z*(r2x*r3y - r3y*r4x + r2y*(-r3x + r4x) - r2x*r4y + r3x*r4y) - 
+           r1x*r2y*r4z + r2y*r3x*r4z + r1x*r3y*r4z - r2x*r3y*r4z + 
+           r1y*(r2z*r3x - r2x*r3z - r2z*r4x + r3z*r4x + r2x*r4z - r3x*r4z),2))/
+       ((Power(r1x,2)*Power(r2y,2) + Power(r1x,2)*Power(r2z,2) - 
+           2*r1x*Power(r2y,2)*r3x - 2*r1x*Power(r2z,2)*r3x + 
+           Power(r2y,2)*Power(r3x,2) + Power(r2z,2)*Power(r3x,2) - 
+           2*Power(r1x,2)*r2y*r3y + 2*r1x*r2x*r2y*r3y + 2*r1x*r2y*r3x*r3y - 
+           2*r2x*r2y*r3x*r3y + Power(r1x,2)*Power(r3y,2) - 2*r1x*r2x*Power(r3y,2) + 
+           Power(r2x,2)*Power(r3y,2) + Power(r2z,2)*Power(r3y,2) + 
+           Power(r1z,2)*(Power(r2x,2) + Power(r2y,2) - 2*r2x*r3x + Power(r3x,2) - 
+              2*r2y*r3y + Power(r3y,2)) - 2*Power(r1x,2)*r2z*r3z + 2*r1x*r2x*r2z*r3z + 
+           2*r1x*r2z*r3x*r3z - 2*r2x*r2z*r3x*r3z - 2*r2y*r2z*r3y*r3z + 
+           Power(r1x,2)*Power(r3z,2) - 2*r1x*r2x*Power(r3z,2) + 
+           Power(r2x,2)*Power(r3z,2) + Power(r2y,2)*Power(r3z,2) + 
+           Power(r1y,2)*(Power(r2x,2) + Power(r2z,2) - 2*r2x*r3x + Power(r3x,2) - 
+              2*r2z*r3z + Power(r3z,2)) - 
+           2*r1y*(-(r2x*r2y*r3x) + r2y*Power(r3x,2) + r1x*(r2x - r3x)*(r2y - r3y) + 
+              Power(r2x,2)*r3y + Power(r2z,2)*r3y - r2x*r3x*r3y + 
+              r1z*(r2y - r3y)*(r2z - r3z) - r2y*r2z*r3z - r2z*r3y*r3z + r2y*Power(r3z,2)
+              ) - 2*r1z*(r2z*Power(r3x,2) - r2y*r2z*r3y + r2z*Power(r3y,2) + 
+              r1x*(r2x - r3x)*(r2z - r3z) + Power(r2x,2)*r3z + Power(r2y,2)*r3z - 
+              r2y*r3y*r3z - r2x*r3x*(r2z + r3z)))*
+         (Power(r2y*r3x - r2x*r3y - r2y*r4x + r3y*r4x + r2x*r4y - r3x*r4y,2) + 
+           Power(r2z*r3x - r2x*r3z - r2z*r4x + r3z*r4x + r2x*r4z - r3x*r4z,2) + 
+           Power(r2z*r3y - r2y*r3z - r2z*r4y + r3z*r4y + r2y*r4z - r3y*r4z,2))) + 
+      Power(((-(r1y*r2x) + r1x*r2y + r1y*r3x - r2y*r3x - r1x*r3y + r2x*r3y)*
+           (-(r2y*r3x) + r2x*r3y + r2y*r4x - r3y*r4x - r2x*r4y + r3x*r4y))/
+         (Sqrt(Power(-(r1y*r2x) + r1x*r2y + r1y*r3x - r2y*r3x - r1x*r3y + r2x*r3y,2) + 
+             Power(r1z*r2x - r1x*r2z - r1z*r3x + r2z*r3x + r1x*r3z - r2x*r3z,2) + 
+             Power(-(r1z*r2y) + r1y*r2z + r1z*r3y - r2z*r3y - r1y*r3z + r2y*r3z,2))*
+           Sqrt(Power(-(r2y*r3x) + r2x*r3y + r2y*r4x - r3y*r4x - r2x*r4y + r3x*r4y,2) + 
+             Power(r2z*r3x - r2x*r3z - r2z*r4x + r3z*r4x + r2x*r4z - r3x*r4z,2) + 
+             Power(-(r2z*r3y) + r2y*r3z + r2z*r4y - r3z*r4y - r2y*r4z + r3y*r4z,2))) + 
+        ((r1z*r2x - r1x*r2z - r1z*r3x + r2z*r3x + r1x*r3z - r2x*r3z)*
+           (r2z*r3x - r2x*r3z - r2z*r4x + r3z*r4x + r2x*r4z - r3x*r4z))/
+         (Sqrt(Power(-(r1y*r2x) + r1x*r2y + r1y*r3x - r2y*r3x - r1x*r3y + r2x*r3y,2) + 
+             Power(r1z*r2x - r1x*r2z - r1z*r3x + r2z*r3x + r1x*r3z - r2x*r3z,2) + 
+             Power(-(r1z*r2y) + r1y*r2z + r1z*r3y - r2z*r3y - r1y*r3z + r2y*r3z,2))*
+           Sqrt(Power(-(r2y*r3x) + r2x*r3y + r2y*r4x - r3y*r4x - r2x*r4y + r3x*r4y,2) + 
+             Power(r2z*r3x - r2x*r3z - r2z*r4x + r3z*r4x + r2x*r4z - r3x*r4z,2) + 
+             Power(-(r2z*r3y) + r2y*r3z + r2z*r4y - r3z*r4y - r2y*r4z + r3y*r4z,2))) + 
+        ((-(r1z*r2y) + r1y*r2z + r1z*r3y - r2z*r3y - r1y*r3z + r2y*r3z)*
+           (-(r2z*r3y) + r2y*r3z + r2z*r4y - r3z*r4y - r2y*r4z + r3y*r4z))/
+         (Sqrt(Power(-(r1y*r2x) + r1x*r2y + r1y*r3x - r2y*r3x - r1x*r3y + r2x*r3y,2) + 
+             Power(r1z*r2x - r1x*r2z - r1z*r3x + r2z*r3x + r1x*r3z - r2x*r3z,2) + 
+             Power(-(r1z*r2y) + r1y*r2z + r1z*r3y - r2z*r3y - r1y*r3z + r2y*r3z,2))*
+           Sqrt(Power(-(r2y*r3x) + r2x*r3y + r2y*r4x - r3y*r4x - r2x*r4y + r3x*r4y,2) + 
+             Power(r2z*r3x - r2x*r3z - r2z*r4x + r3z*r4x + r2x*r4z - r3x*r4z,2) + 
+             Power(-(r2z*r3y) + r2y*r3z + r2z*r4y - r3z*r4y - r2y*r4z + r3y*r4z,2))),2));
+	der_d_th[7] = (Sqrt(Power(r2x,2) + Power(r2y,2) + Power(r2z,2) - 2*r2x*r3x + Power(r3x,2) - 
+        2*r2y*r3y + Power(r3y,2) - 2*r2z*r3z + Power(r3z,2))*
+      (-(r1x*r2z*r3y) + r1x*r2y*r3z + r2z*r3y*r4x - r2y*r3z*r4x + r1x*r2z*r4y - 
+        r2z*r3x*r4y - r1x*r3z*r4y + r2x*r3z*r4y + 
+        r1z*(r2x*r3y - r3y*r4x + r2y*(-r3x + r4x) - r2x*r4y + r3x*r4y) - r1x*r2y*r4z + 
+        r2y*r3x*r4z + r1x*r3y*r4z - r2x*r3y*r4z + 
+        r1y*(r2z*r3x - r2x*r3z - r2z*r4x + r3z*r4x + r2x*r4z - r3x*r4z))*
+      (-((-(r1y*r2x) + r1x*r2y + r1y*r3x - r2y*r3x - r1x*r3y + r2x*r3y)*
+            (-(r2y*r3x) + r2x*r3y + r2y*r4x - r3y*r4x - r2x*r4y + r3x*r4y)*
+            (2*(r2x - r4x)*(-(r2y*r3x) + r2x*r3y + r2y*r4x - r3y*r4x - r2x*r4y + 
+                 r3x*r4y) + 2*(-r2z + r4z)*
+               (-(r2z*r3y) + r2y*r3z + r2z*r4y - r3z*r4y - r2y*r4z + r3y*r4z)))/
+         (2.*Sqrt(Power(-(r1y*r2x) + r1x*r2y + r1y*r3x - r2y*r3x - r1x*r3y + r2x*r3y,
+              2) + Power(r1z*r2x - r1x*r2z - r1z*r3x + r2z*r3x + r1x*r3z - r2x*r3z,2) + 
+             Power(-(r1z*r2y) + r1y*r2z + r1z*r3y - r2z*r3y - r1y*r3z + r2y*r3z,2))*
+           Power(Power(-(r2y*r3x) + r2x*r3y + r2y*r4x - r3y*r4x - r2x*r4y + r3x*r4y,
+              2) + Power(r2z*r3x - r2x*r3z - r2z*r4x + r3z*r4x + r2x*r4z - r3x*r4z,2) + 
+             Power(-(r2z*r3y) + r2y*r3z + r2z*r4y - r3z*r4y - r2y*r4z + r3y*r4z,2),1.5))
+          - ((r1z*r2x - r1x*r2z - r1z*r3x + r2z*r3x + r1x*r3z - r2x*r3z)*
+           (r2z*r3x - r2x*r3z - r2z*r4x + r3z*r4x + r2x*r4z - r3x*r4z)*
+           (2*(r2x - r4x)*(-(r2y*r3x) + r2x*r3y + r2y*r4x - r3y*r4x - r2x*r4y + 
+                r3x*r4y) + 2*(-r2z + r4z)*
+              (-(r2z*r3y) + r2y*r3z + r2z*r4y - r3z*r4y - r2y*r4z + r3y*r4z)))/
+         (2.*Sqrt(Power(-(r1y*r2x) + r1x*r2y + r1y*r3x - r2y*r3x - r1x*r3y + r2x*r3y,
+              2) + Power(r1z*r2x - r1x*r2z - r1z*r3x + r2z*r3x + r1x*r3z - r2x*r3z,2) + 
+             Power(-(r1z*r2y) + r1y*r2z + r1z*r3y - r2z*r3y - r1y*r3z + r2y*r3z,2))*
+           Power(Power(-(r2y*r3x) + r2x*r3y + r2y*r4x - r3y*r4x - r2x*r4y + r3x*r4y,
+              2) + Power(r2z*r3x - r2x*r3z - r2z*r4x + r3z*r4x + r2x*r4z - r3x*r4z,2) + 
+             Power(-(r2z*r3y) + r2y*r3z + r2z*r4y - r3z*r4y - r2y*r4z + r3y*r4z,2),1.5))
+          - ((-(r1z*r2y) + r1y*r2z + r1z*r3y - r2z*r3y - r1y*r3z + r2y*r3z)*
+           (-(r2z*r3y) + r2y*r3z + r2z*r4y - r3z*r4y - r2y*r4z + r3y*r4z)*
+           (2*(r2x - r4x)*(-(r2y*r3x) + r2x*r3y + r2y*r4x - r3y*r4x - r2x*r4y + 
+                r3x*r4y) + 2*(-r2z + r4z)*
+              (-(r2z*r3y) + r2y*r3z + r2z*r4y - r3z*r4y - r2y*r4z + r3y*r4z)))/
+         (2.*Sqrt(Power(-(r1y*r2x) + r1x*r2y + r1y*r3x - r2y*r3x - r1x*r3y + r2x*r3y,
+              2) + Power(r1z*r2x - r1x*r2z - r1z*r3x + r2z*r3x + r1x*r3z - r2x*r3z,2) + 
+             Power(-(r1z*r2y) + r1y*r2z + r1z*r3y - r2z*r3y - r1y*r3z + r2y*r3z,2))*
+           Power(Power(-(r2y*r3x) + r2x*r3y + r2y*r4x - r3y*r4x - r2x*r4y + r3x*r4y,
+              2) + Power(r2z*r3x - r2x*r3z - r2z*r4x + r3z*r4x + r2x*r4z - r3x*r4z,2) + 
+             Power(-(r2z*r3y) + r2y*r3z + r2z*r4y - r3z*r4y - r2y*r4z + r3y*r4z,2),1.5))
+          + ((-(r1y*r2x) + r1x*r2y + r1y*r3x - r2y*r3x - r1x*r3y + r2x*r3y)*
+           (r2x - r4x))/
+         (Sqrt(Power(-(r1y*r2x) + r1x*r2y + r1y*r3x - r2y*r3x - r1x*r3y + r2x*r3y,2) + 
+             Power(r1z*r2x - r1x*r2z - r1z*r3x + r2z*r3x + r1x*r3z - r2x*r3z,2) + 
+             Power(-(r1z*r2y) + r1y*r2z + r1z*r3y - r2z*r3y - r1y*r3z + r2y*r3z,2))*
+           Sqrt(Power(-(r2y*r3x) + r2x*r3y + r2y*r4x - r3y*r4x - r2x*r4y + r3x*r4y,2) + 
+             Power(r2z*r3x - r2x*r3z - r2z*r4x + r3z*r4x + r2x*r4z - r3x*r4z,2) + 
+             Power(-(r2z*r3y) + r2y*r3z + r2z*r4y - r3z*r4y - r2y*r4z + r3y*r4z,2))) - 
+        ((-(r1y*r2x) + r1x*r2y + r1y*r3x - r2y*r3x - r1x*r3y + r2x*r3y)*
+           (2*(-r1x + r2x)*(-(r1y*r2x) + r1x*r2y + r1y*r3x - r2y*r3x - r1x*r3y + 
+                r2x*r3y) + 2*(r1z - r2z)*
+              (-(r1z*r2y) + r1y*r2z + r1z*r3y - r2z*r3y - r1y*r3z + r2y*r3z))*
+           (-(r2y*r3x) + r2x*r3y + r2y*r4x - r3y*r4x - r2x*r4y + r3x*r4y))/
+         (2.*Power(Power(-(r1y*r2x) + r1x*r2y + r1y*r3x - r2y*r3x - r1x*r3y + r2x*r3y,
+              2) + Power(r1z*r2x - r1x*r2z - r1z*r3x + r2z*r3x + r1x*r3z - r2x*r3z,2) + 
+             Power(-(r1z*r2y) + r1y*r2z + r1z*r3y - r2z*r3y - r1y*r3z + r2y*r3z,2),1.5)*
+           Sqrt(Power(-(r2y*r3x) + r2x*r3y + r2y*r4x - r3y*r4x - r2x*r4y + r3x*r4y,2) + 
+             Power(r2z*r3x - r2x*r3z - r2z*r4x + r3z*r4x + r2x*r4z - r3x*r4z,2) + 
+             Power(-(r2z*r3y) + r2y*r3z + r2z*r4y - r3z*r4y - r2y*r4z + r3y*r4z,2))) + 
+        ((-r1x + r2x)*(-(r2y*r3x) + r2x*r3y + r2y*r4x - r3y*r4x - r2x*r4y + r3x*r4y))/
+         (Sqrt(Power(-(r1y*r2x) + r1x*r2y + r1y*r3x - r2y*r3x - r1x*r3y + r2x*r3y,2) + 
+             Power(r1z*r2x - r1x*r2z - r1z*r3x + r2z*r3x + r1x*r3z - r2x*r3z,2) + 
+             Power(-(r1z*r2y) + r1y*r2z + r1z*r3y - r2z*r3y - r1y*r3z + r2y*r3z,2))*
+           Sqrt(Power(-(r2y*r3x) + r2x*r3y + r2y*r4x - r3y*r4x - r2x*r4y + r3x*r4y,2) + 
+             Power(r2z*r3x - r2x*r3z - r2z*r4x + r3z*r4x + r2x*r4z - r3x*r4z,2) + 
+             Power(-(r2z*r3y) + r2y*r3z + r2z*r4y - r3z*r4y - r2y*r4z + r3y*r4z,2))) + 
+        ((-(r1z*r2y) + r1y*r2z + r1z*r3y - r2z*r3y - r1y*r3z + r2y*r3z)*(-r2z + r4z))/
+         (Sqrt(Power(-(r1y*r2x) + r1x*r2y + r1y*r3x - r2y*r3x - r1x*r3y + r2x*r3y,2) + 
+             Power(r1z*r2x - r1x*r2z - r1z*r3x + r2z*r3x + r1x*r3z - r2x*r3z,2) + 
+             Power(-(r1z*r2y) + r1y*r2z + r1z*r3y - r2z*r3y - r1y*r3z + r2y*r3z,2))*
+           Sqrt(Power(-(r2y*r3x) + r2x*r3y + r2y*r4x - r3y*r4x - r2x*r4y + r3x*r4y,2) + 
+             Power(r2z*r3x - r2x*r3z - r2z*r4x + r3z*r4x + r2x*r4z - r3x*r4z,2) + 
+             Power(-(r2z*r3y) + r2y*r3z + r2z*r4y - r3z*r4y - r2y*r4z + r3y*r4z,2))) - 
+        ((r1z*r2x - r1x*r2z - r1z*r3x + r2z*r3x + r1x*r3z - r2x*r3z)*
+           (2*(-r1x + r2x)*(-(r1y*r2x) + r1x*r2y + r1y*r3x - r2y*r3x - r1x*r3y + 
+                r2x*r3y) + 2*(r1z - r2z)*
+              (-(r1z*r2y) + r1y*r2z + r1z*r3y - r2z*r3y - r1y*r3z + r2y*r3z))*
+           (r2z*r3x - r2x*r3z - r2z*r4x + r3z*r4x + r2x*r4z - r3x*r4z))/
+         (2.*Power(Power(-(r1y*r2x) + r1x*r2y + r1y*r3x - r2y*r3x - r1x*r3y + r2x*r3y,
+              2) + Power(r1z*r2x - r1x*r2z - r1z*r3x + r2z*r3x + r1x*r3z - r2x*r3z,2) + 
+             Power(-(r1z*r2y) + r1y*r2z + r1z*r3y - r2z*r3y - r1y*r3z + r2y*r3z,2),1.5)*
+           Sqrt(Power(-(r2y*r3x) + r2x*r3y + r2y*r4x - r3y*r4x - r2x*r4y + r3x*r4y,2) + 
+             Power(r2z*r3x - r2x*r3z - r2z*r4x + r3z*r4x + r2x*r4z - r3x*r4z,2) + 
+             Power(-(r2z*r3y) + r2y*r3z + r2z*r4y - r3z*r4y - r2y*r4z + r3y*r4z,2))) - 
+        ((-(r1z*r2y) + r1y*r2z + r1z*r3y - r2z*r3y - r1y*r3z + r2y*r3z)*
+           (2*(-r1x + r2x)*(-(r1y*r2x) + r1x*r2y + r1y*r3x - r2y*r3x - r1x*r3y + 
+                r2x*r3y) + 2*(r1z - r2z)*
+              (-(r1z*r2y) + r1y*r2z + r1z*r3y - r2z*r3y - r1y*r3z + r2y*r3z))*
+           (-(r2z*r3y) + r2y*r3z + r2z*r4y - r3z*r4y - r2y*r4z + r3y*r4z))/
+         (2.*Power(Power(-(r1y*r2x) + r1x*r2y + r1y*r3x - r2y*r3x - r1x*r3y + r2x*r3y,
+              2) + Power(r1z*r2x - r1x*r2z - r1z*r3x + r2z*r3x + r1x*r3z - r2x*r3z,2) + 
+             Power(-(r1z*r2y) + r1y*r2z + r1z*r3y - r2z*r3y - r1y*r3z + r2y*r3z,2),1.5)*
+           Sqrt(Power(-(r2y*r3x) + r2x*r3y + r2y*r4x - r3y*r4x - r2x*r4y + r3x*r4y,2) + 
+             Power(r2z*r3x - r2x*r3z - r2z*r4x + r3z*r4x + r2x*r4z - r3x*r4z,2) + 
+             Power(-(r2z*r3y) + r2y*r3z + r2z*r4y - r3z*r4y - r2y*r4z + r3y*r4z,2))) + 
+        ((r1z - r2z)*(-(r2z*r3y) + r2y*r3z + r2z*r4y - r3z*r4y - r2y*r4z + r3y*r4z))/
+         (Sqrt(Power(-(r1y*r2x) + r1x*r2y + r1y*r3x - r2y*r3x - r1x*r3y + r2x*r3y,2) + 
+             Power(r1z*r2x - r1x*r2z - r1z*r3x + r2z*r3x + r1x*r3z - r2x*r3z,2) + 
+             Power(-(r1z*r2y) + r1y*r2z + r1z*r3y - r2z*r3y - r1y*r3z + r2y*r3z,2))*
+           Sqrt(Power(-(r2y*r3x) + r2x*r3y + r2y*r4x - r3y*r4x - r2x*r4y + r3x*r4y,2) + 
+             Power(r2z*r3x - r2x*r3z - r2z*r4x + r3z*r4x + r2x*r4z - r3x*r4z,2) + 
+             Power(-(r2z*r3y) + r2y*r3z + r2z*r4y - r3z*r4y - r2y*r4z + r3y*r4z,2)))))/
+    (Sqrt(Power(r1x,2)*Power(r2y,2) + Power(r1x,2)*Power(r2z,2) - 
+        2*r1x*Power(r2y,2)*r3x - 2*r1x*Power(r2z,2)*r3x + Power(r2y,2)*Power(r3x,2) + 
+        Power(r2z,2)*Power(r3x,2) - 2*Power(r1x,2)*r2y*r3y + 2*r1x*r2x*r2y*r3y + 
+        2*r1x*r2y*r3x*r3y - 2*r2x*r2y*r3x*r3y + Power(r1x,2)*Power(r3y,2) - 
+        2*r1x*r2x*Power(r3y,2) + Power(r2x,2)*Power(r3y,2) + 
+        Power(r2z,2)*Power(r3y,2) + 
+        Power(r1z,2)*(Power(r2x,2) + Power(r2y,2) - 2*r2x*r3x + Power(r3x,2) - 
+           2*r2y*r3y + Power(r3y,2)) - 2*Power(r1x,2)*r2z*r3z + 2*r1x*r2x*r2z*r3z + 
+        2*r1x*r2z*r3x*r3z - 2*r2x*r2z*r3x*r3z - 2*r2y*r2z*r3y*r3z + 
+        Power(r1x,2)*Power(r3z,2) - 2*r1x*r2x*Power(r3z,2) + 
+        Power(r2x,2)*Power(r3z,2) + Power(r2y,2)*Power(r3z,2) + 
+        Power(r1y,2)*(Power(r2x,2) + Power(r2z,2) - 2*r2x*r3x + Power(r3x,2) - 
+           2*r2z*r3z + Power(r3z,2)) - 
+        2*r1y*(-(r2x*r2y*r3x) + r2y*Power(r3x,2) + r1x*(r2x - r3x)*(r2y - r3y) + 
+           Power(r2x,2)*r3y + Power(r2z,2)*r3y - r2x*r3x*r3y + 
+           r1z*(r2y - r3y)*(r2z - r3z) - r2y*r2z*r3z - r2z*r3y*r3z + r2y*Power(r3z,2))\
+         - 2*r1z*(r2z*Power(r3x,2) - r2y*r2z*r3y + r2z*Power(r3y,2) + 
+           r1x*(r2x - r3x)*(r2z - r3z) + Power(r2x,2)*r3z + Power(r2y,2)*r3z - 
+           r2y*r3y*r3z - r2x*r3x*(r2z + r3z)))*
+      Sqrt(Power(r2y*r3x - r2x*r3y - r2y*r4x + r3y*r4x + r2x*r4y - r3x*r4y,2) + 
+        Power(r2z*r3x - r2x*r3z - r2z*r4x + r3z*r4x + r2x*r4z - r3x*r4z,2) + 
+        Power(r2z*r3y - r2y*r3z - r2z*r4y + r3z*r4y + r2y*r4z - r3y*r4z,2))*
+      (((Power(r2x,2) + Power(r2y,2) + Power(r2z,2) - 2*r2x*r3x + Power(r3x,2) - 
+             2*r2y*r3y + Power(r3y,2) - 2*r2z*r3z + Power(r3z,2))*
+           Power(-(r1x*r2z*r3y) + r1x*r2y*r3z + r2z*r3y*r4x - r2y*r3z*r4x + 
+             r1x*r2z*r4y - r2z*r3x*r4y - r1x*r3z*r4y + r2x*r3z*r4y + 
+             r1z*(r2x*r3y - r3y*r4x + r2y*(-r3x + r4x) - r2x*r4y + r3x*r4y) - 
+             r1x*r2y*r4z + r2y*r3x*r4z + r1x*r3y*r4z - r2x*r3y*r4z + 
+             r1y*(r2z*r3x - r2x*r3z - r2z*r4x + r3z*r4x + r2x*r4z - r3x*r4z),2))/
+         ((Power(r1x,2)*Power(r2y,2) + Power(r1x,2)*Power(r2z,2) - 
+             2*r1x*Power(r2y,2)*r3x - 2*r1x*Power(r2z,2)*r3x + 
+             Power(r2y,2)*Power(r3x,2) + Power(r2z,2)*Power(r3x,2) - 
+             2*Power(r1x,2)*r2y*r3y + 2*r1x*r2x*r2y*r3y + 2*r1x*r2y*r3x*r3y - 
+             2*r2x*r2y*r3x*r3y + Power(r1x,2)*Power(r3y,2) - 2*r1x*r2x*Power(r3y,2) + 
+             Power(r2x,2)*Power(r3y,2) + Power(r2z,2)*Power(r3y,2) + 
+             Power(r1z,2)*(Power(r2x,2) + Power(r2y,2) - 2*r2x*r3x + Power(r3x,2) - 
+                2*r2y*r3y + Power(r3y,2)) - 2*Power(r1x,2)*r2z*r3z + 
+             2*r1x*r2x*r2z*r3z + 2*r1x*r2z*r3x*r3z - 2*r2x*r2z*r3x*r3z - 
+             2*r2y*r2z*r3y*r3z + Power(r1x,2)*Power(r3z,2) - 2*r1x*r2x*Power(r3z,2) + 
+             Power(r2x,2)*Power(r3z,2) + Power(r2y,2)*Power(r3z,2) + 
+             Power(r1y,2)*(Power(r2x,2) + Power(r2z,2) - 2*r2x*r3x + Power(r3x,2) - 
+                2*r2z*r3z + Power(r3z,2)) - 
+             2*r1y*(-(r2x*r2y*r3x) + r2y*Power(r3x,2) + r1x*(r2x - r3x)*(r2y - r3y) + 
+                Power(r2x,2)*r3y + Power(r2z,2)*r3y - r2x*r3x*r3y + 
+                r1z*(r2y - r3y)*(r2z - r3z) - r2y*r2z*r3z - r2z*r3y*r3z + 
+                r2y*Power(r3z,2)) - 
+             2*r1z*(r2z*Power(r3x,2) - r2y*r2z*r3y + r2z*Power(r3y,2) + 
+                r1x*(r2x - r3x)*(r2z - r3z) + Power(r2x,2)*r3z + Power(r2y,2)*r3z - 
+                r2y*r3y*r3z - r2x*r3x*(r2z + r3z)))*
+           (Power(r2y*r3x - r2x*r3y - r2y*r4x + r3y*r4x + r2x*r4y - r3x*r4y,2) + 
+             Power(r2z*r3x - r2x*r3z - r2z*r4x + r3z*r4x + r2x*r4z - r3x*r4z,2) + 
+             Power(r2z*r3y - r2y*r3z - r2z*r4y + r3z*r4y + r2y*r4z - r3y*r4z,2))) + 
+        Power(((-(r1y*r2x) + r1x*r2y + r1y*r3x - r2y*r3x - r1x*r3y + r2x*r3y)*
+             (-(r2y*r3x) + r2x*r3y + r2y*r4x - r3y*r4x - r2x*r4y + r3x*r4y))/
+           (Sqrt(Power(-(r1y*r2x) + r1x*r2y + r1y*r3x - r2y*r3x - r1x*r3y + r2x*r3y,
+                2) + Power(r1z*r2x - r1x*r2z - r1z*r3x + r2z*r3x + r1x*r3z - r2x*r3z,
+                2) + Power(-(r1z*r2y) + r1y*r2z + r1z*r3y - r2z*r3y - r1y*r3z + r2y*r3z,
+                2))*Sqrt(Power(-(r2y*r3x) + r2x*r3y + r2y*r4x - r3y*r4x - r2x*r4y + 
+                 r3x*r4y,2) + Power(r2z*r3x - r2x*r3z - r2z*r4x + r3z*r4x + r2x*r4z - 
+                 r3x*r4z,2) + Power(-(r2z*r3y) + r2y*r3z + r2z*r4y - r3z*r4y - 
+                 r2y*r4z + r3y*r4z,2))) + 
+          ((r1z*r2x - r1x*r2z - r1z*r3x + r2z*r3x + r1x*r3z - r2x*r3z)*
+             (r2z*r3x - r2x*r3z - r2z*r4x + r3z*r4x + r2x*r4z - r3x*r4z))/
+           (Sqrt(Power(-(r1y*r2x) + r1x*r2y + r1y*r3x - r2y*r3x - r1x*r3y + r2x*r3y,
+                2) + Power(r1z*r2x - r1x*r2z - r1z*r3x + r2z*r3x + r1x*r3z - r2x*r3z,
+                2) + Power(-(r1z*r2y) + r1y*r2z + r1z*r3y - r2z*r3y - r1y*r3z + r2y*r3z,
+                2))*Sqrt(Power(-(r2y*r3x) + r2x*r3y + r2y*r4x - r3y*r4x - r2x*r4y + 
+                 r3x*r4y,2) + Power(r2z*r3x - r2x*r3z - r2z*r4x + r3z*r4x + r2x*r4z - 
+                 r3x*r4z,2) + Power(-(r2z*r3y) + r2y*r3z + r2z*r4y - r3z*r4y - 
+                 r2y*r4z + r3y*r4z,2))) + 
+          ((-(r1z*r2y) + r1y*r2z + r1z*r3y - r2z*r3y - r1y*r3z + r2y*r3z)*
+             (-(r2z*r3y) + r2y*r3z + r2z*r4y - r3z*r4y - r2y*r4z + r3y*r4z))/
+           (Sqrt(Power(-(r1y*r2x) + r1x*r2y + r1y*r3x - r2y*r3x - r1x*r3y + r2x*r3y,
+                2) + Power(r1z*r2x - r1x*r2z - r1z*r3x + r2z*r3x + r1x*r3z - r2x*r3z,
+                2) + Power(-(r1z*r2y) + r1y*r2z + r1z*r3y - r2z*r3y - r1y*r3z + r2y*r3z,
+                2))*Sqrt(Power(-(r2y*r3x) + r2x*r3y + r2y*r4x - r3y*r4x - r2x*r4y + 
+                 r3x*r4y,2) + Power(r2z*r3x - r2x*r3z - r2z*r4x + r3z*r4x + r2x*r4z - 
+                 r3x*r4z,2) + Power(-(r2z*r3y) + r2y*r3z + r2z*r4y - r3z*r4y - 
+                 r2y*r4z + r3y*r4z,2))),2))) + 
+   ((-(Sqrt(Power(r2x,2) + Power(r2y,2) + Power(r2z,2) - 2*r2x*r3x + Power(r3x,2) - 
+              2*r2y*r3y + Power(r3y,2) - 2*r2z*r3z + Power(r3z,2))*
+            (-(r1x*r2z*r3y) + r1x*r2y*r3z + r2z*r3y*r4x - r2y*r3z*r4x + r1x*r2z*r4y - 
+              r2z*r3x*r4y - r1x*r3z*r4y + r2x*r3z*r4y + 
+              r1z*(r2x*r3y - r3y*r4x + r2y*(-r3x + r4x) - r2x*r4y + r3x*r4y) - 
+              r1x*r2y*r4z + r2y*r3x*r4z + r1x*r3y*r4z - r2x*r3y*r4z + 
+              r1y*(r2z*r3x - r2x*r3z - r2z*r4x + r3z*r4x + r2x*r4z - r3x*r4z))*
+            (2*(-r2x + r4x)*(r2y*r3x - r2x*r3y - r2y*r4x + r3y*r4x + r2x*r4y - 
+                 r3x*r4y) + 2*(r2z - r4z)*
+               (r2z*r3y - r2y*r3z - r2z*r4y + r3z*r4y + r2y*r4z - r3y*r4z)))/
+         (2.*Sqrt(Power(r1x,2)*Power(r2y,2) + Power(r1x,2)*Power(r2z,2) - 
+             2*r1x*Power(r2y,2)*r3x - 2*r1x*Power(r2z,2)*r3x + 
+             Power(r2y,2)*Power(r3x,2) + Power(r2z,2)*Power(r3x,2) - 
+             2*Power(r1x,2)*r2y*r3y + 2*r1x*r2x*r2y*r3y + 2*r1x*r2y*r3x*r3y - 
+             2*r2x*r2y*r3x*r3y + Power(r1x,2)*Power(r3y,2) - 2*r1x*r2x*Power(r3y,2) + 
+             Power(r2x,2)*Power(r3y,2) + Power(r2z,2)*Power(r3y,2) + 
+             Power(r1z,2)*(Power(r2x,2) + Power(r2y,2) - 2*r2x*r3x + Power(r3x,2) - 
+                2*r2y*r3y + Power(r3y,2)) - 2*Power(r1x,2)*r2z*r3z + 
+             2*r1x*r2x*r2z*r3z + 2*r1x*r2z*r3x*r3z - 2*r2x*r2z*r3x*r3z - 
+             2*r2y*r2z*r3y*r3z + Power(r1x,2)*Power(r3z,2) - 2*r1x*r2x*Power(r3z,2) + 
+             Power(r2x,2)*Power(r3z,2) + Power(r2y,2)*Power(r3z,2) + 
+             Power(r1y,2)*(Power(r2x,2) + Power(r2z,2) - 2*r2x*r3x + Power(r3x,2) - 
+                2*r2z*r3z + Power(r3z,2)) - 
+             2*r1y*(-(r2x*r2y*r3x) + r2y*Power(r3x,2) + r1x*(r2x - r3x)*(r2y - r3y) + 
+                Power(r2x,2)*r3y + Power(r2z,2)*r3y - r2x*r3x*r3y + 
+                r1z*(r2y - r3y)*(r2z - r3z) - r2y*r2z*r3z - r2z*r3y*r3z + 
+                r2y*Power(r3z,2)) - 
+             2*r1z*(r2z*Power(r3x,2) - r2y*r2z*r3y + r2z*Power(r3y,2) + 
+                r1x*(r2x - r3x)*(r2z - r3z) + Power(r2x,2)*r3z + Power(r2y,2)*r3z - 
+                r2y*r3y*r3z - r2x*r3x*(r2z + r3z)))*
+           Power(Power(r2y*r3x - r2x*r3y - r2y*r4x + r3y*r4x + r2x*r4y - r3x*r4y,2) + 
+             Power(r2z*r3x - r2x*r3z - r2z*r4x + r3z*r4x + r2x*r4z - r3x*r4z,2) + 
+             Power(r2z*r3y - r2y*r3z - r2z*r4y + r3z*r4y + r2y*r4z - r3y*r4z,2),1.5)) + 
+        (Sqrt(Power(r2x,2) + Power(r2y,2) + Power(r2z,2) - 2*r2x*r3x + Power(r3x,2) - 
+             2*r2y*r3y + Power(r3y,2) - 2*r2z*r3z + Power(r3z,2))*
+           (-(r1x*r2z) + r1z*(r2x - r4x) + r2z*r4x + r1x*r4z - r2x*r4z))/
+         (Sqrt(Power(r1x,2)*Power(r2y,2) + Power(r1x,2)*Power(r2z,2) - 
+             2*r1x*Power(r2y,2)*r3x - 2*r1x*Power(r2z,2)*r3x + 
+             Power(r2y,2)*Power(r3x,2) + Power(r2z,2)*Power(r3x,2) - 
+             2*Power(r1x,2)*r2y*r3y + 2*r1x*r2x*r2y*r3y + 2*r1x*r2y*r3x*r3y - 
+             2*r2x*r2y*r3x*r3y + Power(r1x,2)*Power(r3y,2) - 2*r1x*r2x*Power(r3y,2) + 
+             Power(r2x,2)*Power(r3y,2) + Power(r2z,2)*Power(r3y,2) + 
+             Power(r1z,2)*(Power(r2x,2) + Power(r2y,2) - 2*r2x*r3x + Power(r3x,2) - 
+                2*r2y*r3y + Power(r3y,2)) - 2*Power(r1x,2)*r2z*r3z + 
+             2*r1x*r2x*r2z*r3z + 2*r1x*r2z*r3x*r3z - 2*r2x*r2z*r3x*r3z - 
+             2*r2y*r2z*r3y*r3z + Power(r1x,2)*Power(r3z,2) - 2*r1x*r2x*Power(r3z,2) + 
+             Power(r2x,2)*Power(r3z,2) + Power(r2y,2)*Power(r3z,2) + 
+             Power(r1y,2)*(Power(r2x,2) + Power(r2z,2) - 2*r2x*r3x + Power(r3x,2) - 
+                2*r2z*r3z + Power(r3z,2)) - 
+             2*r1y*(-(r2x*r2y*r3x) + r2y*Power(r3x,2) + r1x*(r2x - r3x)*(r2y - r3y) + 
+                Power(r2x,2)*r3y + Power(r2z,2)*r3y - r2x*r3x*r3y + 
+                r1z*(r2y - r3y)*(r2z - r3z) - r2y*r2z*r3z - r2z*r3y*r3z + 
+                r2y*Power(r3z,2)) - 
+             2*r1z*(r2z*Power(r3x,2) - r2y*r2z*r3y + r2z*Power(r3y,2) + 
+                r1x*(r2x - r3x)*(r2z - r3z) + Power(r2x,2)*r3z + Power(r2y,2)*r3z - 
+                r2y*r3y*r3z - r2x*r3x*(r2z + r3z)))*
+           Sqrt(Power(r2y*r3x - r2x*r3y - r2y*r4x + r3y*r4x + r2x*r4y - r3x*r4y,2) + 
+             Power(r2z*r3x - r2x*r3z - r2z*r4x + r3z*r4x + r2x*r4z - r3x*r4z,2) + 
+             Power(r2z*r3y - r2y*r3z - r2z*r4y + r3z*r4y + r2y*r4z - r3y*r4z,2))) - 
+        (Sqrt(Power(r2x,2) + Power(r2y,2) + Power(r2z,2) - 2*r2x*r3x + Power(r3x,2) - 
+             2*r2y*r3y + Power(r3y,2) - 2*r2z*r3z + Power(r3z,2))*
+           (-2*Power(r1x,2)*r2y + 2*r1x*r2x*r2y + 2*r1x*r2y*r3x - 2*r2x*r2y*r3x + 
+             2*Power(r1x,2)*r3y - 4*r1x*r2x*r3y + 2*Power(r2x,2)*r3y + 
+             2*Power(r2z,2)*r3y + Power(r1z,2)*(-2*r2y + 2*r3y) - 2*r2y*r2z*r3z - 
+             2*r1z*(-(r2y*r2z) + 2*r2z*r3y - r2y*r3z) - 
+             2*r1y*(Power(r2x,2) + Power(r2z,2) - r1x*(r2x - r3x) - r2x*r3x - 
+                r1z*(r2z - r3z) - r2z*r3z))*
+           (-(r1x*r2z*r3y) + r1x*r2y*r3z + r2z*r3y*r4x - r2y*r3z*r4x + r1x*r2z*r4y - 
+             r2z*r3x*r4y - r1x*r3z*r4y + r2x*r3z*r4y + 
+             r1z*(r2x*r3y - r3y*r4x + r2y*(-r3x + r4x) - r2x*r4y + r3x*r4y) - 
+             r1x*r2y*r4z + r2y*r3x*r4z + r1x*r3y*r4z - r2x*r3y*r4z + 
+             r1y*(r2z*r3x - r2x*r3z - r2z*r4x + r3z*r4x + r2x*r4z - r3x*r4z)))/
+         (2.*Power(Power(r1x,2)*Power(r2y,2) + Power(r1x,2)*Power(r2z,2) - 
+             2*r1x*Power(r2y,2)*r3x - 2*r1x*Power(r2z,2)*r3x + 
+             Power(r2y,2)*Power(r3x,2) + Power(r2z,2)*Power(r3x,2) - 
+             2*Power(r1x,2)*r2y*r3y + 2*r1x*r2x*r2y*r3y + 2*r1x*r2y*r3x*r3y - 
+             2*r2x*r2y*r3x*r3y + Power(r1x,2)*Power(r3y,2) - 2*r1x*r2x*Power(r3y,2) + 
+             Power(r2x,2)*Power(r3y,2) + Power(r2z,2)*Power(r3y,2) + 
+             Power(r1z,2)*(Power(r2x,2) + Power(r2y,2) - 2*r2x*r3x + Power(r3x,2) - 
+                2*r2y*r3y + Power(r3y,2)) - 2*Power(r1x,2)*r2z*r3z + 
+             2*r1x*r2x*r2z*r3z + 2*r1x*r2z*r3x*r3z - 2*r2x*r2z*r3x*r3z - 
+             2*r2y*r2z*r3y*r3z + Power(r1x,2)*Power(r3z,2) - 2*r1x*r2x*Power(r3z,2) + 
+             Power(r2x,2)*Power(r3z,2) + Power(r2y,2)*Power(r3z,2) + 
+             Power(r1y,2)*(Power(r2x,2) + Power(r2z,2) - 2*r2x*r3x + Power(r3x,2) - 
+                2*r2z*r3z + Power(r3z,2)) - 
+             2*r1y*(-(r2x*r2y*r3x) + r2y*Power(r3x,2) + r1x*(r2x - r3x)*(r2y - r3y) + 
+                Power(r2x,2)*r3y + Power(r2z,2)*r3y - r2x*r3x*r3y + 
+                r1z*(r2y - r3y)*(r2z - r3z) - r2y*r2z*r3z - r2z*r3y*r3z + 
+                r2y*Power(r3z,2)) - 
+             2*r1z*(r2z*Power(r3x,2) - r2y*r2z*r3y + r2z*Power(r3y,2) + 
+                r1x*(r2x - r3x)*(r2z - r3z) + Power(r2x,2)*r3z + Power(r2y,2)*r3z - 
+                r2y*r3y*r3z - r2x*r3x*(r2z + r3z)),1.5)*
+           Sqrt(Power(r2y*r3x - r2x*r3y - r2y*r4x + r3y*r4x + r2x*r4y - r3x*r4y,2) + 
+             Power(r2z*r3x - r2x*r3z - r2z*r4x + r3z*r4x + r2x*r4z - r3x*r4z,2) + 
+             Power(r2z*r3y - r2y*r3z - r2z*r4y + r3z*r4y + r2y*r4z - r3y*r4z,2))) + 
+        ((-2*r2y + 2*r3y)*(-(r1x*r2z*r3y) + r1x*r2y*r3z + r2z*r3y*r4x - r2y*r3z*r4x + 
+             r1x*r2z*r4y - r2z*r3x*r4y - r1x*r3z*r4y + r2x*r3z*r4y + 
+             r1z*(r2x*r3y - r3y*r4x + r2y*(-r3x + r4x) - r2x*r4y + r3x*r4y) - 
+             r1x*r2y*r4z + r2y*r3x*r4z + r1x*r3y*r4z - r2x*r3y*r4z + 
+             r1y*(r2z*r3x - r2x*r3z - r2z*r4x + r3z*r4x + r2x*r4z - r3x*r4z)))/
+         (2.*Sqrt(Power(r2x,2) + Power(r2y,2) + Power(r2z,2) - 2*r2x*r3x + 
+             Power(r3x,2) - 2*r2y*r3y + Power(r3y,2) - 2*r2z*r3z + Power(r3z,2))*
+           Sqrt(Power(r1x,2)*Power(r2y,2) + Power(r1x,2)*Power(r2z,2) - 
+             2*r1x*Power(r2y,2)*r3x - 2*r1x*Power(r2z,2)*r3x + 
+             Power(r2y,2)*Power(r3x,2) + Power(r2z,2)*Power(r3x,2) - 
+             2*Power(r1x,2)*r2y*r3y + 2*r1x*r2x*r2y*r3y + 2*r1x*r2y*r3x*r3y - 
+             2*r2x*r2y*r3x*r3y + Power(r1x,2)*Power(r3y,2) - 2*r1x*r2x*Power(r3y,2) + 
+             Power(r2x,2)*Power(r3y,2) + Power(r2z,2)*Power(r3y,2) + 
+             Power(r1z,2)*(Power(r2x,2) + Power(r2y,2) - 2*r2x*r3x + Power(r3x,2) - 
+                2*r2y*r3y + Power(r3y,2)) - 2*Power(r1x,2)*r2z*r3z + 
+             2*r1x*r2x*r2z*r3z + 2*r1x*r2z*r3x*r3z - 2*r2x*r2z*r3x*r3z - 
+             2*r2y*r2z*r3y*r3z + Power(r1x,2)*Power(r3z,2) - 2*r1x*r2x*Power(r3z,2) + 
+             Power(r2x,2)*Power(r3z,2) + Power(r2y,2)*Power(r3z,2) + 
+             Power(r1y,2)*(Power(r2x,2) + Power(r2z,2) - 2*r2x*r3x + Power(r3x,2) - 
+                2*r2z*r3z + Power(r3z,2)) - 
+             2*r1y*(-(r2x*r2y*r3x) + r2y*Power(r3x,2) + r1x*(r2x - r3x)*(r2y - r3y) + 
+                Power(r2x,2)*r3y + Power(r2z,2)*r3y - r2x*r3x*r3y + 
+                r1z*(r2y - r3y)*(r2z - r3z) - r2y*r2z*r3z - r2z*r3y*r3z + 
+                r2y*Power(r3z,2)) - 
+             2*r1z*(r2z*Power(r3x,2) - r2y*r2z*r3y + r2z*Power(r3y,2) + 
+                r1x*(r2x - r3x)*(r2z - r3z) + Power(r2x,2)*r3z + Power(r2y,2)*r3z - 
+                r2y*r3y*r3z - r2x*r3x*(r2z + r3z)))*
+           Sqrt(Power(r2y*r3x - r2x*r3y - r2y*r4x + r3y*r4x + r2x*r4y - r3x*r4y,2) + 
+             Power(r2z*r3x - r2x*r3z - r2z*r4x + r3z*r4x + r2x*r4z - r3x*r4z,2) + 
+             Power(r2z*r3y - r2y*r3z - r2z*r4y + r3z*r4y + r2y*r4z - r3y*r4z,2))))*
+      (-(((-(r1y*r2x) + r1x*r2y + r1y*r3x - r2y*r3x - r1x*r3y + r2x*r3y)*
+             (-(r2y*r3x) + r2x*r3y + r2y*r4x - r3y*r4x - r2x*r4y + r3x*r4y))/
+           (Sqrt(Power(-(r1y*r2x) + r1x*r2y + r1y*r3x - r2y*r3x - r1x*r3y + r2x*r3y,
+                2) + Power(r1z*r2x - r1x*r2z - r1z*r3x + r2z*r3x + r1x*r3z - r2x*r3z,
+                2) + Power(-(r1z*r2y) + r1y*r2z + r1z*r3y - r2z*r3y - r1y*r3z + r2y*r3z,
+                2))*Sqrt(Power(-(r2y*r3x) + r2x*r3y + r2y*r4x - r3y*r4x - r2x*r4y + 
+                 r3x*r4y,2) + Power(r2z*r3x - r2x*r3z - r2z*r4x + r3z*r4x + r2x*r4z - 
+                 r3x*r4z,2) + Power(-(r2z*r3y) + r2y*r3z + r2z*r4y - r3z*r4y - 
+                 r2y*r4z + r3y*r4z,2)))) - 
+        ((r1z*r2x - r1x*r2z - r1z*r3x + r2z*r3x + r1x*r3z - r2x*r3z)*
+           (r2z*r3x - r2x*r3z - r2z*r4x + r3z*r4x + r2x*r4z - r3x*r4z))/
+         (Sqrt(Power(-(r1y*r2x) + r1x*r2y + r1y*r3x - r2y*r3x - r1x*r3y + r2x*r3y,2) + 
+             Power(r1z*r2x - r1x*r2z - r1z*r3x + r2z*r3x + r1x*r3z - r2x*r3z,2) + 
+             Power(-(r1z*r2y) + r1y*r2z + r1z*r3y - r2z*r3y - r1y*r3z + r2y*r3z,2))*
+           Sqrt(Power(-(r2y*r3x) + r2x*r3y + r2y*r4x - r3y*r4x - r2x*r4y + r3x*r4y,2) + 
+             Power(r2z*r3x - r2x*r3z - r2z*r4x + r3z*r4x + r2x*r4z - r3x*r4z,2) + 
+             Power(-(r2z*r3y) + r2y*r3z + r2z*r4y - r3z*r4y - r2y*r4z + r3y*r4z,2))) - 
+        ((-(r1z*r2y) + r1y*r2z + r1z*r3y - r2z*r3y - r1y*r3z + r2y*r3z)*
+           (-(r2z*r3y) + r2y*r3z + r2z*r4y - r3z*r4y - r2y*r4z + r3y*r4z))/
+         (Sqrt(Power(-(r1y*r2x) + r1x*r2y + r1y*r3x - r2y*r3x - r1x*r3y + r2x*r3y,2) + 
+             Power(r1z*r2x - r1x*r2z - r1z*r3x + r2z*r3x + r1x*r3z - r2x*r3z,2) + 
+             Power(-(r1z*r2y) + r1y*r2z + r1z*r3y - r2z*r3y - r1y*r3z + r2y*r3z,2))*
+           Sqrt(Power(-(r2y*r3x) + r2x*r3y + r2y*r4x - r3y*r4x - r2x*r4y + r3x*r4y,2) + 
+             Power(r2z*r3x - r2x*r3z - r2z*r4x + r3z*r4x + r2x*r4z - r3x*r4z,2) + 
+             Power(-(r2z*r3y) + r2y*r3z + r2z*r4y - r3z*r4y - r2y*r4z + r3y*r4z,2)))))/
+    (((Power(r2x,2) + Power(r2y,2) + Power(r2z,2) - 2*r2x*r3x + Power(r3x,2) - 
+           2*r2y*r3y + Power(r3y,2) - 2*r2z*r3z + Power(r3z,2))*
+         Power(-(r1x*r2z*r3y) + r1x*r2y*r3z + r2z*r3y*r4x - r2y*r3z*r4x + r1x*r2z*r4y - 
+           r2z*r3x*r4y - r1x*r3z*r4y + r2x*r3z*r4y + 
+           r1z*(r2x*r3y - r3y*r4x + r2y*(-r3x + r4x) - r2x*r4y + r3x*r4y) - 
+           r1x*r2y*r4z + r2y*r3x*r4z + r1x*r3y*r4z - r2x*r3y*r4z + 
+           r1y*(r2z*r3x - r2x*r3z - r2z*r4x + r3z*r4x + r2x*r4z - r3x*r4z),2))/
+       ((Power(r1x,2)*Power(r2y,2) + Power(r1x,2)*Power(r2z,2) - 
+           2*r1x*Power(r2y,2)*r3x - 2*r1x*Power(r2z,2)*r3x + 
+           Power(r2y,2)*Power(r3x,2) + Power(r2z,2)*Power(r3x,2) - 
+           2*Power(r1x,2)*r2y*r3y + 2*r1x*r2x*r2y*r3y + 2*r1x*r2y*r3x*r3y - 
+           2*r2x*r2y*r3x*r3y + Power(r1x,2)*Power(r3y,2) - 2*r1x*r2x*Power(r3y,2) + 
+           Power(r2x,2)*Power(r3y,2) + Power(r2z,2)*Power(r3y,2) + 
+           Power(r1z,2)*(Power(r2x,2) + Power(r2y,2) - 2*r2x*r3x + Power(r3x,2) - 
+              2*r2y*r3y + Power(r3y,2)) - 2*Power(r1x,2)*r2z*r3z + 2*r1x*r2x*r2z*r3z + 
+           2*r1x*r2z*r3x*r3z - 2*r2x*r2z*r3x*r3z - 2*r2y*r2z*r3y*r3z + 
+           Power(r1x,2)*Power(r3z,2) - 2*r1x*r2x*Power(r3z,2) + 
+           Power(r2x,2)*Power(r3z,2) + Power(r2y,2)*Power(r3z,2) + 
+           Power(r1y,2)*(Power(r2x,2) + Power(r2z,2) - 2*r2x*r3x + Power(r3x,2) - 
+              2*r2z*r3z + Power(r3z,2)) - 
+           2*r1y*(-(r2x*r2y*r3x) + r2y*Power(r3x,2) + r1x*(r2x - r3x)*(r2y - r3y) + 
+              Power(r2x,2)*r3y + Power(r2z,2)*r3y - r2x*r3x*r3y + 
+              r1z*(r2y - r3y)*(r2z - r3z) - r2y*r2z*r3z - r2z*r3y*r3z + r2y*Power(r3z,2)
+              ) - 2*r1z*(r2z*Power(r3x,2) - r2y*r2z*r3y + r2z*Power(r3y,2) + 
+              r1x*(r2x - r3x)*(r2z - r3z) + Power(r2x,2)*r3z + Power(r2y,2)*r3z - 
+              r2y*r3y*r3z - r2x*r3x*(r2z + r3z)))*
+         (Power(r2y*r3x - r2x*r3y - r2y*r4x + r3y*r4x + r2x*r4y - r3x*r4y,2) + 
+           Power(r2z*r3x - r2x*r3z - r2z*r4x + r3z*r4x + r2x*r4z - r3x*r4z,2) + 
+           Power(r2z*r3y - r2y*r3z - r2z*r4y + r3z*r4y + r2y*r4z - r3y*r4z,2))) + 
+      Power(((-(r1y*r2x) + r1x*r2y + r1y*r3x - r2y*r3x - r1x*r3y + r2x*r3y)*
+           (-(r2y*r3x) + r2x*r3y + r2y*r4x - r3y*r4x - r2x*r4y + r3x*r4y))/
+         (Sqrt(Power(-(r1y*r2x) + r1x*r2y + r1y*r3x - r2y*r3x - r1x*r3y + r2x*r3y,2) + 
+             Power(r1z*r2x - r1x*r2z - r1z*r3x + r2z*r3x + r1x*r3z - r2x*r3z,2) + 
+             Power(-(r1z*r2y) + r1y*r2z + r1z*r3y - r2z*r3y - r1y*r3z + r2y*r3z,2))*
+           Sqrt(Power(-(r2y*r3x) + r2x*r3y + r2y*r4x - r3y*r4x - r2x*r4y + r3x*r4y,2) + 
+             Power(r2z*r3x - r2x*r3z - r2z*r4x + r3z*r4x + r2x*r4z - r3x*r4z,2) + 
+             Power(-(r2z*r3y) + r2y*r3z + r2z*r4y - r3z*r4y - r2y*r4z + r3y*r4z,2))) + 
+        ((r1z*r2x - r1x*r2z - r1z*r3x + r2z*r3x + r1x*r3z - r2x*r3z)*
+           (r2z*r3x - r2x*r3z - r2z*r4x + r3z*r4x + r2x*r4z - r3x*r4z))/
+         (Sqrt(Power(-(r1y*r2x) + r1x*r2y + r1y*r3x - r2y*r3x - r1x*r3y + r2x*r3y,2) + 
+             Power(r1z*r2x - r1x*r2z - r1z*r3x + r2z*r3x + r1x*r3z - r2x*r3z,2) + 
+             Power(-(r1z*r2y) + r1y*r2z + r1z*r3y - r2z*r3y - r1y*r3z + r2y*r3z,2))*
+           Sqrt(Power(-(r2y*r3x) + r2x*r3y + r2y*r4x - r3y*r4x - r2x*r4y + r3x*r4y,2) + 
+             Power(r2z*r3x - r2x*r3z - r2z*r4x + r3z*r4x + r2x*r4z - r3x*r4z,2) + 
+             Power(-(r2z*r3y) + r2y*r3z + r2z*r4y - r3z*r4y - r2y*r4z + r3y*r4z,2))) + 
+        ((-(r1z*r2y) + r1y*r2z + r1z*r3y - r2z*r3y - r1y*r3z + r2y*r3z)*
+           (-(r2z*r3y) + r2y*r3z + r2z*r4y - r3z*r4y - r2y*r4z + r3y*r4z))/
+         (Sqrt(Power(-(r1y*r2x) + r1x*r2y + r1y*r3x - r2y*r3x - r1x*r3y + r2x*r3y,2) + 
+             Power(r1z*r2x - r1x*r2z - r1z*r3x + r2z*r3x + r1x*r3z - r2x*r3z,2) + 
+             Power(-(r1z*r2y) + r1y*r2z + r1z*r3y - r2z*r3y - r1y*r3z + r2y*r3z,2))*
+           Sqrt(Power(-(r2y*r3x) + r2x*r3y + r2y*r4x - r3y*r4x - r2x*r4y + r3x*r4y,2) + 
+             Power(r2z*r3x - r2x*r3z - r2z*r4x + r3z*r4x + r2x*r4z - r3x*r4z,2) + 
+             Power(-(r2z*r3y) + r2y*r3z + r2z*r4y - r3z*r4y - r2y*r4z + r3y*r4z,2))),2));
+	der_d_th[8] = (Sqrt(Power(r2x,2) + Power(r2y,2) + Power(r2z,2) - 2*r2x*r3x + Power(r3x,2) - 
+        2*r2y*r3y + Power(r3y,2) - 2*r2z*r3z + Power(r3z,2))*
+      (-(r1x*r2z*r3y) + r1x*r2y*r3z + r2z*r3y*r4x - r2y*r3z*r4x + r1x*r2z*r4y - 
+        r2z*r3x*r4y - r1x*r3z*r4y + r2x*r3z*r4y + 
+        r1z*(r2x*r3y - r3y*r4x + r2y*(-r3x + r4x) - r2x*r4y + r3x*r4y) - r1x*r2y*r4z + 
+        r2y*r3x*r4z + r1x*r3y*r4z - r2x*r3y*r4z + 
+        r1y*(r2z*r3x - r2x*r3z - r2z*r4x + r3z*r4x + r2x*r4z - r3x*r4z))*
+      (-((-(r1y*r2x) + r1x*r2y + r1y*r3x - r2y*r3x - r1x*r3y + r2x*r3y)*
+            (-(r2y*r3x) + r2x*r3y + r2y*r4x - r3y*r4x - r2x*r4y + r3x*r4y)*
+            (2*(-r2x + r4x)*(r2z*r3x - r2x*r3z - r2z*r4x + r3z*r4x + r2x*r4z - 
+                 r3x*r4z) + 2*(r2y - r4y)*
+               (-(r2z*r3y) + r2y*r3z + r2z*r4y - r3z*r4y - r2y*r4z + r3y*r4z)))/
+         (2.*Sqrt(Power(-(r1y*r2x) + r1x*r2y + r1y*r3x - r2y*r3x - r1x*r3y + r2x*r3y,
+              2) + Power(r1z*r2x - r1x*r2z - r1z*r3x + r2z*r3x + r1x*r3z - r2x*r3z,2) + 
+             Power(-(r1z*r2y) + r1y*r2z + r1z*r3y - r2z*r3y - r1y*r3z + r2y*r3z,2))*
+           Power(Power(-(r2y*r3x) + r2x*r3y + r2y*r4x - r3y*r4x - r2x*r4y + r3x*r4y,
+              2) + Power(r2z*r3x - r2x*r3z - r2z*r4x + r3z*r4x + r2x*r4z - r3x*r4z,2) + 
+             Power(-(r2z*r3y) + r2y*r3z + r2z*r4y - r3z*r4y - r2y*r4z + r3y*r4z,2),1.5))
+          - ((r1z*r2x - r1x*r2z - r1z*r3x + r2z*r3x + r1x*r3z - r2x*r3z)*
+           (r2z*r3x - r2x*r3z - r2z*r4x + r3z*r4x + r2x*r4z - r3x*r4z)*
+           (2*(-r2x + r4x)*(r2z*r3x - r2x*r3z - r2z*r4x + r3z*r4x + r2x*r4z - 
+                r3x*r4z) + 2*(r2y - r4y)*
+              (-(r2z*r3y) + r2y*r3z + r2z*r4y - r3z*r4y - r2y*r4z + r3y*r4z)))/
+         (2.*Sqrt(Power(-(r1y*r2x) + r1x*r2y + r1y*r3x - r2y*r3x - r1x*r3y + r2x*r3y,
+              2) + Power(r1z*r2x - r1x*r2z - r1z*r3x + r2z*r3x + r1x*r3z - r2x*r3z,2) + 
+             Power(-(r1z*r2y) + r1y*r2z + r1z*r3y - r2z*r3y - r1y*r3z + r2y*r3z,2))*
+           Power(Power(-(r2y*r3x) + r2x*r3y + r2y*r4x - r3y*r4x - r2x*r4y + r3x*r4y,
+              2) + Power(r2z*r3x - r2x*r3z - r2z*r4x + r3z*r4x + r2x*r4z - r3x*r4z,2) + 
+             Power(-(r2z*r3y) + r2y*r3z + r2z*r4y - r3z*r4y - r2y*r4z + r3y*r4z,2),1.5))
+          - ((-(r1z*r2y) + r1y*r2z + r1z*r3y - r2z*r3y - r1y*r3z + r2y*r3z)*
+           (-(r2z*r3y) + r2y*r3z + r2z*r4y - r3z*r4y - r2y*r4z + r3y*r4z)*
+           (2*(-r2x + r4x)*(r2z*r3x - r2x*r3z - r2z*r4x + r3z*r4x + r2x*r4z - 
+                r3x*r4z) + 2*(r2y - r4y)*
+              (-(r2z*r3y) + r2y*r3z + r2z*r4y - r3z*r4y - r2y*r4z + r3y*r4z)))/
+         (2.*Sqrt(Power(-(r1y*r2x) + r1x*r2y + r1y*r3x - r2y*r3x - r1x*r3y + r2x*r3y,
+              2) + Power(r1z*r2x - r1x*r2z - r1z*r3x + r2z*r3x + r1x*r3z - r2x*r3z,2) + 
+             Power(-(r1z*r2y) + r1y*r2z + r1z*r3y - r2z*r3y - r1y*r3z + r2y*r3z,2))*
+           Power(Power(-(r2y*r3x) + r2x*r3y + r2y*r4x - r3y*r4x - r2x*r4y + r3x*r4y,
+              2) + Power(r2z*r3x - r2x*r3z - r2z*r4x + r3z*r4x + r2x*r4z - r3x*r4z,2) + 
+             Power(-(r2z*r3y) + r2y*r3z + r2z*r4y - r3z*r4y - r2y*r4z + r3y*r4z,2),1.5))
+          + ((r1z*r2x - r1x*r2z - r1z*r3x + r2z*r3x + r1x*r3z - r2x*r3z)*(-r2x + r4x))/
+         (Sqrt(Power(-(r1y*r2x) + r1x*r2y + r1y*r3x - r2y*r3x - r1x*r3y + r2x*r3y,2) + 
+             Power(r1z*r2x - r1x*r2z - r1z*r3x + r2z*r3x + r1x*r3z - r2x*r3z,2) + 
+             Power(-(r1z*r2y) + r1y*r2z + r1z*r3y - r2z*r3y - r1y*r3z + r2y*r3z,2))*
+           Sqrt(Power(-(r2y*r3x) + r2x*r3y + r2y*r4x - r3y*r4x - r2x*r4y + r3x*r4y,2) + 
+             Power(r2z*r3x - r2x*r3z - r2z*r4x + r3z*r4x + r2x*r4z - r3x*r4z,2) + 
+             Power(-(r2z*r3y) + r2y*r3z + r2z*r4y - r3z*r4y - r2y*r4z + r3y*r4z,2))) + 
+        ((-(r1z*r2y) + r1y*r2z + r1z*r3y - r2z*r3y - r1y*r3z + r2y*r3z)*(r2y - r4y))/
+         (Sqrt(Power(-(r1y*r2x) + r1x*r2y + r1y*r3x - r2y*r3x - r1x*r3y + r2x*r3y,2) + 
+             Power(r1z*r2x - r1x*r2z - r1z*r3x + r2z*r3x + r1x*r3z - r2x*r3z,2) + 
+             Power(-(r1z*r2y) + r1y*r2z + r1z*r3y - r2z*r3y - r1y*r3z + r2y*r3z,2))*
+           Sqrt(Power(-(r2y*r3x) + r2x*r3y + r2y*r4x - r3y*r4x - r2x*r4y + r3x*r4y,2) + 
+             Power(r2z*r3x - r2x*r3z - r2z*r4x + r3z*r4x + r2x*r4z - r3x*r4z,2) + 
+             Power(-(r2z*r3y) + r2y*r3z + r2z*r4y - r3z*r4y - r2y*r4z + r3y*r4z,2))) - 
+        ((-(r1y*r2x) + r1x*r2y + r1y*r3x - r2y*r3x - r1x*r3y + r2x*r3y)*
+           (2*(r1x - r2x)*(r1z*r2x - r1x*r2z - r1z*r3x + r2z*r3x + r1x*r3z - r2x*r3z) + 
+             2*(-r1y + r2y)*(-(r1z*r2y) + r1y*r2z + r1z*r3y - r2z*r3y - r1y*r3z + 
+                r2y*r3z))*(-(r2y*r3x) + r2x*r3y + r2y*r4x - r3y*r4x - r2x*r4y + r3x*r4y)
+           )/(2.*Power(Power(-(r1y*r2x) + r1x*r2y + r1y*r3x - r2y*r3x - r1x*r3y + 
+               r2x*r3y,2) + Power(r1z*r2x - r1x*r2z - r1z*r3x + r2z*r3x + r1x*r3z - 
+               r2x*r3z,2) + Power(-(r1z*r2y) + r1y*r2z + r1z*r3y - r2z*r3y - r1y*r3z + 
+               r2y*r3z,2),1.5)*Sqrt(Power(-(r2y*r3x) + r2x*r3y + r2y*r4x - r3y*r4x - 
+               r2x*r4y + r3x*r4y,2) + 
+             Power(r2z*r3x - r2x*r3z - r2z*r4x + r3z*r4x + r2x*r4z - r3x*r4z,2) + 
+             Power(-(r2z*r3y) + r2y*r3z + r2z*r4y - r3z*r4y - r2y*r4z + r3y*r4z,2))) - 
+        ((r1z*r2x - r1x*r2z - r1z*r3x + r2z*r3x + r1x*r3z - r2x*r3z)*
+           (2*(r1x - r2x)*(r1z*r2x - r1x*r2z - r1z*r3x + r2z*r3x + r1x*r3z - r2x*r3z) + 
+             2*(-r1y + r2y)*(-(r1z*r2y) + r1y*r2z + r1z*r3y - r2z*r3y - r1y*r3z + 
+                r2y*r3z))*(r2z*r3x - r2x*r3z - r2z*r4x + r3z*r4x + r2x*r4z - r3x*r4z))/
+         (2.*Power(Power(-(r1y*r2x) + r1x*r2y + r1y*r3x - r2y*r3x - r1x*r3y + r2x*r3y,
+              2) + Power(r1z*r2x - r1x*r2z - r1z*r3x + r2z*r3x + r1x*r3z - r2x*r3z,2) + 
+             Power(-(r1z*r2y) + r1y*r2z + r1z*r3y - r2z*r3y - r1y*r3z + r2y*r3z,2),1.5)*
+           Sqrt(Power(-(r2y*r3x) + r2x*r3y + r2y*r4x - r3y*r4x - r2x*r4y + r3x*r4y,2) + 
+             Power(r2z*r3x - r2x*r3z - r2z*r4x + r3z*r4x + r2x*r4z - r3x*r4z,2) + 
+             Power(-(r2z*r3y) + r2y*r3z + r2z*r4y - r3z*r4y - r2y*r4z + r3y*r4z,2))) + 
+        ((r1x - r2x)*(r2z*r3x - r2x*r3z - r2z*r4x + r3z*r4x + r2x*r4z - r3x*r4z))/
+         (Sqrt(Power(-(r1y*r2x) + r1x*r2y + r1y*r3x - r2y*r3x - r1x*r3y + r2x*r3y,2) + 
+             Power(r1z*r2x - r1x*r2z - r1z*r3x + r2z*r3x + r1x*r3z - r2x*r3z,2) + 
+             Power(-(r1z*r2y) + r1y*r2z + r1z*r3y - r2z*r3y - r1y*r3z + r2y*r3z,2))*
+           Sqrt(Power(-(r2y*r3x) + r2x*r3y + r2y*r4x - r3y*r4x - r2x*r4y + r3x*r4y,2) + 
+             Power(r2z*r3x - r2x*r3z - r2z*r4x + r3z*r4x + r2x*r4z - r3x*r4z,2) + 
+             Power(-(r2z*r3y) + r2y*r3z + r2z*r4y - r3z*r4y - r2y*r4z + r3y*r4z,2))) - 
+        ((-(r1z*r2y) + r1y*r2z + r1z*r3y - r2z*r3y - r1y*r3z + r2y*r3z)*
+           (2*(r1x - r2x)*(r1z*r2x - r1x*r2z - r1z*r3x + r2z*r3x + r1x*r3z - r2x*r3z) + 
+             2*(-r1y + r2y)*(-(r1z*r2y) + r1y*r2z + r1z*r3y - r2z*r3y - r1y*r3z + 
+                r2y*r3z))*(-(r2z*r3y) + r2y*r3z + r2z*r4y - r3z*r4y - r2y*r4z + r3y*r4z)
+           )/(2.*Power(Power(-(r1y*r2x) + r1x*r2y + r1y*r3x - r2y*r3x - r1x*r3y + 
+               r2x*r3y,2) + Power(r1z*r2x - r1x*r2z - r1z*r3x + r2z*r3x + r1x*r3z - 
+               r2x*r3z,2) + Power(-(r1z*r2y) + r1y*r2z + r1z*r3y - r2z*r3y - r1y*r3z + 
+               r2y*r3z,2),1.5)*Sqrt(Power(-(r2y*r3x) + r2x*r3y + r2y*r4x - r3y*r4x - 
+               r2x*r4y + r3x*r4y,2) + 
+             Power(r2z*r3x - r2x*r3z - r2z*r4x + r3z*r4x + r2x*r4z - r3x*r4z,2) + 
+             Power(-(r2z*r3y) + r2y*r3z + r2z*r4y - r3z*r4y - r2y*r4z + r3y*r4z,2))) + 
+        ((-r1y + r2y)*(-(r2z*r3y) + r2y*r3z + r2z*r4y - r3z*r4y - r2y*r4z + r3y*r4z))/
+         (Sqrt(Power(-(r1y*r2x) + r1x*r2y + r1y*r3x - r2y*r3x - r1x*r3y + r2x*r3y,2) + 
+             Power(r1z*r2x - r1x*r2z - r1z*r3x + r2z*r3x + r1x*r3z - r2x*r3z,2) + 
+             Power(-(r1z*r2y) + r1y*r2z + r1z*r3y - r2z*r3y - r1y*r3z + r2y*r3z,2))*
+           Sqrt(Power(-(r2y*r3x) + r2x*r3y + r2y*r4x - r3y*r4x - r2x*r4y + r3x*r4y,2) + 
+             Power(r2z*r3x - r2x*r3z - r2z*r4x + r3z*r4x + r2x*r4z - r3x*r4z,2) + 
+             Power(-(r2z*r3y) + r2y*r3z + r2z*r4y - r3z*r4y - r2y*r4z + r3y*r4z,2)))))/
+    (Sqrt(Power(r1x,2)*Power(r2y,2) + Power(r1x,2)*Power(r2z,2) - 
+        2*r1x*Power(r2y,2)*r3x - 2*r1x*Power(r2z,2)*r3x + Power(r2y,2)*Power(r3x,2) + 
+        Power(r2z,2)*Power(r3x,2) - 2*Power(r1x,2)*r2y*r3y + 2*r1x*r2x*r2y*r3y + 
+        2*r1x*r2y*r3x*r3y - 2*r2x*r2y*r3x*r3y + Power(r1x,2)*Power(r3y,2) - 
+        2*r1x*r2x*Power(r3y,2) + Power(r2x,2)*Power(r3y,2) + 
+        Power(r2z,2)*Power(r3y,2) + 
+        Power(r1z,2)*(Power(r2x,2) + Power(r2y,2) - 2*r2x*r3x + Power(r3x,2) - 
+           2*r2y*r3y + Power(r3y,2)) - 2*Power(r1x,2)*r2z*r3z + 2*r1x*r2x*r2z*r3z + 
+        2*r1x*r2z*r3x*r3z - 2*r2x*r2z*r3x*r3z - 2*r2y*r2z*r3y*r3z + 
+        Power(r1x,2)*Power(r3z,2) - 2*r1x*r2x*Power(r3z,2) + 
+        Power(r2x,2)*Power(r3z,2) + Power(r2y,2)*Power(r3z,2) + 
+        Power(r1y,2)*(Power(r2x,2) + Power(r2z,2) - 2*r2x*r3x + Power(r3x,2) - 
+           2*r2z*r3z + Power(r3z,2)) - 
+        2*r1y*(-(r2x*r2y*r3x) + r2y*Power(r3x,2) + r1x*(r2x - r3x)*(r2y - r3y) + 
+           Power(r2x,2)*r3y + Power(r2z,2)*r3y - r2x*r3x*r3y + 
+           r1z*(r2y - r3y)*(r2z - r3z) - r2y*r2z*r3z - r2z*r3y*r3z + r2y*Power(r3z,2))\
+         - 2*r1z*(r2z*Power(r3x,2) - r2y*r2z*r3y + r2z*Power(r3y,2) + 
+           r1x*(r2x - r3x)*(r2z - r3z) + Power(r2x,2)*r3z + Power(r2y,2)*r3z - 
+           r2y*r3y*r3z - r2x*r3x*(r2z + r3z)))*
+      Sqrt(Power(r2y*r3x - r2x*r3y - r2y*r4x + r3y*r4x + r2x*r4y - r3x*r4y,2) + 
+        Power(r2z*r3x - r2x*r3z - r2z*r4x + r3z*r4x + r2x*r4z - r3x*r4z,2) + 
+        Power(r2z*r3y - r2y*r3z - r2z*r4y + r3z*r4y + r2y*r4z - r3y*r4z,2))*
+      (((Power(r2x,2) + Power(r2y,2) + Power(r2z,2) - 2*r2x*r3x + Power(r3x,2) - 
+             2*r2y*r3y + Power(r3y,2) - 2*r2z*r3z + Power(r3z,2))*
+           Power(-(r1x*r2z*r3y) + r1x*r2y*r3z + r2z*r3y*r4x - r2y*r3z*r4x + 
+             r1x*r2z*r4y - r2z*r3x*r4y - r1x*r3z*r4y + r2x*r3z*r4y + 
+             r1z*(r2x*r3y - r3y*r4x + r2y*(-r3x + r4x) - r2x*r4y + r3x*r4y) - 
+             r1x*r2y*r4z + r2y*r3x*r4z + r1x*r3y*r4z - r2x*r3y*r4z + 
+             r1y*(r2z*r3x - r2x*r3z - r2z*r4x + r3z*r4x + r2x*r4z - r3x*r4z),2))/
+         ((Power(r1x,2)*Power(r2y,2) + Power(r1x,2)*Power(r2z,2) - 
+             2*r1x*Power(r2y,2)*r3x - 2*r1x*Power(r2z,2)*r3x + 
+             Power(r2y,2)*Power(r3x,2) + Power(r2z,2)*Power(r3x,2) - 
+             2*Power(r1x,2)*r2y*r3y + 2*r1x*r2x*r2y*r3y + 2*r1x*r2y*r3x*r3y - 
+             2*r2x*r2y*r3x*r3y + Power(r1x,2)*Power(r3y,2) - 2*r1x*r2x*Power(r3y,2) + 
+             Power(r2x,2)*Power(r3y,2) + Power(r2z,2)*Power(r3y,2) + 
+             Power(r1z,2)*(Power(r2x,2) + Power(r2y,2) - 2*r2x*r3x + Power(r3x,2) - 
+                2*r2y*r3y + Power(r3y,2)) - 2*Power(r1x,2)*r2z*r3z + 
+             2*r1x*r2x*r2z*r3z + 2*r1x*r2z*r3x*r3z - 2*r2x*r2z*r3x*r3z - 
+             2*r2y*r2z*r3y*r3z + Power(r1x,2)*Power(r3z,2) - 2*r1x*r2x*Power(r3z,2) + 
+             Power(r2x,2)*Power(r3z,2) + Power(r2y,2)*Power(r3z,2) + 
+             Power(r1y,2)*(Power(r2x,2) + Power(r2z,2) - 2*r2x*r3x + Power(r3x,2) - 
+                2*r2z*r3z + Power(r3z,2)) - 
+             2*r1y*(-(r2x*r2y*r3x) + r2y*Power(r3x,2) + r1x*(r2x - r3x)*(r2y - r3y) + 
+                Power(r2x,2)*r3y + Power(r2z,2)*r3y - r2x*r3x*r3y + 
+                r1z*(r2y - r3y)*(r2z - r3z) - r2y*r2z*r3z - r2z*r3y*r3z + 
+                r2y*Power(r3z,2)) - 
+             2*r1z*(r2z*Power(r3x,2) - r2y*r2z*r3y + r2z*Power(r3y,2) + 
+                r1x*(r2x - r3x)*(r2z - r3z) + Power(r2x,2)*r3z + Power(r2y,2)*r3z - 
+                r2y*r3y*r3z - r2x*r3x*(r2z + r3z)))*
+           (Power(r2y*r3x - r2x*r3y - r2y*r4x + r3y*r4x + r2x*r4y - r3x*r4y,2) + 
+             Power(r2z*r3x - r2x*r3z - r2z*r4x + r3z*r4x + r2x*r4z - r3x*r4z,2) + 
+             Power(r2z*r3y - r2y*r3z - r2z*r4y + r3z*r4y + r2y*r4z - r3y*r4z,2))) + 
+        Power(((-(r1y*r2x) + r1x*r2y + r1y*r3x - r2y*r3x - r1x*r3y + r2x*r3y)*
+             (-(r2y*r3x) + r2x*r3y + r2y*r4x - r3y*r4x - r2x*r4y + r3x*r4y))/
+           (Sqrt(Power(-(r1y*r2x) + r1x*r2y + r1y*r3x - r2y*r3x - r1x*r3y + r2x*r3y,
+                2) + Power(r1z*r2x - r1x*r2z - r1z*r3x + r2z*r3x + r1x*r3z - r2x*r3z,
+                2) + Power(-(r1z*r2y) + r1y*r2z + r1z*r3y - r2z*r3y - r1y*r3z + r2y*r3z,
+                2))*Sqrt(Power(-(r2y*r3x) + r2x*r3y + r2y*r4x - r3y*r4x - r2x*r4y + 
+                 r3x*r4y,2) + Power(r2z*r3x - r2x*r3z - r2z*r4x + r3z*r4x + r2x*r4z - 
+                 r3x*r4z,2) + Power(-(r2z*r3y) + r2y*r3z + r2z*r4y - r3z*r4y - 
+                 r2y*r4z + r3y*r4z,2))) + 
+          ((r1z*r2x - r1x*r2z - r1z*r3x + r2z*r3x + r1x*r3z - r2x*r3z)*
+             (r2z*r3x - r2x*r3z - r2z*r4x + r3z*r4x + r2x*r4z - r3x*r4z))/
+           (Sqrt(Power(-(r1y*r2x) + r1x*r2y + r1y*r3x - r2y*r3x - r1x*r3y + r2x*r3y,
+                2) + Power(r1z*r2x - r1x*r2z - r1z*r3x + r2z*r3x + r1x*r3z - r2x*r3z,
+                2) + Power(-(r1z*r2y) + r1y*r2z + r1z*r3y - r2z*r3y - r1y*r3z + r2y*r3z,
+                2))*Sqrt(Power(-(r2y*r3x) + r2x*r3y + r2y*r4x - r3y*r4x - r2x*r4y + 
+                 r3x*r4y,2) + Power(r2z*r3x - r2x*r3z - r2z*r4x + r3z*r4x + r2x*r4z - 
+                 r3x*r4z,2) + Power(-(r2z*r3y) + r2y*r3z + r2z*r4y - r3z*r4y - 
+                 r2y*r4z + r3y*r4z,2))) + 
+          ((-(r1z*r2y) + r1y*r2z + r1z*r3y - r2z*r3y - r1y*r3z + r2y*r3z)*
+             (-(r2z*r3y) + r2y*r3z + r2z*r4y - r3z*r4y - r2y*r4z + r3y*r4z))/
+           (Sqrt(Power(-(r1y*r2x) + r1x*r2y + r1y*r3x - r2y*r3x - r1x*r3y + r2x*r3y,
+                2) + Power(r1z*r2x - r1x*r2z - r1z*r3x + r2z*r3x + r1x*r3z - r2x*r3z,
+                2) + Power(-(r1z*r2y) + r1y*r2z + r1z*r3y - r2z*r3y - r1y*r3z + r2y*r3z,
+                2))*Sqrt(Power(-(r2y*r3x) + r2x*r3y + r2y*r4x - r3y*r4x - r2x*r4y + 
+                 r3x*r4y,2) + Power(r2z*r3x - r2x*r3z - r2z*r4x + r3z*r4x + r2x*r4z - 
+                 r3x*r4z,2) + Power(-(r2z*r3y) + r2y*r3z + r2z*r4y - r3z*r4y - 
+                 r2y*r4z + r3y*r4z,2))),2))) + 
+   ((-(Sqrt(Power(r2x,2) + Power(r2y,2) + Power(r2z,2) - 2*r2x*r3x + Power(r3x,2) - 
+              2*r2y*r3y + Power(r3y,2) - 2*r2z*r3z + Power(r3z,2))*
+            (-(r1x*r2z*r3y) + r1x*r2y*r3z + r2z*r3y*r4x - r2y*r3z*r4x + r1x*r2z*r4y - 
+              r2z*r3x*r4y - r1x*r3z*r4y + r2x*r3z*r4y + 
+              r1z*(r2x*r3y - r3y*r4x + r2y*(-r3x + r4x) - r2x*r4y + r3x*r4y) - 
+              r1x*r2y*r4z + r2y*r3x*r4z + r1x*r3y*r4z - r2x*r3y*r4z + 
+              r1y*(r2z*r3x - r2x*r3z - r2z*r4x + r3z*r4x + r2x*r4z - r3x*r4z))*
+            (2*(-r2x + r4x)*(r2z*r3x - r2x*r3z - r2z*r4x + r3z*r4x + r2x*r4z - 
+                 r3x*r4z) + 2*(-r2y + r4y)*
+               (r2z*r3y - r2y*r3z - r2z*r4y + r3z*r4y + r2y*r4z - r3y*r4z)))/
+         (2.*Sqrt(Power(r1x,2)*Power(r2y,2) + Power(r1x,2)*Power(r2z,2) - 
+             2*r1x*Power(r2y,2)*r3x - 2*r1x*Power(r2z,2)*r3x + 
+             Power(r2y,2)*Power(r3x,2) + Power(r2z,2)*Power(r3x,2) - 
+             2*Power(r1x,2)*r2y*r3y + 2*r1x*r2x*r2y*r3y + 2*r1x*r2y*r3x*r3y - 
+             2*r2x*r2y*r3x*r3y + Power(r1x,2)*Power(r3y,2) - 2*r1x*r2x*Power(r3y,2) + 
+             Power(r2x,2)*Power(r3y,2) + Power(r2z,2)*Power(r3y,2) + 
+             Power(r1z,2)*(Power(r2x,2) + Power(r2y,2) - 2*r2x*r3x + Power(r3x,2) - 
+                2*r2y*r3y + Power(r3y,2)) - 2*Power(r1x,2)*r2z*r3z + 
+             2*r1x*r2x*r2z*r3z + 2*r1x*r2z*r3x*r3z - 2*r2x*r2z*r3x*r3z - 
+             2*r2y*r2z*r3y*r3z + Power(r1x,2)*Power(r3z,2) - 2*r1x*r2x*Power(r3z,2) + 
+             Power(r2x,2)*Power(r3z,2) + Power(r2y,2)*Power(r3z,2) + 
+             Power(r1y,2)*(Power(r2x,2) + Power(r2z,2) - 2*r2x*r3x + Power(r3x,2) - 
+                2*r2z*r3z + Power(r3z,2)) - 
+             2*r1y*(-(r2x*r2y*r3x) + r2y*Power(r3x,2) + r1x*(r2x - r3x)*(r2y - r3y) + 
+                Power(r2x,2)*r3y + Power(r2z,2)*r3y - r2x*r3x*r3y + 
+                r1z*(r2y - r3y)*(r2z - r3z) - r2y*r2z*r3z - r2z*r3y*r3z + 
+                r2y*Power(r3z,2)) - 
+             2*r1z*(r2z*Power(r3x,2) - r2y*r2z*r3y + r2z*Power(r3y,2) + 
+                r1x*(r2x - r3x)*(r2z - r3z) + Power(r2x,2)*r3z + Power(r2y,2)*r3z - 
+                r2y*r3y*r3z - r2x*r3x*(r2z + r3z)))*
+           Power(Power(r2y*r3x - r2x*r3y - r2y*r4x + r3y*r4x + r2x*r4y - r3x*r4y,2) + 
+             Power(r2z*r3x - r2x*r3z - r2z*r4x + r3z*r4x + r2x*r4z - r3x*r4z,2) + 
+             Power(r2z*r3y - r2y*r3z - r2z*r4y + r3z*r4y + r2y*r4z - r3y*r4z,2),1.5)) + 
+        (Sqrt(Power(r2x,2) + Power(r2y,2) + Power(r2z,2) - 2*r2x*r3x + Power(r3x,2) - 
+             2*r2y*r3y + Power(r3y,2) - 2*r2z*r3z + Power(r3z,2))*
+           (r1x*r2y - r2y*r4x + r1y*(-r2x + r4x) - r1x*r4y + r2x*r4y))/
+         (Sqrt(Power(r1x,2)*Power(r2y,2) + Power(r1x,2)*Power(r2z,2) - 
+             2*r1x*Power(r2y,2)*r3x - 2*r1x*Power(r2z,2)*r3x + 
+             Power(r2y,2)*Power(r3x,2) + Power(r2z,2)*Power(r3x,2) - 
+             2*Power(r1x,2)*r2y*r3y + 2*r1x*r2x*r2y*r3y + 2*r1x*r2y*r3x*r3y - 
+             2*r2x*r2y*r3x*r3y + Power(r1x,2)*Power(r3y,2) - 2*r1x*r2x*Power(r3y,2) + 
+             Power(r2x,2)*Power(r3y,2) + Power(r2z,2)*Power(r3y,2) + 
+             Power(r1z,2)*(Power(r2x,2) + Power(r2y,2) - 2*r2x*r3x + Power(r3x,2) - 
+                2*r2y*r3y + Power(r3y,2)) - 2*Power(r1x,2)*r2z*r3z + 
+             2*r1x*r2x*r2z*r3z + 2*r1x*r2z*r3x*r3z - 2*r2x*r2z*r3x*r3z - 
+             2*r2y*r2z*r3y*r3z + Power(r1x,2)*Power(r3z,2) - 2*r1x*r2x*Power(r3z,2) + 
+             Power(r2x,2)*Power(r3z,2) + Power(r2y,2)*Power(r3z,2) + 
+             Power(r1y,2)*(Power(r2x,2) + Power(r2z,2) - 2*r2x*r3x + Power(r3x,2) - 
+                2*r2z*r3z + Power(r3z,2)) - 
+             2*r1y*(-(r2x*r2y*r3x) + r2y*Power(r3x,2) + r1x*(r2x - r3x)*(r2y - r3y) + 
+                Power(r2x,2)*r3y + Power(r2z,2)*r3y - r2x*r3x*r3y + 
+                r1z*(r2y - r3y)*(r2z - r3z) - r2y*r2z*r3z - r2z*r3y*r3z + 
+                r2y*Power(r3z,2)) - 
+             2*r1z*(r2z*Power(r3x,2) - r2y*r2z*r3y + r2z*Power(r3y,2) + 
+                r1x*(r2x - r3x)*(r2z - r3z) + Power(r2x,2)*r3z + Power(r2y,2)*r3z - 
+                r2y*r3y*r3z - r2x*r3x*(r2z + r3z)))*
+           Sqrt(Power(r2y*r3x - r2x*r3y - r2y*r4x + r3y*r4x + r2x*r4y - r3x*r4y,2) + 
+             Power(r2z*r3x - r2x*r3z - r2z*r4x + r3z*r4x + r2x*r4z - r3x*r4z,2) + 
+             Power(r2z*r3y - r2y*r3z - r2z*r4y + r3z*r4y + r2y*r4z - r3y*r4z,2))) - 
+        (Sqrt(Power(r2x,2) + Power(r2y,2) + Power(r2z,2) - 2*r2x*r3x + Power(r3x,2) - 
+             2*r2y*r3y + Power(r3y,2) - 2*r2z*r3z + Power(r3z,2))*
+           (-2*Power(r1x,2)*r2z + 2*r1x*r2x*r2z + 2*r1x*r2z*r3x - 2*r2x*r2z*r3x - 
+             2*r2y*r2z*r3y - 2*r1z*(Power(r2x,2) + Power(r2y,2) - r1x*(r2x - r3x) - 
+                r2x*r3x - r2y*r3y) + 2*Power(r1x,2)*r3z - 4*r1x*r2x*r3z + 
+             2*Power(r2x,2)*r3z + 2*Power(r2y,2)*r3z + Power(r1y,2)*(-2*r2z + 2*r3z) - 
+             2*r1y*(-(r2y*r2z) - r1z*(r2y - r3y) - r2z*r3y + 2*r2y*r3z))*
+           (-(r1x*r2z*r3y) + r1x*r2y*r3z + r2z*r3y*r4x - r2y*r3z*r4x + r1x*r2z*r4y - 
+             r2z*r3x*r4y - r1x*r3z*r4y + r2x*r3z*r4y + 
+             r1z*(r2x*r3y - r3y*r4x + r2y*(-r3x + r4x) - r2x*r4y + r3x*r4y) - 
+             r1x*r2y*r4z + r2y*r3x*r4z + r1x*r3y*r4z - r2x*r3y*r4z + 
+             r1y*(r2z*r3x - r2x*r3z - r2z*r4x + r3z*r4x + r2x*r4z - r3x*r4z)))/
+         (2.*Power(Power(r1x,2)*Power(r2y,2) + Power(r1x,2)*Power(r2z,2) - 
+             2*r1x*Power(r2y,2)*r3x - 2*r1x*Power(r2z,2)*r3x + 
+             Power(r2y,2)*Power(r3x,2) + Power(r2z,2)*Power(r3x,2) - 
+             2*Power(r1x,2)*r2y*r3y + 2*r1x*r2x*r2y*r3y + 2*r1x*r2y*r3x*r3y - 
+             2*r2x*r2y*r3x*r3y + Power(r1x,2)*Power(r3y,2) - 2*r1x*r2x*Power(r3y,2) + 
+             Power(r2x,2)*Power(r3y,2) + Power(r2z,2)*Power(r3y,2) + 
+             Power(r1z,2)*(Power(r2x,2) + Power(r2y,2) - 2*r2x*r3x + Power(r3x,2) - 
+                2*r2y*r3y + Power(r3y,2)) - 2*Power(r1x,2)*r2z*r3z + 
+             2*r1x*r2x*r2z*r3z + 2*r1x*r2z*r3x*r3z - 2*r2x*r2z*r3x*r3z - 
+             2*r2y*r2z*r3y*r3z + Power(r1x,2)*Power(r3z,2) - 2*r1x*r2x*Power(r3z,2) + 
+             Power(r2x,2)*Power(r3z,2) + Power(r2y,2)*Power(r3z,2) + 
+             Power(r1y,2)*(Power(r2x,2) + Power(r2z,2) - 2*r2x*r3x + Power(r3x,2) - 
+                2*r2z*r3z + Power(r3z,2)) - 
+             2*r1y*(-(r2x*r2y*r3x) + r2y*Power(r3x,2) + r1x*(r2x - r3x)*(r2y - r3y) + 
+                Power(r2x,2)*r3y + Power(r2z,2)*r3y - r2x*r3x*r3y + 
+                r1z*(r2y - r3y)*(r2z - r3z) - r2y*r2z*r3z - r2z*r3y*r3z + 
+                r2y*Power(r3z,2)) - 
+             2*r1z*(r2z*Power(r3x,2) - r2y*r2z*r3y + r2z*Power(r3y,2) + 
+                r1x*(r2x - r3x)*(r2z - r3z) + Power(r2x,2)*r3z + Power(r2y,2)*r3z - 
+                r2y*r3y*r3z - r2x*r3x*(r2z + r3z)),1.5)*
+           Sqrt(Power(r2y*r3x - r2x*r3y - r2y*r4x + r3y*r4x + r2x*r4y - r3x*r4y,2) + 
+             Power(r2z*r3x - r2x*r3z - r2z*r4x + r3z*r4x + r2x*r4z - r3x*r4z,2) + 
+             Power(r2z*r3y - r2y*r3z - r2z*r4y + r3z*r4y + r2y*r4z - r3y*r4z,2))) + 
+        ((-2*r2z + 2*r3z)*(-(r1x*r2z*r3y) + r1x*r2y*r3z + r2z*r3y*r4x - r2y*r3z*r4x + 
+             r1x*r2z*r4y - r2z*r3x*r4y - r1x*r3z*r4y + r2x*r3z*r4y + 
+             r1z*(r2x*r3y - r3y*r4x + r2y*(-r3x + r4x) - r2x*r4y + r3x*r4y) - 
+             r1x*r2y*r4z + r2y*r3x*r4z + r1x*r3y*r4z - r2x*r3y*r4z + 
+             r1y*(r2z*r3x - r2x*r3z - r2z*r4x + r3z*r4x + r2x*r4z - r3x*r4z)))/
+         (2.*Sqrt(Power(r2x,2) + Power(r2y,2) + Power(r2z,2) - 2*r2x*r3x + 
+             Power(r3x,2) - 2*r2y*r3y + Power(r3y,2) - 2*r2z*r3z + Power(r3z,2))*
+           Sqrt(Power(r1x,2)*Power(r2y,2) + Power(r1x,2)*Power(r2z,2) - 
+             2*r1x*Power(r2y,2)*r3x - 2*r1x*Power(r2z,2)*r3x + 
+             Power(r2y,2)*Power(r3x,2) + Power(r2z,2)*Power(r3x,2) - 
+             2*Power(r1x,2)*r2y*r3y + 2*r1x*r2x*r2y*r3y + 2*r1x*r2y*r3x*r3y - 
+             2*r2x*r2y*r3x*r3y + Power(r1x,2)*Power(r3y,2) - 2*r1x*r2x*Power(r3y,2) + 
+             Power(r2x,2)*Power(r3y,2) + Power(r2z,2)*Power(r3y,2) + 
+             Power(r1z,2)*(Power(r2x,2) + Power(r2y,2) - 2*r2x*r3x + Power(r3x,2) - 
+                2*r2y*r3y + Power(r3y,2)) - 2*Power(r1x,2)*r2z*r3z + 
+             2*r1x*r2x*r2z*r3z + 2*r1x*r2z*r3x*r3z - 2*r2x*r2z*r3x*r3z - 
+             2*r2y*r2z*r3y*r3z + Power(r1x,2)*Power(r3z,2) - 2*r1x*r2x*Power(r3z,2) + 
+             Power(r2x,2)*Power(r3z,2) + Power(r2y,2)*Power(r3z,2) + 
+             Power(r1y,2)*(Power(r2x,2) + Power(r2z,2) - 2*r2x*r3x + Power(r3x,2) - 
+                2*r2z*r3z + Power(r3z,2)) - 
+             2*r1y*(-(r2x*r2y*r3x) + r2y*Power(r3x,2) + r1x*(r2x - r3x)*(r2y - r3y) + 
+                Power(r2x,2)*r3y + Power(r2z,2)*r3y - r2x*r3x*r3y + 
+                r1z*(r2y - r3y)*(r2z - r3z) - r2y*r2z*r3z - r2z*r3y*r3z + 
+                r2y*Power(r3z,2)) - 
+             2*r1z*(r2z*Power(r3x,2) - r2y*r2z*r3y + r2z*Power(r3y,2) + 
+                r1x*(r2x - r3x)*(r2z - r3z) + Power(r2x,2)*r3z + Power(r2y,2)*r3z - 
+                r2y*r3y*r3z - r2x*r3x*(r2z + r3z)))*
+           Sqrt(Power(r2y*r3x - r2x*r3y - r2y*r4x + r3y*r4x + r2x*r4y - r3x*r4y,2) + 
+             Power(r2z*r3x - r2x*r3z - r2z*r4x + r3z*r4x + r2x*r4z - r3x*r4z,2) + 
+             Power(r2z*r3y - r2y*r3z - r2z*r4y + r3z*r4y + r2y*r4z - r3y*r4z,2))))*
+      (-(((-(r1y*r2x) + r1x*r2y + r1y*r3x - r2y*r3x - r1x*r3y + r2x*r3y)*
+             (-(r2y*r3x) + r2x*r3y + r2y*r4x - r3y*r4x - r2x*r4y + r3x*r4y))/
+           (Sqrt(Power(-(r1y*r2x) + r1x*r2y + r1y*r3x - r2y*r3x - r1x*r3y + r2x*r3y,
+                2) + Power(r1z*r2x - r1x*r2z - r1z*r3x + r2z*r3x + r1x*r3z - r2x*r3z,
+                2) + Power(-(r1z*r2y) + r1y*r2z + r1z*r3y - r2z*r3y - r1y*r3z + r2y*r3z,
+                2))*Sqrt(Power(-(r2y*r3x) + r2x*r3y + r2y*r4x - r3y*r4x - r2x*r4y + 
+                 r3x*r4y,2) + Power(r2z*r3x - r2x*r3z - r2z*r4x + r3z*r4x + r2x*r4z - 
+                 r3x*r4z,2) + Power(-(r2z*r3y) + r2y*r3z + r2z*r4y - r3z*r4y - 
+                 r2y*r4z + r3y*r4z,2)))) - 
+        ((r1z*r2x - r1x*r2z - r1z*r3x + r2z*r3x + r1x*r3z - r2x*r3z)*
+           (r2z*r3x - r2x*r3z - r2z*r4x + r3z*r4x + r2x*r4z - r3x*r4z))/
+         (Sqrt(Power(-(r1y*r2x) + r1x*r2y + r1y*r3x - r2y*r3x - r1x*r3y + r2x*r3y,2) + 
+             Power(r1z*r2x - r1x*r2z - r1z*r3x + r2z*r3x + r1x*r3z - r2x*r3z,2) + 
+             Power(-(r1z*r2y) + r1y*r2z + r1z*r3y - r2z*r3y - r1y*r3z + r2y*r3z,2))*
+           Sqrt(Power(-(r2y*r3x) + r2x*r3y + r2y*r4x - r3y*r4x - r2x*r4y + r3x*r4y,2) + 
+             Power(r2z*r3x - r2x*r3z - r2z*r4x + r3z*r4x + r2x*r4z - r3x*r4z,2) + 
+             Power(-(r2z*r3y) + r2y*r3z + r2z*r4y - r3z*r4y - r2y*r4z + r3y*r4z,2))) - 
+        ((-(r1z*r2y) + r1y*r2z + r1z*r3y - r2z*r3y - r1y*r3z + r2y*r3z)*
+           (-(r2z*r3y) + r2y*r3z + r2z*r4y - r3z*r4y - r2y*r4z + r3y*r4z))/
+         (Sqrt(Power(-(r1y*r2x) + r1x*r2y + r1y*r3x - r2y*r3x - r1x*r3y + r2x*r3y,2) + 
+             Power(r1z*r2x - r1x*r2z - r1z*r3x + r2z*r3x + r1x*r3z - r2x*r3z,2) + 
+             Power(-(r1z*r2y) + r1y*r2z + r1z*r3y - r2z*r3y - r1y*r3z + r2y*r3z,2))*
+           Sqrt(Power(-(r2y*r3x) + r2x*r3y + r2y*r4x - r3y*r4x - r2x*r4y + r3x*r4y,2) + 
+             Power(r2z*r3x - r2x*r3z - r2z*r4x + r3z*r4x + r2x*r4z - r3x*r4z,2) + 
+             Power(-(r2z*r3y) + r2y*r3z + r2z*r4y - r3z*r4y - r2y*r4z + r3y*r4z,2)))))/
+    (((Power(r2x,2) + Power(r2y,2) + Power(r2z,2) - 2*r2x*r3x + Power(r3x,2) - 
+           2*r2y*r3y + Power(r3y,2) - 2*r2z*r3z + Power(r3z,2))*
+         Power(-(r1x*r2z*r3y) + r1x*r2y*r3z + r2z*r3y*r4x - r2y*r3z*r4x + r1x*r2z*r4y - 
+           r2z*r3x*r4y - r1x*r3z*r4y + r2x*r3z*r4y + 
+           r1z*(r2x*r3y - r3y*r4x + r2y*(-r3x + r4x) - r2x*r4y + r3x*r4y) - 
+           r1x*r2y*r4z + r2y*r3x*r4z + r1x*r3y*r4z - r2x*r3y*r4z + 
+           r1y*(r2z*r3x - r2x*r3z - r2z*r4x + r3z*r4x + r2x*r4z - r3x*r4z),2))/
+       ((Power(r1x,2)*Power(r2y,2) + Power(r1x,2)*Power(r2z,2) - 
+           2*r1x*Power(r2y,2)*r3x - 2*r1x*Power(r2z,2)*r3x + 
+           Power(r2y,2)*Power(r3x,2) + Power(r2z,2)*Power(r3x,2) - 
+           2*Power(r1x,2)*r2y*r3y + 2*r1x*r2x*r2y*r3y + 2*r1x*r2y*r3x*r3y - 
+           2*r2x*r2y*r3x*r3y + Power(r1x,2)*Power(r3y,2) - 2*r1x*r2x*Power(r3y,2) + 
+           Power(r2x,2)*Power(r3y,2) + Power(r2z,2)*Power(r3y,2) + 
+           Power(r1z,2)*(Power(r2x,2) + Power(r2y,2) - 2*r2x*r3x + Power(r3x,2) - 
+              2*r2y*r3y + Power(r3y,2)) - 2*Power(r1x,2)*r2z*r3z + 2*r1x*r2x*r2z*r3z + 
+           2*r1x*r2z*r3x*r3z - 2*r2x*r2z*r3x*r3z - 2*r2y*r2z*r3y*r3z + 
+           Power(r1x,2)*Power(r3z,2) - 2*r1x*r2x*Power(r3z,2) + 
+           Power(r2x,2)*Power(r3z,2) + Power(r2y,2)*Power(r3z,2) + 
+           Power(r1y,2)*(Power(r2x,2) + Power(r2z,2) - 2*r2x*r3x + Power(r3x,2) - 
+              2*r2z*r3z + Power(r3z,2)) - 
+           2*r1y*(-(r2x*r2y*r3x) + r2y*Power(r3x,2) + r1x*(r2x - r3x)*(r2y - r3y) + 
+              Power(r2x,2)*r3y + Power(r2z,2)*r3y - r2x*r3x*r3y + 
+              r1z*(r2y - r3y)*(r2z - r3z) - r2y*r2z*r3z - r2z*r3y*r3z + r2y*Power(r3z,2)
+              ) - 2*r1z*(r2z*Power(r3x,2) - r2y*r2z*r3y + r2z*Power(r3y,2) + 
+              r1x*(r2x - r3x)*(r2z - r3z) + Power(r2x,2)*r3z + Power(r2y,2)*r3z - 
+              r2y*r3y*r3z - r2x*r3x*(r2z + r3z)))*
+         (Power(r2y*r3x - r2x*r3y - r2y*r4x + r3y*r4x + r2x*r4y - r3x*r4y,2) + 
+           Power(r2z*r3x - r2x*r3z - r2z*r4x + r3z*r4x + r2x*r4z - r3x*r4z,2) + 
+           Power(r2z*r3y - r2y*r3z - r2z*r4y + r3z*r4y + r2y*r4z - r3y*r4z,2))) + 
+      Power(((-(r1y*r2x) + r1x*r2y + r1y*r3x - r2y*r3x - r1x*r3y + r2x*r3y)*
+           (-(r2y*r3x) + r2x*r3y + r2y*r4x - r3y*r4x - r2x*r4y + r3x*r4y))/
+         (Sqrt(Power(-(r1y*r2x) + r1x*r2y + r1y*r3x - r2y*r3x - r1x*r3y + r2x*r3y,2) + 
+             Power(r1z*r2x - r1x*r2z - r1z*r3x + r2z*r3x + r1x*r3z - r2x*r3z,2) + 
+             Power(-(r1z*r2y) + r1y*r2z + r1z*r3y - r2z*r3y - r1y*r3z + r2y*r3z,2))*
+           Sqrt(Power(-(r2y*r3x) + r2x*r3y + r2y*r4x - r3y*r4x - r2x*r4y + r3x*r4y,2) + 
+             Power(r2z*r3x - r2x*r3z - r2z*r4x + r3z*r4x + r2x*r4z - r3x*r4z,2) + 
+             Power(-(r2z*r3y) + r2y*r3z + r2z*r4y - r3z*r4y - r2y*r4z + r3y*r4z,2))) + 
+        ((r1z*r2x - r1x*r2z - r1z*r3x + r2z*r3x + r1x*r3z - r2x*r3z)*
+           (r2z*r3x - r2x*r3z - r2z*r4x + r3z*r4x + r2x*r4z - r3x*r4z))/
+         (Sqrt(Power(-(r1y*r2x) + r1x*r2y + r1y*r3x - r2y*r3x - r1x*r3y + r2x*r3y,2) + 
+             Power(r1z*r2x - r1x*r2z - r1z*r3x + r2z*r3x + r1x*r3z - r2x*r3z,2) + 
+             Power(-(r1z*r2y) + r1y*r2z + r1z*r3y - r2z*r3y - r1y*r3z + r2y*r3z,2))*
+           Sqrt(Power(-(r2y*r3x) + r2x*r3y + r2y*r4x - r3y*r4x - r2x*r4y + r3x*r4y,2) + 
+             Power(r2z*r3x - r2x*r3z - r2z*r4x + r3z*r4x + r2x*r4z - r3x*r4z,2) + 
+             Power(-(r2z*r3y) + r2y*r3z + r2z*r4y - r3z*r4y - r2y*r4z + r3y*r4z,2))) + 
+        ((-(r1z*r2y) + r1y*r2z + r1z*r3y - r2z*r3y - r1y*r3z + r2y*r3z)*
+           (-(r2z*r3y) + r2y*r3z + r2z*r4y - r3z*r4y - r2y*r4z + r3y*r4z))/
+         (Sqrt(Power(-(r1y*r2x) + r1x*r2y + r1y*r3x - r2y*r3x - r1x*r3y + r2x*r3y,2) + 
+             Power(r1z*r2x - r1x*r2z - r1z*r3x + r2z*r3x + r1x*r3z - r2x*r3z,2) + 
+             Power(-(r1z*r2y) + r1y*r2z + r1z*r3y - r2z*r3y - r1y*r3z + r2y*r3z,2))*
+           Sqrt(Power(-(r2y*r3x) + r2x*r3y + r2y*r4x - r3y*r4x - r2x*r4y + r3x*r4y,2) + 
+             Power(r2z*r3x - r2x*r3z - r2z*r4x + r3z*r4x + r2x*r4z - r3x*r4z,2) + 
+             Power(-(r2z*r3y) + r2y*r3z + r2z*r4y - r3z*r4y - r2y*r4z + r3y*r4z,2))),2));
+	der_d_th[9] =(Sqrt(Power(r2x,2) + Power(r2y,2) + Power(r2z,2) - 2*r2x*r3x + Power(r3x,2) - 
+        2*r2y*r3y + Power(r3y,2) - 2*r2z*r3z + Power(r3z,2))*
+      (-(r1x*r2z*r3y) + r1x*r2y*r3z + r2z*r3y*r4x - r2y*r3z*r4x + r1x*r2z*r4y - 
+        r2z*r3x*r4y - r1x*r3z*r4y + r2x*r3z*r4y + 
+        r1z*(r2x*r3y - r3y*r4x + r2y*(-r3x + r4x) - r2x*r4y + r3x*r4y) - r1x*r2y*r4z + 
+        r2y*r3x*r4z + r1x*r3y*r4z - r2x*r3y*r4z + 
+        r1y*(r2z*r3x - r2x*r3z - r2z*r4x + r3z*r4x + r2x*r4z - r3x*r4z))*
+      (-((-(r1y*r2x) + r1x*r2y + r1y*r3x - r2y*r3x - r1x*r3y + r2x*r3y)*
+            (-(r2y*r3x) + r2x*r3y + r2y*r4x - r3y*r4x - r2x*r4y + r3x*r4y)*
+            (2*(r2y - r3y)*(-(r2y*r3x) + r2x*r3y + r2y*r4x - r3y*r4x - r2x*r4y + 
+                 r3x*r4y) + 2*(-r2z + r3z)*
+               (r2z*r3x - r2x*r3z - r2z*r4x + r3z*r4x + r2x*r4z - r3x*r4z)))/
+         (2.*Sqrt(Power(-(r1y*r2x) + r1x*r2y + r1y*r3x - r2y*r3x - r1x*r3y + r2x*r3y,
+              2) + Power(r1z*r2x - r1x*r2z - r1z*r3x + r2z*r3x + r1x*r3z - r2x*r3z,2) + 
+             Power(-(r1z*r2y) + r1y*r2z + r1z*r3y - r2z*r3y - r1y*r3z + r2y*r3z,2))*
+           Power(Power(-(r2y*r3x) + r2x*r3y + r2y*r4x - r3y*r4x - r2x*r4y + r3x*r4y,
+              2) + Power(r2z*r3x - r2x*r3z - r2z*r4x + r3z*r4x + r2x*r4z - r3x*r4z,2) + 
+             Power(-(r2z*r3y) + r2y*r3z + r2z*r4y - r3z*r4y - r2y*r4z + r3y*r4z,2),1.5))
+          - ((r1z*r2x - r1x*r2z - r1z*r3x + r2z*r3x + r1x*r3z - r2x*r3z)*
+           (r2z*r3x - r2x*r3z - r2z*r4x + r3z*r4x + r2x*r4z - r3x*r4z)*
+           (2*(r2y - r3y)*(-(r2y*r3x) + r2x*r3y + r2y*r4x - r3y*r4x - r2x*r4y + 
+                r3x*r4y) + 2*(-r2z + r3z)*
+              (r2z*r3x - r2x*r3z - r2z*r4x + r3z*r4x + r2x*r4z - r3x*r4z)))/
+         (2.*Sqrt(Power(-(r1y*r2x) + r1x*r2y + r1y*r3x - r2y*r3x - r1x*r3y + r2x*r3y,
+              2) + Power(r1z*r2x - r1x*r2z - r1z*r3x + r2z*r3x + r1x*r3z - r2x*r3z,2) + 
+             Power(-(r1z*r2y) + r1y*r2z + r1z*r3y - r2z*r3y - r1y*r3z + r2y*r3z,2))*
+           Power(Power(-(r2y*r3x) + r2x*r3y + r2y*r4x - r3y*r4x - r2x*r4y + r3x*r4y,
+              2) + Power(r2z*r3x - r2x*r3z - r2z*r4x + r3z*r4x + r2x*r4z - r3x*r4z,2) + 
+             Power(-(r2z*r3y) + r2y*r3z + r2z*r4y - r3z*r4y - r2y*r4z + r3y*r4z,2),1.5))
+          - ((-(r1z*r2y) + r1y*r2z + r1z*r3y - r2z*r3y - r1y*r3z + r2y*r3z)*
+           (-(r2z*r3y) + r2y*r3z + r2z*r4y - r3z*r4y - r2y*r4z + r3y*r4z)*
+           (2*(r2y - r3y)*(-(r2y*r3x) + r2x*r3y + r2y*r4x - r3y*r4x - r2x*r4y + 
+                r3x*r4y) + 2*(-r2z + r3z)*
+              (r2z*r3x - r2x*r3z - r2z*r4x + r3z*r4x + r2x*r4z - r3x*r4z)))/
+         (2.*Sqrt(Power(-(r1y*r2x) + r1x*r2y + r1y*r3x - r2y*r3x - r1x*r3y + r2x*r3y,
+              2) + Power(r1z*r2x - r1x*r2z - r1z*r3x + r2z*r3x + r1x*r3z - r2x*r3z,2) + 
+             Power(-(r1z*r2y) + r1y*r2z + r1z*r3y - r2z*r3y - r1y*r3z + r2y*r3z,2))*
+           Power(Power(-(r2y*r3x) + r2x*r3y + r2y*r4x - r3y*r4x - r2x*r4y + r3x*r4y,
+              2) + Power(r2z*r3x - r2x*r3z - r2z*r4x + r3z*r4x + r2x*r4z - r3x*r4z,2) + 
+             Power(-(r2z*r3y) + r2y*r3z + r2z*r4y - r3z*r4y - r2y*r4z + r3y*r4z,2),1.5))
+          + ((r2y - r3y)*(-(r1y*r2x) + r1x*r2y + r1y*r3x - r2y*r3x - r1x*r3y + 
+             r2x*r3y))/
+         (Sqrt(Power(-(r1y*r2x) + r1x*r2y + r1y*r3x - r2y*r3x - r1x*r3y + r2x*r3y,2) + 
+             Power(r1z*r2x - r1x*r2z - r1z*r3x + r2z*r3x + r1x*r3z - r2x*r3z,2) + 
+             Power(-(r1z*r2y) + r1y*r2z + r1z*r3y - r2z*r3y - r1y*r3z + r2y*r3z,2))*
+           Sqrt(Power(-(r2y*r3x) + r2x*r3y + r2y*r4x - r3y*r4x - r2x*r4y + r3x*r4y,2) + 
+             Power(r2z*r3x - r2x*r3z - r2z*r4x + r3z*r4x + r2x*r4z - r3x*r4z,2) + 
+             Power(-(r2z*r3y) + r2y*r3z + r2z*r4y - r3z*r4y - r2y*r4z + r3y*r4z,2))) + 
+        ((-r2z + r3z)*(r1z*r2x - r1x*r2z - r1z*r3x + r2z*r3x + r1x*r3z - r2x*r3z))/
+         (Sqrt(Power(-(r1y*r2x) + r1x*r2y + r1y*r3x - r2y*r3x - r1x*r3y + r2x*r3y,2) + 
+             Power(r1z*r2x - r1x*r2z - r1z*r3x + r2z*r3x + r1x*r3z - r2x*r3z,2) + 
+             Power(-(r1z*r2y) + r1y*r2z + r1z*r3y - r2z*r3y - r1y*r3z + r2y*r3z,2))*
+           Sqrt(Power(-(r2y*r3x) + r2x*r3y + r2y*r4x - r3y*r4x - r2x*r4y + r3x*r4y,2) + 
+             Power(r2z*r3x - r2x*r3z - r2z*r4x + r3z*r4x + r2x*r4z - r3x*r4z,2) + 
+             Power(-(r2z*r3y) + r2y*r3z + r2z*r4y - r3z*r4y - r2y*r4z + r3y*r4z,2)))))/
+    (Sqrt(Power(r1x,2)*Power(r2y,2) + Power(r1x,2)*Power(r2z,2) - 
+        2*r1x*Power(r2y,2)*r3x - 2*r1x*Power(r2z,2)*r3x + Power(r2y,2)*Power(r3x,2) + 
+        Power(r2z,2)*Power(r3x,2) - 2*Power(r1x,2)*r2y*r3y + 2*r1x*r2x*r2y*r3y + 
+        2*r1x*r2y*r3x*r3y - 2*r2x*r2y*r3x*r3y + Power(r1x,2)*Power(r3y,2) - 
+        2*r1x*r2x*Power(r3y,2) + Power(r2x,2)*Power(r3y,2) + 
+        Power(r2z,2)*Power(r3y,2) + 
+        Power(r1z,2)*(Power(r2x,2) + Power(r2y,2) - 2*r2x*r3x + Power(r3x,2) - 
+           2*r2y*r3y + Power(r3y,2)) - 2*Power(r1x,2)*r2z*r3z + 2*r1x*r2x*r2z*r3z + 
+        2*r1x*r2z*r3x*r3z - 2*r2x*r2z*r3x*r3z - 2*r2y*r2z*r3y*r3z + 
+        Power(r1x,2)*Power(r3z,2) - 2*r1x*r2x*Power(r3z,2) + 
+        Power(r2x,2)*Power(r3z,2) + Power(r2y,2)*Power(r3z,2) + 
+        Power(r1y,2)*(Power(r2x,2) + Power(r2z,2) - 2*r2x*r3x + Power(r3x,2) - 
+           2*r2z*r3z + Power(r3z,2)) - 
+        2*r1y*(-(r2x*r2y*r3x) + r2y*Power(r3x,2) + r1x*(r2x - r3x)*(r2y - r3y) + 
+           Power(r2x,2)*r3y + Power(r2z,2)*r3y - r2x*r3x*r3y + 
+           r1z*(r2y - r3y)*(r2z - r3z) - r2y*r2z*r3z - r2z*r3y*r3z + r2y*Power(r3z,2))\
+         - 2*r1z*(r2z*Power(r3x,2) - r2y*r2z*r3y + r2z*Power(r3y,2) + 
+           r1x*(r2x - r3x)*(r2z - r3z) + Power(r2x,2)*r3z + Power(r2y,2)*r3z - 
+           r2y*r3y*r3z - r2x*r3x*(r2z + r3z)))*
+      Sqrt(Power(r2y*r3x - r2x*r3y - r2y*r4x + r3y*r4x + r2x*r4y - r3x*r4y,2) + 
+        Power(r2z*r3x - r2x*r3z - r2z*r4x + r3z*r4x + r2x*r4z - r3x*r4z,2) + 
+        Power(r2z*r3y - r2y*r3z - r2z*r4y + r3z*r4y + r2y*r4z - r3y*r4z,2))*
+      (((Power(r2x,2) + Power(r2y,2) + Power(r2z,2) - 2*r2x*r3x + Power(r3x,2) - 
+             2*r2y*r3y + Power(r3y,2) - 2*r2z*r3z + Power(r3z,2))*
+           Power(-(r1x*r2z*r3y) + r1x*r2y*r3z + r2z*r3y*r4x - r2y*r3z*r4x + 
+             r1x*r2z*r4y - r2z*r3x*r4y - r1x*r3z*r4y + r2x*r3z*r4y + 
+             r1z*(r2x*r3y - r3y*r4x + r2y*(-r3x + r4x) - r2x*r4y + r3x*r4y) - 
+             r1x*r2y*r4z + r2y*r3x*r4z + r1x*r3y*r4z - r2x*r3y*r4z + 
+             r1y*(r2z*r3x - r2x*r3z - r2z*r4x + r3z*r4x + r2x*r4z - r3x*r4z),2))/
+         ((Power(r1x,2)*Power(r2y,2) + Power(r1x,2)*Power(r2z,2) - 
+             2*r1x*Power(r2y,2)*r3x - 2*r1x*Power(r2z,2)*r3x + 
+             Power(r2y,2)*Power(r3x,2) + Power(r2z,2)*Power(r3x,2) - 
+             2*Power(r1x,2)*r2y*r3y + 2*r1x*r2x*r2y*r3y + 2*r1x*r2y*r3x*r3y - 
+             2*r2x*r2y*r3x*r3y + Power(r1x,2)*Power(r3y,2) - 2*r1x*r2x*Power(r3y,2) + 
+             Power(r2x,2)*Power(r3y,2) + Power(r2z,2)*Power(r3y,2) + 
+             Power(r1z,2)*(Power(r2x,2) + Power(r2y,2) - 2*r2x*r3x + Power(r3x,2) - 
+                2*r2y*r3y + Power(r3y,2)) - 2*Power(r1x,2)*r2z*r3z + 
+             2*r1x*r2x*r2z*r3z + 2*r1x*r2z*r3x*r3z - 2*r2x*r2z*r3x*r3z - 
+             2*r2y*r2z*r3y*r3z + Power(r1x,2)*Power(r3z,2) - 2*r1x*r2x*Power(r3z,2) + 
+             Power(r2x,2)*Power(r3z,2) + Power(r2y,2)*Power(r3z,2) + 
+             Power(r1y,2)*(Power(r2x,2) + Power(r2z,2) - 2*r2x*r3x + Power(r3x,2) - 
+                2*r2z*r3z + Power(r3z,2)) - 
+             2*r1y*(-(r2x*r2y*r3x) + r2y*Power(r3x,2) + r1x*(r2x - r3x)*(r2y - r3y) + 
+                Power(r2x,2)*r3y + Power(r2z,2)*r3y - r2x*r3x*r3y + 
+                r1z*(r2y - r3y)*(r2z - r3z) - r2y*r2z*r3z - r2z*r3y*r3z + 
+                r2y*Power(r3z,2)) - 
+             2*r1z*(r2z*Power(r3x,2) - r2y*r2z*r3y + r2z*Power(r3y,2) + 
+                r1x*(r2x - r3x)*(r2z - r3z) + Power(r2x,2)*r3z + Power(r2y,2)*r3z - 
+                r2y*r3y*r3z - r2x*r3x*(r2z + r3z)))*
+           (Power(r2y*r3x - r2x*r3y - r2y*r4x + r3y*r4x + r2x*r4y - r3x*r4y,2) + 
+             Power(r2z*r3x - r2x*r3z - r2z*r4x + r3z*r4x + r2x*r4z - r3x*r4z,2) + 
+             Power(r2z*r3y - r2y*r3z - r2z*r4y + r3z*r4y + r2y*r4z - r3y*r4z,2))) + 
+        Power(((-(r1y*r2x) + r1x*r2y + r1y*r3x - r2y*r3x - r1x*r3y + r2x*r3y)*
+             (-(r2y*r3x) + r2x*r3y + r2y*r4x - r3y*r4x - r2x*r4y + r3x*r4y))/
+           (Sqrt(Power(-(r1y*r2x) + r1x*r2y + r1y*r3x - r2y*r3x - r1x*r3y + r2x*r3y,
+                2) + Power(r1z*r2x - r1x*r2z - r1z*r3x + r2z*r3x + r1x*r3z - r2x*r3z,
+                2) + Power(-(r1z*r2y) + r1y*r2z + r1z*r3y - r2z*r3y - r1y*r3z + r2y*r3z,
+                2))*Sqrt(Power(-(r2y*r3x) + r2x*r3y + r2y*r4x - r3y*r4x - r2x*r4y + 
+                 r3x*r4y,2) + Power(r2z*r3x - r2x*r3z - r2z*r4x + r3z*r4x + r2x*r4z - 
+                 r3x*r4z,2) + Power(-(r2z*r3y) + r2y*r3z + r2z*r4y - r3z*r4y - 
+                 r2y*r4z + r3y*r4z,2))) + 
+          ((r1z*r2x - r1x*r2z - r1z*r3x + r2z*r3x + r1x*r3z - r2x*r3z)*
+             (r2z*r3x - r2x*r3z - r2z*r4x + r3z*r4x + r2x*r4z - r3x*r4z))/
+           (Sqrt(Power(-(r1y*r2x) + r1x*r2y + r1y*r3x - r2y*r3x - r1x*r3y + r2x*r3y,
+                2) + Power(r1z*r2x - r1x*r2z - r1z*r3x + r2z*r3x + r1x*r3z - r2x*r3z,
+                2) + Power(-(r1z*r2y) + r1y*r2z + r1z*r3y - r2z*r3y - r1y*r3z + r2y*r3z,
+                2))*Sqrt(Power(-(r2y*r3x) + r2x*r3y + r2y*r4x - r3y*r4x - r2x*r4y + 
+                 r3x*r4y,2) + Power(r2z*r3x - r2x*r3z - r2z*r4x + r3z*r4x + r2x*r4z - 
+                 r3x*r4z,2) + Power(-(r2z*r3y) + r2y*r3z + r2z*r4y - r3z*r4y - 
+                 r2y*r4z + r3y*r4z,2))) + 
+          ((-(r1z*r2y) + r1y*r2z + r1z*r3y - r2z*r3y - r1y*r3z + r2y*r3z)*
+             (-(r2z*r3y) + r2y*r3z + r2z*r4y - r3z*r4y - r2y*r4z + r3y*r4z))/
+           (Sqrt(Power(-(r1y*r2x) + r1x*r2y + r1y*r3x - r2y*r3x - r1x*r3y + r2x*r3y,
+                2) + Power(r1z*r2x - r1x*r2z - r1z*r3x + r2z*r3x + r1x*r3z - r2x*r3z,
+                2) + Power(-(r1z*r2y) + r1y*r2z + r1z*r3y - r2z*r3y - r1y*r3z + r2y*r3z,
+                2))*Sqrt(Power(-(r2y*r3x) + r2x*r3y + r2y*r4x - r3y*r4x - r2x*r4y + 
+                 r3x*r4y,2) + Power(r2z*r3x - r2x*r3z - r2z*r4x + r3z*r4x + r2x*r4z - 
+                 r3x*r4z,2) + Power(-(r2z*r3y) + r2y*r3z + r2z*r4y - r3z*r4y - 
+                 r2y*r4z + r3y*r4z,2))),2))) + 
+   ((-(Sqrt(Power(r2x,2) + Power(r2y,2) + Power(r2z,2) - 2*r2x*r3x + Power(r3x,2) - 
+              2*r2y*r3y + Power(r3y,2) - 2*r2z*r3z + Power(r3z,2))*
+            (-(r1x*r2z*r3y) + r1x*r2y*r3z + r2z*r3y*r4x - r2y*r3z*r4x + r1x*r2z*r4y - 
+              r2z*r3x*r4y - r1x*r3z*r4y + r2x*r3z*r4y + 
+              r1z*(r2x*r3y - r3y*r4x + r2y*(-r3x + r4x) - r2x*r4y + r3x*r4y) - 
+              r1x*r2y*r4z + r2y*r3x*r4z + r1x*r3y*r4z - r2x*r3y*r4z + 
+              r1y*(r2z*r3x - r2x*r3z - r2z*r4x + r3z*r4x + r2x*r4z - r3x*r4z))*
+            (2*(-r2y + r3y)*(r2y*r3x - r2x*r3y - r2y*r4x + r3y*r4x + r2x*r4y - 
+                 r3x*r4y) + 2*(-r2z + r3z)*
+               (r2z*r3x - r2x*r3z - r2z*r4x + r3z*r4x + r2x*r4z - r3x*r4z)))/
+         (2.*Sqrt(Power(r1x,2)*Power(r2y,2) + Power(r1x,2)*Power(r2z,2) - 
+             2*r1x*Power(r2y,2)*r3x - 2*r1x*Power(r2z,2)*r3x + 
+             Power(r2y,2)*Power(r3x,2) + Power(r2z,2)*Power(r3x,2) - 
+             2*Power(r1x,2)*r2y*r3y + 2*r1x*r2x*r2y*r3y + 2*r1x*r2y*r3x*r3y - 
+             2*r2x*r2y*r3x*r3y + Power(r1x,2)*Power(r3y,2) - 2*r1x*r2x*Power(r3y,2) + 
+             Power(r2x,2)*Power(r3y,2) + Power(r2z,2)*Power(r3y,2) + 
+             Power(r1z,2)*(Power(r2x,2) + Power(r2y,2) - 2*r2x*r3x + Power(r3x,2) - 
+                2*r2y*r3y + Power(r3y,2)) - 2*Power(r1x,2)*r2z*r3z + 
+             2*r1x*r2x*r2z*r3z + 2*r1x*r2z*r3x*r3z - 2*r2x*r2z*r3x*r3z - 
+             2*r2y*r2z*r3y*r3z + Power(r1x,2)*Power(r3z,2) - 2*r1x*r2x*Power(r3z,2) + 
+             Power(r2x,2)*Power(r3z,2) + Power(r2y,2)*Power(r3z,2) + 
+             Power(r1y,2)*(Power(r2x,2) + Power(r2z,2) - 2*r2x*r3x + Power(r3x,2) - 
+                2*r2z*r3z + Power(r3z,2)) - 
+             2*r1y*(-(r2x*r2y*r3x) + r2y*Power(r3x,2) + r1x*(r2x - r3x)*(r2y - r3y) + 
+                Power(r2x,2)*r3y + Power(r2z,2)*r3y - r2x*r3x*r3y + 
+                r1z*(r2y - r3y)*(r2z - r3z) - r2y*r2z*r3z - r2z*r3y*r3z + 
+                r2y*Power(r3z,2)) - 
+             2*r1z*(r2z*Power(r3x,2) - r2y*r2z*r3y + r2z*Power(r3y,2) + 
+                r1x*(r2x - r3x)*(r2z - r3z) + Power(r2x,2)*r3z + Power(r2y,2)*r3z - 
+                r2y*r3y*r3z - r2x*r3x*(r2z + r3z)))*
+           Power(Power(r2y*r3x - r2x*r3y - r2y*r4x + r3y*r4x + r2x*r4y - r3x*r4y,2) + 
+             Power(r2z*r3x - r2x*r3z - r2z*r4x + r3z*r4x + r2x*r4z - r3x*r4z,2) + 
+             Power(r2z*r3y - r2y*r3z - r2z*r4y + r3z*r4y + r2y*r4z - r3y*r4z,2),1.5)) + 
+        (Sqrt(Power(r2x,2) + Power(r2y,2) + Power(r2z,2) - 2*r2x*r3x + Power(r3x,2) - 
+             2*r2y*r3y + Power(r3y,2) - 2*r2z*r3z + Power(r3z,2))*
+           (r1z*(r2y - r3y) + r2z*r3y - r2y*r3z + r1y*(-r2z + r3z)))/
+         (Sqrt(Power(r1x,2)*Power(r2y,2) + Power(r1x,2)*Power(r2z,2) - 
+             2*r1x*Power(r2y,2)*r3x - 2*r1x*Power(r2z,2)*r3x + 
+             Power(r2y,2)*Power(r3x,2) + Power(r2z,2)*Power(r3x,2) - 
+             2*Power(r1x,2)*r2y*r3y + 2*r1x*r2x*r2y*r3y + 2*r1x*r2y*r3x*r3y - 
+             2*r2x*r2y*r3x*r3y + Power(r1x,2)*Power(r3y,2) - 2*r1x*r2x*Power(r3y,2) + 
+             Power(r2x,2)*Power(r3y,2) + Power(r2z,2)*Power(r3y,2) + 
+             Power(r1z,2)*(Power(r2x,2) + Power(r2y,2) - 2*r2x*r3x + Power(r3x,2) - 
+                2*r2y*r3y + Power(r3y,2)) - 2*Power(r1x,2)*r2z*r3z + 
+             2*r1x*r2x*r2z*r3z + 2*r1x*r2z*r3x*r3z - 2*r2x*r2z*r3x*r3z - 
+             2*r2y*r2z*r3y*r3z + Power(r1x,2)*Power(r3z,2) - 2*r1x*r2x*Power(r3z,2) + 
+             Power(r2x,2)*Power(r3z,2) + Power(r2y,2)*Power(r3z,2) + 
+             Power(r1y,2)*(Power(r2x,2) + Power(r2z,2) - 2*r2x*r3x + Power(r3x,2) - 
+                2*r2z*r3z + Power(r3z,2)) - 
+             2*r1y*(-(r2x*r2y*r3x) + r2y*Power(r3x,2) + r1x*(r2x - r3x)*(r2y - r3y) + 
+                Power(r2x,2)*r3y + Power(r2z,2)*r3y - r2x*r3x*r3y + 
+                r1z*(r2y - r3y)*(r2z - r3z) - r2y*r2z*r3z - r2z*r3y*r3z + 
+                r2y*Power(r3z,2)) - 
+             2*r1z*(r2z*Power(r3x,2) - r2y*r2z*r3y + r2z*Power(r3y,2) + 
+                r1x*(r2x - r3x)*(r2z - r3z) + Power(r2x,2)*r3z + Power(r2y,2)*r3z - 
+                r2y*r3y*r3z - r2x*r3x*(r2z + r3z)))*
+           Sqrt(Power(r2y*r3x - r2x*r3y - r2y*r4x + r3y*r4x + r2x*r4y - r3x*r4y,2) + 
+             Power(r2z*r3x - r2x*r3z - r2z*r4x + r3z*r4x + r2x*r4z - r3x*r4z,2) + 
+             Power(r2z*r3y - r2y*r3z - r2z*r4y + r3z*r4y + r2y*r4z - r3y*r4z,2))))*
+      (-(((-(r1y*r2x) + r1x*r2y + r1y*r3x - r2y*r3x - r1x*r3y + r2x*r3y)*
+             (-(r2y*r3x) + r2x*r3y + r2y*r4x - r3y*r4x - r2x*r4y + r3x*r4y))/
+           (Sqrt(Power(-(r1y*r2x) + r1x*r2y + r1y*r3x - r2y*r3x - r1x*r3y + r2x*r3y,
+                2) + Power(r1z*r2x - r1x*r2z - r1z*r3x + r2z*r3x + r1x*r3z - r2x*r3z,
+                2) + Power(-(r1z*r2y) + r1y*r2z + r1z*r3y - r2z*r3y - r1y*r3z + r2y*r3z,
+                2))*Sqrt(Power(-(r2y*r3x) + r2x*r3y + r2y*r4x - r3y*r4x - r2x*r4y + 
+                 r3x*r4y,2) + Power(r2z*r3x - r2x*r3z - r2z*r4x + r3z*r4x + r2x*r4z - 
+                 r3x*r4z,2) + Power(-(r2z*r3y) + r2y*r3z + r2z*r4y - r3z*r4y - 
+                 r2y*r4z + r3y*r4z,2)))) - 
+        ((r1z*r2x - r1x*r2z - r1z*r3x + r2z*r3x + r1x*r3z - r2x*r3z)*
+           (r2z*r3x - r2x*r3z - r2z*r4x + r3z*r4x + r2x*r4z - r3x*r4z))/
+         (Sqrt(Power(-(r1y*r2x) + r1x*r2y + r1y*r3x - r2y*r3x - r1x*r3y + r2x*r3y,2) + 
+             Power(r1z*r2x - r1x*r2z - r1z*r3x + r2z*r3x + r1x*r3z - r2x*r3z,2) + 
+             Power(-(r1z*r2y) + r1y*r2z + r1z*r3y - r2z*r3y - r1y*r3z + r2y*r3z,2))*
+           Sqrt(Power(-(r2y*r3x) + r2x*r3y + r2y*r4x - r3y*r4x - r2x*r4y + r3x*r4y,2) + 
+             Power(r2z*r3x - r2x*r3z - r2z*r4x + r3z*r4x + r2x*r4z - r3x*r4z,2) + 
+             Power(-(r2z*r3y) + r2y*r3z + r2z*r4y - r3z*r4y - r2y*r4z + r3y*r4z,2))) - 
+        ((-(r1z*r2y) + r1y*r2z + r1z*r3y - r2z*r3y - r1y*r3z + r2y*r3z)*
+           (-(r2z*r3y) + r2y*r3z + r2z*r4y - r3z*r4y - r2y*r4z + r3y*r4z))/
+         (Sqrt(Power(-(r1y*r2x) + r1x*r2y + r1y*r3x - r2y*r3x - r1x*r3y + r2x*r3y,2) + 
+             Power(r1z*r2x - r1x*r2z - r1z*r3x + r2z*r3x + r1x*r3z - r2x*r3z,2) + 
+             Power(-(r1z*r2y) + r1y*r2z + r1z*r3y - r2z*r3y - r1y*r3z + r2y*r3z,2))*
+           Sqrt(Power(-(r2y*r3x) + r2x*r3y + r2y*r4x - r3y*r4x - r2x*r4y + r3x*r4y,2) + 
+             Power(r2z*r3x - r2x*r3z - r2z*r4x + r3z*r4x + r2x*r4z - r3x*r4z,2) + 
+             Power(-(r2z*r3y) + r2y*r3z + r2z*r4y - r3z*r4y - r2y*r4z + r3y*r4z,2)))))/
+    (((Power(r2x,2) + Power(r2y,2) + Power(r2z,2) - 2*r2x*r3x + Power(r3x,2) - 
+           2*r2y*r3y + Power(r3y,2) - 2*r2z*r3z + Power(r3z,2))*
+         Power(-(r1x*r2z*r3y) + r1x*r2y*r3z + r2z*r3y*r4x - r2y*r3z*r4x + r1x*r2z*r4y - 
+           r2z*r3x*r4y - r1x*r3z*r4y + r2x*r3z*r4y + 
+           r1z*(r2x*r3y - r3y*r4x + r2y*(-r3x + r4x) - r2x*r4y + r3x*r4y) - 
+           r1x*r2y*r4z + r2y*r3x*r4z + r1x*r3y*r4z - r2x*r3y*r4z + 
+           r1y*(r2z*r3x - r2x*r3z - r2z*r4x + r3z*r4x + r2x*r4z - r3x*r4z),2))/
+       ((Power(r1x,2)*Power(r2y,2) + Power(r1x,2)*Power(r2z,2) - 
+           2*r1x*Power(r2y,2)*r3x - 2*r1x*Power(r2z,2)*r3x + 
+           Power(r2y,2)*Power(r3x,2) + Power(r2z,2)*Power(r3x,2) - 
+           2*Power(r1x,2)*r2y*r3y + 2*r1x*r2x*r2y*r3y + 2*r1x*r2y*r3x*r3y - 
+           2*r2x*r2y*r3x*r3y + Power(r1x,2)*Power(r3y,2) - 2*r1x*r2x*Power(r3y,2) + 
+           Power(r2x,2)*Power(r3y,2) + Power(r2z,2)*Power(r3y,2) + 
+           Power(r1z,2)*(Power(r2x,2) + Power(r2y,2) - 2*r2x*r3x + Power(r3x,2) - 
+              2*r2y*r3y + Power(r3y,2)) - 2*Power(r1x,2)*r2z*r3z + 2*r1x*r2x*r2z*r3z + 
+           2*r1x*r2z*r3x*r3z - 2*r2x*r2z*r3x*r3z - 2*r2y*r2z*r3y*r3z + 
+           Power(r1x,2)*Power(r3z,2) - 2*r1x*r2x*Power(r3z,2) + 
+           Power(r2x,2)*Power(r3z,2) + Power(r2y,2)*Power(r3z,2) + 
+           Power(r1y,2)*(Power(r2x,2) + Power(r2z,2) - 2*r2x*r3x + Power(r3x,2) - 
+              2*r2z*r3z + Power(r3z,2)) - 
+           2*r1y*(-(r2x*r2y*r3x) + r2y*Power(r3x,2) + r1x*(r2x - r3x)*(r2y - r3y) + 
+              Power(r2x,2)*r3y + Power(r2z,2)*r3y - r2x*r3x*r3y + 
+              r1z*(r2y - r3y)*(r2z - r3z) - r2y*r2z*r3z - r2z*r3y*r3z + r2y*Power(r3z,2)
+              ) - 2*r1z*(r2z*Power(r3x,2) - r2y*r2z*r3y + r2z*Power(r3y,2) + 
+              r1x*(r2x - r3x)*(r2z - r3z) + Power(r2x,2)*r3z + Power(r2y,2)*r3z - 
+              r2y*r3y*r3z - r2x*r3x*(r2z + r3z)))*
+         (Power(r2y*r3x - r2x*r3y - r2y*r4x + r3y*r4x + r2x*r4y - r3x*r4y,2) + 
+           Power(r2z*r3x - r2x*r3z - r2z*r4x + r3z*r4x + r2x*r4z - r3x*r4z,2) + 
+           Power(r2z*r3y - r2y*r3z - r2z*r4y + r3z*r4y + r2y*r4z - r3y*r4z,2))) + 
+      Power(((-(r1y*r2x) + r1x*r2y + r1y*r3x - r2y*r3x - r1x*r3y + r2x*r3y)*
+           (-(r2y*r3x) + r2x*r3y + r2y*r4x - r3y*r4x - r2x*r4y + r3x*r4y))/
+         (Sqrt(Power(-(r1y*r2x) + r1x*r2y + r1y*r3x - r2y*r3x - r1x*r3y + r2x*r3y,2) + 
+             Power(r1z*r2x - r1x*r2z - r1z*r3x + r2z*r3x + r1x*r3z - r2x*r3z,2) + 
+             Power(-(r1z*r2y) + r1y*r2z + r1z*r3y - r2z*r3y - r1y*r3z + r2y*r3z,2))*
+           Sqrt(Power(-(r2y*r3x) + r2x*r3y + r2y*r4x - r3y*r4x - r2x*r4y + r3x*r4y,2) + 
+             Power(r2z*r3x - r2x*r3z - r2z*r4x + r3z*r4x + r2x*r4z - r3x*r4z,2) + 
+             Power(-(r2z*r3y) + r2y*r3z + r2z*r4y - r3z*r4y - r2y*r4z + r3y*r4z,2))) + 
+        ((r1z*r2x - r1x*r2z - r1z*r3x + r2z*r3x + r1x*r3z - r2x*r3z)*
+           (r2z*r3x - r2x*r3z - r2z*r4x + r3z*r4x + r2x*r4z - r3x*r4z))/
+         (Sqrt(Power(-(r1y*r2x) + r1x*r2y + r1y*r3x - r2y*r3x - r1x*r3y + r2x*r3y,2) + 
+             Power(r1z*r2x - r1x*r2z - r1z*r3x + r2z*r3x + r1x*r3z - r2x*r3z,2) + 
+             Power(-(r1z*r2y) + r1y*r2z + r1z*r3y - r2z*r3y - r1y*r3z + r2y*r3z,2))*
+           Sqrt(Power(-(r2y*r3x) + r2x*r3y + r2y*r4x - r3y*r4x - r2x*r4y + r3x*r4y,2) + 
+             Power(r2z*r3x - r2x*r3z - r2z*r4x + r3z*r4x + r2x*r4z - r3x*r4z,2) + 
+             Power(-(r2z*r3y) + r2y*r3z + r2z*r4y - r3z*r4y - r2y*r4z + r3y*r4z,2))) + 
+        ((-(r1z*r2y) + r1y*r2z + r1z*r3y - r2z*r3y - r1y*r3z + r2y*r3z)*
+           (-(r2z*r3y) + r2y*r3z + r2z*r4y - r3z*r4y - r2y*r4z + r3y*r4z))/
+         (Sqrt(Power(-(r1y*r2x) + r1x*r2y + r1y*r3x - r2y*r3x - r1x*r3y + r2x*r3y,2) + 
+             Power(r1z*r2x - r1x*r2z - r1z*r3x + r2z*r3x + r1x*r3z - r2x*r3z,2) + 
+             Power(-(r1z*r2y) + r1y*r2z + r1z*r3y - r2z*r3y - r1y*r3z + r2y*r3z,2))*
+           Sqrt(Power(-(r2y*r3x) + r2x*r3y + r2y*r4x - r3y*r4x - r2x*r4y + r3x*r4y,2) + 
+             Power(r2z*r3x - r2x*r3z - r2z*r4x + r3z*r4x + r2x*r4z - r3x*r4z,2) + 
+             Power(-(r2z*r3y) + r2y*r3z + r2z*r4y - r3z*r4y - r2y*r4z + r3y*r4z,2))),2));
+	der_d_th[10] =(Sqrt(Power(r2x,2) + Power(r2y,2) + Power(r2z,2) - 2*r2x*r3x + Power(r3x,2) - 
+        2*r2y*r3y + Power(r3y,2) - 2*r2z*r3z + Power(r3z,2))*
+      (-(r1x*r2z*r3y) + r1x*r2y*r3z + r2z*r3y*r4x - r2y*r3z*r4x + r1x*r2z*r4y - 
+        r2z*r3x*r4y - r1x*r3z*r4y + r2x*r3z*r4y + 
+        r1z*(r2x*r3y - r3y*r4x + r2y*(-r3x + r4x) - r2x*r4y + r3x*r4y) - r1x*r2y*r4z + 
+        r2y*r3x*r4z + r1x*r3y*r4z - r2x*r3y*r4z + 
+        r1y*(r2z*r3x - r2x*r3z - r2z*r4x + r3z*r4x + r2x*r4z - r3x*r4z))*
+      (-((-(r1y*r2x) + r1x*r2y + r1y*r3x - r2y*r3x - r1x*r3y + r2x*r3y)*
+            (-(r2y*r3x) + r2x*r3y + r2y*r4x - r3y*r4x - r2x*r4y + r3x*r4y)*
+            (2*(-r2x + r3x)*(-(r2y*r3x) + r2x*r3y + r2y*r4x - r3y*r4x - r2x*r4y + 
+                 r3x*r4y) + 2*(r2z - r3z)*
+               (-(r2z*r3y) + r2y*r3z + r2z*r4y - r3z*r4y - r2y*r4z + r3y*r4z)))/
+         (2.*Sqrt(Power(-(r1y*r2x) + r1x*r2y + r1y*r3x - r2y*r3x - r1x*r3y + r2x*r3y,
+              2) + Power(r1z*r2x - r1x*r2z - r1z*r3x + r2z*r3x + r1x*r3z - r2x*r3z,2) + 
+             Power(-(r1z*r2y) + r1y*r2z + r1z*r3y - r2z*r3y - r1y*r3z + r2y*r3z,2))*
+           Power(Power(-(r2y*r3x) + r2x*r3y + r2y*r4x - r3y*r4x - r2x*r4y + r3x*r4y,
+              2) + Power(r2z*r3x - r2x*r3z - r2z*r4x + r3z*r4x + r2x*r4z - r3x*r4z,2) + 
+             Power(-(r2z*r3y) + r2y*r3z + r2z*r4y - r3z*r4y - r2y*r4z + r3y*r4z,2),1.5))
+          - ((r1z*r2x - r1x*r2z - r1z*r3x + r2z*r3x + r1x*r3z - r2x*r3z)*
+           (r2z*r3x - r2x*r3z - r2z*r4x + r3z*r4x + r2x*r4z - r3x*r4z)*
+           (2*(-r2x + r3x)*(-(r2y*r3x) + r2x*r3y + r2y*r4x - r3y*r4x - r2x*r4y + 
+                r3x*r4y) + 2*(r2z - r3z)*
+              (-(r2z*r3y) + r2y*r3z + r2z*r4y - r3z*r4y - r2y*r4z + r3y*r4z)))/
+         (2.*Sqrt(Power(-(r1y*r2x) + r1x*r2y + r1y*r3x - r2y*r3x - r1x*r3y + r2x*r3y,
+              2) + Power(r1z*r2x - r1x*r2z - r1z*r3x + r2z*r3x + r1x*r3z - r2x*r3z,2) + 
+             Power(-(r1z*r2y) + r1y*r2z + r1z*r3y - r2z*r3y - r1y*r3z + r2y*r3z,2))*
+           Power(Power(-(r2y*r3x) + r2x*r3y + r2y*r4x - r3y*r4x - r2x*r4y + r3x*r4y,
+              2) + Power(r2z*r3x - r2x*r3z - r2z*r4x + r3z*r4x + r2x*r4z - r3x*r4z,2) + 
+             Power(-(r2z*r3y) + r2y*r3z + r2z*r4y - r3z*r4y - r2y*r4z + r3y*r4z,2),1.5))
+          - ((-(r1z*r2y) + r1y*r2z + r1z*r3y - r2z*r3y - r1y*r3z + r2y*r3z)*
+           (-(r2z*r3y) + r2y*r3z + r2z*r4y - r3z*r4y - r2y*r4z + r3y*r4z)*
+           (2*(-r2x + r3x)*(-(r2y*r3x) + r2x*r3y + r2y*r4x - r3y*r4x - r2x*r4y + 
+                r3x*r4y) + 2*(r2z - r3z)*
+              (-(r2z*r3y) + r2y*r3z + r2z*r4y - r3z*r4y - r2y*r4z + r3y*r4z)))/
+         (2.*Sqrt(Power(-(r1y*r2x) + r1x*r2y + r1y*r3x - r2y*r3x - r1x*r3y + r2x*r3y,
+              2) + Power(r1z*r2x - r1x*r2z - r1z*r3x + r2z*r3x + r1x*r3z - r2x*r3z,2) + 
+             Power(-(r1z*r2y) + r1y*r2z + r1z*r3y - r2z*r3y - r1y*r3z + r2y*r3z,2))*
+           Power(Power(-(r2y*r3x) + r2x*r3y + r2y*r4x - r3y*r4x - r2x*r4y + r3x*r4y,
+              2) + Power(r2z*r3x - r2x*r3z - r2z*r4x + r3z*r4x + r2x*r4z - r3x*r4z,2) + 
+             Power(-(r2z*r3y) + r2y*r3z + r2z*r4y - r3z*r4y - r2y*r4z + r3y*r4z,2),1.5))
+          + ((-r2x + r3x)*(-(r1y*r2x) + r1x*r2y + r1y*r3x - r2y*r3x - r1x*r3y + 
+             r2x*r3y))/
+         (Sqrt(Power(-(r1y*r2x) + r1x*r2y + r1y*r3x - r2y*r3x - r1x*r3y + r2x*r3y,2) + 
+             Power(r1z*r2x - r1x*r2z - r1z*r3x + r2z*r3x + r1x*r3z - r2x*r3z,2) + 
+             Power(-(r1z*r2y) + r1y*r2z + r1z*r3y - r2z*r3y - r1y*r3z + r2y*r3z,2))*
+           Sqrt(Power(-(r2y*r3x) + r2x*r3y + r2y*r4x - r3y*r4x - r2x*r4y + r3x*r4y,2) + 
+             Power(r2z*r3x - r2x*r3z - r2z*r4x + r3z*r4x + r2x*r4z - r3x*r4z,2) + 
+             Power(-(r2z*r3y) + r2y*r3z + r2z*r4y - r3z*r4y - r2y*r4z + r3y*r4z,2))) + 
+        ((r2z - r3z)*(-(r1z*r2y) + r1y*r2z + r1z*r3y - r2z*r3y - r1y*r3z + r2y*r3z))/
+         (Sqrt(Power(-(r1y*r2x) + r1x*r2y + r1y*r3x - r2y*r3x - r1x*r3y + r2x*r3y,2) + 
+             Power(r1z*r2x - r1x*r2z - r1z*r3x + r2z*r3x + r1x*r3z - r2x*r3z,2) + 
+             Power(-(r1z*r2y) + r1y*r2z + r1z*r3y - r2z*r3y - r1y*r3z + r2y*r3z,2))*
+           Sqrt(Power(-(r2y*r3x) + r2x*r3y + r2y*r4x - r3y*r4x - r2x*r4y + r3x*r4y,2) + 
+             Power(r2z*r3x - r2x*r3z - r2z*r4x + r3z*r4x + r2x*r4z - r3x*r4z,2) + 
+             Power(-(r2z*r3y) + r2y*r3z + r2z*r4y - r3z*r4y - r2y*r4z + r3y*r4z,2)))))/
+    (Sqrt(Power(r1x,2)*Power(r2y,2) + Power(r1x,2)*Power(r2z,2) - 
+        2*r1x*Power(r2y,2)*r3x - 2*r1x*Power(r2z,2)*r3x + Power(r2y,2)*Power(r3x,2) + 
+        Power(r2z,2)*Power(r3x,2) - 2*Power(r1x,2)*r2y*r3y + 2*r1x*r2x*r2y*r3y + 
+        2*r1x*r2y*r3x*r3y - 2*r2x*r2y*r3x*r3y + Power(r1x,2)*Power(r3y,2) - 
+        2*r1x*r2x*Power(r3y,2) + Power(r2x,2)*Power(r3y,2) + 
+        Power(r2z,2)*Power(r3y,2) + 
+        Power(r1z,2)*(Power(r2x,2) + Power(r2y,2) - 2*r2x*r3x + Power(r3x,2) - 
+           2*r2y*r3y + Power(r3y,2)) - 2*Power(r1x,2)*r2z*r3z + 2*r1x*r2x*r2z*r3z + 
+        2*r1x*r2z*r3x*r3z - 2*r2x*r2z*r3x*r3z - 2*r2y*r2z*r3y*r3z + 
+        Power(r1x,2)*Power(r3z,2) - 2*r1x*r2x*Power(r3z,2) + 
+        Power(r2x,2)*Power(r3z,2) + Power(r2y,2)*Power(r3z,2) + 
+        Power(r1y,2)*(Power(r2x,2) + Power(r2z,2) - 2*r2x*r3x + Power(r3x,2) - 
+           2*r2z*r3z + Power(r3z,2)) - 
+        2*r1y*(-(r2x*r2y*r3x) + r2y*Power(r3x,2) + r1x*(r2x - r3x)*(r2y - r3y) + 
+           Power(r2x,2)*r3y + Power(r2z,2)*r3y - r2x*r3x*r3y + 
+           r1z*(r2y - r3y)*(r2z - r3z) - r2y*r2z*r3z - r2z*r3y*r3z + r2y*Power(r3z,2))\
+         - 2*r1z*(r2z*Power(r3x,2) - r2y*r2z*r3y + r2z*Power(r3y,2) + 
+           r1x*(r2x - r3x)*(r2z - r3z) + Power(r2x,2)*r3z + Power(r2y,2)*r3z - 
+           r2y*r3y*r3z - r2x*r3x*(r2z + r3z)))*
+      Sqrt(Power(r2y*r3x - r2x*r3y - r2y*r4x + r3y*r4x + r2x*r4y - r3x*r4y,2) + 
+        Power(r2z*r3x - r2x*r3z - r2z*r4x + r3z*r4x + r2x*r4z - r3x*r4z,2) + 
+        Power(r2z*r3y - r2y*r3z - r2z*r4y + r3z*r4y + r2y*r4z - r3y*r4z,2))*
+      (((Power(r2x,2) + Power(r2y,2) + Power(r2z,2) - 2*r2x*r3x + Power(r3x,2) - 
+             2*r2y*r3y + Power(r3y,2) - 2*r2z*r3z + Power(r3z,2))*
+           Power(-(r1x*r2z*r3y) + r1x*r2y*r3z + r2z*r3y*r4x - r2y*r3z*r4x + 
+             r1x*r2z*r4y - r2z*r3x*r4y - r1x*r3z*r4y + r2x*r3z*r4y + 
+             r1z*(r2x*r3y - r3y*r4x + r2y*(-r3x + r4x) - r2x*r4y + r3x*r4y) - 
+             r1x*r2y*r4z + r2y*r3x*r4z + r1x*r3y*r4z - r2x*r3y*r4z + 
+             r1y*(r2z*r3x - r2x*r3z - r2z*r4x + r3z*r4x + r2x*r4z - r3x*r4z),2))/
+         ((Power(r1x,2)*Power(r2y,2) + Power(r1x,2)*Power(r2z,2) - 
+             2*r1x*Power(r2y,2)*r3x - 2*r1x*Power(r2z,2)*r3x + 
+             Power(r2y,2)*Power(r3x,2) + Power(r2z,2)*Power(r3x,2) - 
+             2*Power(r1x,2)*r2y*r3y + 2*r1x*r2x*r2y*r3y + 2*r1x*r2y*r3x*r3y - 
+             2*r2x*r2y*r3x*r3y + Power(r1x,2)*Power(r3y,2) - 2*r1x*r2x*Power(r3y,2) + 
+             Power(r2x,2)*Power(r3y,2) + Power(r2z,2)*Power(r3y,2) + 
+             Power(r1z,2)*(Power(r2x,2) + Power(r2y,2) - 2*r2x*r3x + Power(r3x,2) - 
+                2*r2y*r3y + Power(r3y,2)) - 2*Power(r1x,2)*r2z*r3z + 
+             2*r1x*r2x*r2z*r3z + 2*r1x*r2z*r3x*r3z - 2*r2x*r2z*r3x*r3z - 
+             2*r2y*r2z*r3y*r3z + Power(r1x,2)*Power(r3z,2) - 2*r1x*r2x*Power(r3z,2) + 
+             Power(r2x,2)*Power(r3z,2) + Power(r2y,2)*Power(r3z,2) + 
+             Power(r1y,2)*(Power(r2x,2) + Power(r2z,2) - 2*r2x*r3x + Power(r3x,2) - 
+                2*r2z*r3z + Power(r3z,2)) - 
+             2*r1y*(-(r2x*r2y*r3x) + r2y*Power(r3x,2) + r1x*(r2x - r3x)*(r2y - r3y) + 
+                Power(r2x,2)*r3y + Power(r2z,2)*r3y - r2x*r3x*r3y + 
+                r1z*(r2y - r3y)*(r2z - r3z) - r2y*r2z*r3z - r2z*r3y*r3z + 
+                r2y*Power(r3z,2)) - 
+             2*r1z*(r2z*Power(r3x,2) - r2y*r2z*r3y + r2z*Power(r3y,2) + 
+                r1x*(r2x - r3x)*(r2z - r3z) + Power(r2x,2)*r3z + Power(r2y,2)*r3z - 
+                r2y*r3y*r3z - r2x*r3x*(r2z + r3z)))*
+           (Power(r2y*r3x - r2x*r3y - r2y*r4x + r3y*r4x + r2x*r4y - r3x*r4y,2) + 
+             Power(r2z*r3x - r2x*r3z - r2z*r4x + r3z*r4x + r2x*r4z - r3x*r4z,2) + 
+             Power(r2z*r3y - r2y*r3z - r2z*r4y + r3z*r4y + r2y*r4z - r3y*r4z,2))) + 
+        Power(((-(r1y*r2x) + r1x*r2y + r1y*r3x - r2y*r3x - r1x*r3y + r2x*r3y)*
+             (-(r2y*r3x) + r2x*r3y + r2y*r4x - r3y*r4x - r2x*r4y + r3x*r4y))/
+           (Sqrt(Power(-(r1y*r2x) + r1x*r2y + r1y*r3x - r2y*r3x - r1x*r3y + r2x*r3y,
+                2) + Power(r1z*r2x - r1x*r2z - r1z*r3x + r2z*r3x + r1x*r3z - r2x*r3z,
+                2) + Power(-(r1z*r2y) + r1y*r2z + r1z*r3y - r2z*r3y - r1y*r3z + r2y*r3z,
+                2))*Sqrt(Power(-(r2y*r3x) + r2x*r3y + r2y*r4x - r3y*r4x - r2x*r4y + 
+                 r3x*r4y,2) + Power(r2z*r3x - r2x*r3z - r2z*r4x + r3z*r4x + r2x*r4z - 
+                 r3x*r4z,2) + Power(-(r2z*r3y) + r2y*r3z + r2z*r4y - r3z*r4y - 
+                 r2y*r4z + r3y*r4z,2))) + 
+          ((r1z*r2x - r1x*r2z - r1z*r3x + r2z*r3x + r1x*r3z - r2x*r3z)*
+             (r2z*r3x - r2x*r3z - r2z*r4x + r3z*r4x + r2x*r4z - r3x*r4z))/
+           (Sqrt(Power(-(r1y*r2x) + r1x*r2y + r1y*r3x - r2y*r3x - r1x*r3y + r2x*r3y,
+                2) + Power(r1z*r2x - r1x*r2z - r1z*r3x + r2z*r3x + r1x*r3z - r2x*r3z,
+                2) + Power(-(r1z*r2y) + r1y*r2z + r1z*r3y - r2z*r3y - r1y*r3z + r2y*r3z,
+                2))*Sqrt(Power(-(r2y*r3x) + r2x*r3y + r2y*r4x - r3y*r4x - r2x*r4y + 
+                 r3x*r4y,2) + Power(r2z*r3x - r2x*r3z - r2z*r4x + r3z*r4x + r2x*r4z - 
+                 r3x*r4z,2) + Power(-(r2z*r3y) + r2y*r3z + r2z*r4y - r3z*r4y - 
+                 r2y*r4z + r3y*r4z,2))) + 
+          ((-(r1z*r2y) + r1y*r2z + r1z*r3y - r2z*r3y - r1y*r3z + r2y*r3z)*
+             (-(r2z*r3y) + r2y*r3z + r2z*r4y - r3z*r4y - r2y*r4z + r3y*r4z))/
+           (Sqrt(Power(-(r1y*r2x) + r1x*r2y + r1y*r3x - r2y*r3x - r1x*r3y + r2x*r3y,
+                2) + Power(r1z*r2x - r1x*r2z - r1z*r3x + r2z*r3x + r1x*r3z - r2x*r3z,
+                2) + Power(-(r1z*r2y) + r1y*r2z + r1z*r3y - r2z*r3y - r1y*r3z + r2y*r3z,
+                2))*Sqrt(Power(-(r2y*r3x) + r2x*r3y + r2y*r4x - r3y*r4x - r2x*r4y + 
+                 r3x*r4y,2) + Power(r2z*r3x - r2x*r3z - r2z*r4x + r3z*r4x + r2x*r4z - 
+                 r3x*r4z,2) + Power(-(r2z*r3y) + r2y*r3z + r2z*r4y - r3z*r4y - 
+                 r2y*r4z + r3y*r4z,2))),2))) + 
+   ((-(Sqrt(Power(r2x,2) + Power(r2y,2) + Power(r2z,2) - 2*r2x*r3x + Power(r3x,2) - 
+              2*r2y*r3y + Power(r3y,2) - 2*r2z*r3z + Power(r3z,2))*
+            (-(r1x*r2z*r3y) + r1x*r2y*r3z + r2z*r3y*r4x - r2y*r3z*r4x + r1x*r2z*r4y - 
+              r2z*r3x*r4y - r1x*r3z*r4y + r2x*r3z*r4y + 
+              r1z*(r2x*r3y - r3y*r4x + r2y*(-r3x + r4x) - r2x*r4y + r3x*r4y) - 
+              r1x*r2y*r4z + r2y*r3x*r4z + r1x*r3y*r4z - r2x*r3y*r4z + 
+              r1y*(r2z*r3x - r2x*r3z - r2z*r4x + r3z*r4x + r2x*r4z - r3x*r4z))*
+            (2*(r2x - r3x)*(r2y*r3x - r2x*r3y - r2y*r4x + r3y*r4x + r2x*r4y - 
+                 r3x*r4y) + 2*(-r2z + r3z)*
+               (r2z*r3y - r2y*r3z - r2z*r4y + r3z*r4y + r2y*r4z - r3y*r4z)))/
+         (2.*Sqrt(Power(r1x,2)*Power(r2y,2) + Power(r1x,2)*Power(r2z,2) - 
+             2*r1x*Power(r2y,2)*r3x - 2*r1x*Power(r2z,2)*r3x + 
+             Power(r2y,2)*Power(r3x,2) + Power(r2z,2)*Power(r3x,2) - 
+             2*Power(r1x,2)*r2y*r3y + 2*r1x*r2x*r2y*r3y + 2*r1x*r2y*r3x*r3y - 
+             2*r2x*r2y*r3x*r3y + Power(r1x,2)*Power(r3y,2) - 2*r1x*r2x*Power(r3y,2) + 
+             Power(r2x,2)*Power(r3y,2) + Power(r2z,2)*Power(r3y,2) + 
+             Power(r1z,2)*(Power(r2x,2) + Power(r2y,2) - 2*r2x*r3x + Power(r3x,2) - 
+                2*r2y*r3y + Power(r3y,2)) - 2*Power(r1x,2)*r2z*r3z + 
+             2*r1x*r2x*r2z*r3z + 2*r1x*r2z*r3x*r3z - 2*r2x*r2z*r3x*r3z - 
+             2*r2y*r2z*r3y*r3z + Power(r1x,2)*Power(r3z,2) - 2*r1x*r2x*Power(r3z,2) + 
+             Power(r2x,2)*Power(r3z,2) + Power(r2y,2)*Power(r3z,2) + 
+             Power(r1y,2)*(Power(r2x,2) + Power(r2z,2) - 2*r2x*r3x + Power(r3x,2) - 
+                2*r2z*r3z + Power(r3z,2)) - 
+             2*r1y*(-(r2x*r2y*r3x) + r2y*Power(r3x,2) + r1x*(r2x - r3x)*(r2y - r3y) + 
+                Power(r2x,2)*r3y + Power(r2z,2)*r3y - r2x*r3x*r3y + 
+                r1z*(r2y - r3y)*(r2z - r3z) - r2y*r2z*r3z - r2z*r3y*r3z + 
+                r2y*Power(r3z,2)) - 
+             2*r1z*(r2z*Power(r3x,2) - r2y*r2z*r3y + r2z*Power(r3y,2) + 
+                r1x*(r2x - r3x)*(r2z - r3z) + Power(r2x,2)*r3z + Power(r2y,2)*r3z - 
+                r2y*r3y*r3z - r2x*r3x*(r2z + r3z)))*
+           Power(Power(r2y*r3x - r2x*r3y - r2y*r4x + r3y*r4x + r2x*r4y - r3x*r4y,2) + 
+             Power(r2z*r3x - r2x*r3z - r2z*r4x + r3z*r4x + r2x*r4z - r3x*r4z,2) + 
+             Power(r2z*r3y - r2y*r3z - r2z*r4y + r3z*r4y + r2y*r4z - r3y*r4z,2),1.5)) + 
+        ((r1x*r2z - r2z*r3x + r1z*(-r2x + r3x) - r1x*r3z + r2x*r3z)*
+           Sqrt(Power(r2x,2) + Power(r2y,2) + Power(r2z,2) - 2*r2x*r3x + Power(r3x,2) - 
+             2*r2y*r3y + Power(r3y,2) - 2*r2z*r3z + Power(r3z,2)))/
+         (Sqrt(Power(r1x,2)*Power(r2y,2) + Power(r1x,2)*Power(r2z,2) - 
+             2*r1x*Power(r2y,2)*r3x - 2*r1x*Power(r2z,2)*r3x + 
+             Power(r2y,2)*Power(r3x,2) + Power(r2z,2)*Power(r3x,2) - 
+             2*Power(r1x,2)*r2y*r3y + 2*r1x*r2x*r2y*r3y + 2*r1x*r2y*r3x*r3y - 
+             2*r2x*r2y*r3x*r3y + Power(r1x,2)*Power(r3y,2) - 2*r1x*r2x*Power(r3y,2) + 
+             Power(r2x,2)*Power(r3y,2) + Power(r2z,2)*Power(r3y,2) + 
+             Power(r1z,2)*(Power(r2x,2) + Power(r2y,2) - 2*r2x*r3x + Power(r3x,2) - 
+                2*r2y*r3y + Power(r3y,2)) - 2*Power(r1x,2)*r2z*r3z + 
+             2*r1x*r2x*r2z*r3z + 2*r1x*r2z*r3x*r3z - 2*r2x*r2z*r3x*r3z - 
+             2*r2y*r2z*r3y*r3z + Power(r1x,2)*Power(r3z,2) - 2*r1x*r2x*Power(r3z,2) + 
+             Power(r2x,2)*Power(r3z,2) + Power(r2y,2)*Power(r3z,2) + 
+             Power(r1y,2)*(Power(r2x,2) + Power(r2z,2) - 2*r2x*r3x + Power(r3x,2) - 
+                2*r2z*r3z + Power(r3z,2)) - 
+             2*r1y*(-(r2x*r2y*r3x) + r2y*Power(r3x,2) + r1x*(r2x - r3x)*(r2y - r3y) + 
+                Power(r2x,2)*r3y + Power(r2z,2)*r3y - r2x*r3x*r3y + 
+                r1z*(r2y - r3y)*(r2z - r3z) - r2y*r2z*r3z - r2z*r3y*r3z + 
+                r2y*Power(r3z,2)) - 
+             2*r1z*(r2z*Power(r3x,2) - r2y*r2z*r3y + r2z*Power(r3y,2) + 
+                r1x*(r2x - r3x)*(r2z - r3z) + Power(r2x,2)*r3z + Power(r2y,2)*r3z - 
+                r2y*r3y*r3z - r2x*r3x*(r2z + r3z)))*
+           Sqrt(Power(r2y*r3x - r2x*r3y - r2y*r4x + r3y*r4x + r2x*r4y - r3x*r4y,2) + 
+             Power(r2z*r3x - r2x*r3z - r2z*r4x + r3z*r4x + r2x*r4z - r3x*r4z,2) + 
+             Power(r2z*r3y - r2y*r3z - r2z*r4y + r3z*r4y + r2y*r4z - r3y*r4z,2))))*
+      (-(((-(r1y*r2x) + r1x*r2y + r1y*r3x - r2y*r3x - r1x*r3y + r2x*r3y)*
+             (-(r2y*r3x) + r2x*r3y + r2y*r4x - r3y*r4x - r2x*r4y + r3x*r4y))/
+           (Sqrt(Power(-(r1y*r2x) + r1x*r2y + r1y*r3x - r2y*r3x - r1x*r3y + r2x*r3y,
+                2) + Power(r1z*r2x - r1x*r2z - r1z*r3x + r2z*r3x + r1x*r3z - r2x*r3z,
+                2) + Power(-(r1z*r2y) + r1y*r2z + r1z*r3y - r2z*r3y - r1y*r3z + r2y*r3z,
+                2))*Sqrt(Power(-(r2y*r3x) + r2x*r3y + r2y*r4x - r3y*r4x - r2x*r4y + 
+                 r3x*r4y,2) + Power(r2z*r3x - r2x*r3z - r2z*r4x + r3z*r4x + r2x*r4z - 
+                 r3x*r4z,2) + Power(-(r2z*r3y) + r2y*r3z + r2z*r4y - r3z*r4y - 
+                 r2y*r4z + r3y*r4z,2)))) - 
+        ((r1z*r2x - r1x*r2z - r1z*r3x + r2z*r3x + r1x*r3z - r2x*r3z)*
+           (r2z*r3x - r2x*r3z - r2z*r4x + r3z*r4x + r2x*r4z - r3x*r4z))/
+         (Sqrt(Power(-(r1y*r2x) + r1x*r2y + r1y*r3x - r2y*r3x - r1x*r3y + r2x*r3y,2) + 
+             Power(r1z*r2x - r1x*r2z - r1z*r3x + r2z*r3x + r1x*r3z - r2x*r3z,2) + 
+             Power(-(r1z*r2y) + r1y*r2z + r1z*r3y - r2z*r3y - r1y*r3z + r2y*r3z,2))*
+           Sqrt(Power(-(r2y*r3x) + r2x*r3y + r2y*r4x - r3y*r4x - r2x*r4y + r3x*r4y,2) + 
+             Power(r2z*r3x - r2x*r3z - r2z*r4x + r3z*r4x + r2x*r4z - r3x*r4z,2) + 
+             Power(-(r2z*r3y) + r2y*r3z + r2z*r4y - r3z*r4y - r2y*r4z + r3y*r4z,2))) - 
+        ((-(r1z*r2y) + r1y*r2z + r1z*r3y - r2z*r3y - r1y*r3z + r2y*r3z)*
+           (-(r2z*r3y) + r2y*r3z + r2z*r4y - r3z*r4y - r2y*r4z + r3y*r4z))/
+         (Sqrt(Power(-(r1y*r2x) + r1x*r2y + r1y*r3x - r2y*r3x - r1x*r3y + r2x*r3y,2) + 
+             Power(r1z*r2x - r1x*r2z - r1z*r3x + r2z*r3x + r1x*r3z - r2x*r3z,2) + 
+             Power(-(r1z*r2y) + r1y*r2z + r1z*r3y - r2z*r3y - r1y*r3z + r2y*r3z,2))*
+           Sqrt(Power(-(r2y*r3x) + r2x*r3y + r2y*r4x - r3y*r4x - r2x*r4y + r3x*r4y,2) + 
+             Power(r2z*r3x - r2x*r3z - r2z*r4x + r3z*r4x + r2x*r4z - r3x*r4z,2) + 
+             Power(-(r2z*r3y) + r2y*r3z + r2z*r4y - r3z*r4y - r2y*r4z + r3y*r4z,2)))))/
+    (((Power(r2x,2) + Power(r2y,2) + Power(r2z,2) - 2*r2x*r3x + Power(r3x,2) - 
+           2*r2y*r3y + Power(r3y,2) - 2*r2z*r3z + Power(r3z,2))*
+         Power(-(r1x*r2z*r3y) + r1x*r2y*r3z + r2z*r3y*r4x - r2y*r3z*r4x + r1x*r2z*r4y - 
+           r2z*r3x*r4y - r1x*r3z*r4y + r2x*r3z*r4y + 
+           r1z*(r2x*r3y - r3y*r4x + r2y*(-r3x + r4x) - r2x*r4y + r3x*r4y) - 
+           r1x*r2y*r4z + r2y*r3x*r4z + r1x*r3y*r4z - r2x*r3y*r4z + 
+           r1y*(r2z*r3x - r2x*r3z - r2z*r4x + r3z*r4x + r2x*r4z - r3x*r4z),2))/
+       ((Power(r1x,2)*Power(r2y,2) + Power(r1x,2)*Power(r2z,2) - 
+           2*r1x*Power(r2y,2)*r3x - 2*r1x*Power(r2z,2)*r3x + 
+           Power(r2y,2)*Power(r3x,2) + Power(r2z,2)*Power(r3x,2) - 
+           2*Power(r1x,2)*r2y*r3y + 2*r1x*r2x*r2y*r3y + 2*r1x*r2y*r3x*r3y - 
+           2*r2x*r2y*r3x*r3y + Power(r1x,2)*Power(r3y,2) - 2*r1x*r2x*Power(r3y,2) + 
+           Power(r2x,2)*Power(r3y,2) + Power(r2z,2)*Power(r3y,2) + 
+           Power(r1z,2)*(Power(r2x,2) + Power(r2y,2) - 2*r2x*r3x + Power(r3x,2) - 
+              2*r2y*r3y + Power(r3y,2)) - 2*Power(r1x,2)*r2z*r3z + 2*r1x*r2x*r2z*r3z + 
+           2*r1x*r2z*r3x*r3z - 2*r2x*r2z*r3x*r3z - 2*r2y*r2z*r3y*r3z + 
+           Power(r1x,2)*Power(r3z,2) - 2*r1x*r2x*Power(r3z,2) + 
+           Power(r2x,2)*Power(r3z,2) + Power(r2y,2)*Power(r3z,2) + 
+           Power(r1y,2)*(Power(r2x,2) + Power(r2z,2) - 2*r2x*r3x + Power(r3x,2) - 
+              2*r2z*r3z + Power(r3z,2)) - 
+           2*r1y*(-(r2x*r2y*r3x) + r2y*Power(r3x,2) + r1x*(r2x - r3x)*(r2y - r3y) + 
+              Power(r2x,2)*r3y + Power(r2z,2)*r3y - r2x*r3x*r3y + 
+              r1z*(r2y - r3y)*(r2z - r3z) - r2y*r2z*r3z - r2z*r3y*r3z + r2y*Power(r3z,2)
+              ) - 2*r1z*(r2z*Power(r3x,2) - r2y*r2z*r3y + r2z*Power(r3y,2) + 
+              r1x*(r2x - r3x)*(r2z - r3z) + Power(r2x,2)*r3z + Power(r2y,2)*r3z - 
+              r2y*r3y*r3z - r2x*r3x*(r2z + r3z)))*
+         (Power(r2y*r3x - r2x*r3y - r2y*r4x + r3y*r4x + r2x*r4y - r3x*r4y,2) + 
+           Power(r2z*r3x - r2x*r3z - r2z*r4x + r3z*r4x + r2x*r4z - r3x*r4z,2) + 
+           Power(r2z*r3y - r2y*r3z - r2z*r4y + r3z*r4y + r2y*r4z - r3y*r4z,2))) + 
+      Power(((-(r1y*r2x) + r1x*r2y + r1y*r3x - r2y*r3x - r1x*r3y + r2x*r3y)*
+           (-(r2y*r3x) + r2x*r3y + r2y*r4x - r3y*r4x - r2x*r4y + r3x*r4y))/
+         (Sqrt(Power(-(r1y*r2x) + r1x*r2y + r1y*r3x - r2y*r3x - r1x*r3y + r2x*r3y,2) + 
+             Power(r1z*r2x - r1x*r2z - r1z*r3x + r2z*r3x + r1x*r3z - r2x*r3z,2) + 
+             Power(-(r1z*r2y) + r1y*r2z + r1z*r3y - r2z*r3y - r1y*r3z + r2y*r3z,2))*
+           Sqrt(Power(-(r2y*r3x) + r2x*r3y + r2y*r4x - r3y*r4x - r2x*r4y + r3x*r4y,2) + 
+             Power(r2z*r3x - r2x*r3z - r2z*r4x + r3z*r4x + r2x*r4z - r3x*r4z,2) + 
+             Power(-(r2z*r3y) + r2y*r3z + r2z*r4y - r3z*r4y - r2y*r4z + r3y*r4z,2))) + 
+        ((r1z*r2x - r1x*r2z - r1z*r3x + r2z*r3x + r1x*r3z - r2x*r3z)*
+           (r2z*r3x - r2x*r3z - r2z*r4x + r3z*r4x + r2x*r4z - r3x*r4z))/
+         (Sqrt(Power(-(r1y*r2x) + r1x*r2y + r1y*r3x - r2y*r3x - r1x*r3y + r2x*r3y,2) + 
+             Power(r1z*r2x - r1x*r2z - r1z*r3x + r2z*r3x + r1x*r3z - r2x*r3z,2) + 
+             Power(-(r1z*r2y) + r1y*r2z + r1z*r3y - r2z*r3y - r1y*r3z + r2y*r3z,2))*
+           Sqrt(Power(-(r2y*r3x) + r2x*r3y + r2y*r4x - r3y*r4x - r2x*r4y + r3x*r4y,2) + 
+             Power(r2z*r3x - r2x*r3z - r2z*r4x + r3z*r4x + r2x*r4z - r3x*r4z,2) + 
+             Power(-(r2z*r3y) + r2y*r3z + r2z*r4y - r3z*r4y - r2y*r4z + r3y*r4z,2))) + 
+        ((-(r1z*r2y) + r1y*r2z + r1z*r3y - r2z*r3y - r1y*r3z + r2y*r3z)*
+           (-(r2z*r3y) + r2y*r3z + r2z*r4y - r3z*r4y - r2y*r4z + r3y*r4z))/
+         (Sqrt(Power(-(r1y*r2x) + r1x*r2y + r1y*r3x - r2y*r3x - r1x*r3y + r2x*r3y,2) + 
+             Power(r1z*r2x - r1x*r2z - r1z*r3x + r2z*r3x + r1x*r3z - r2x*r3z,2) + 
+             Power(-(r1z*r2y) + r1y*r2z + r1z*r3y - r2z*r3y - r1y*r3z + r2y*r3z,2))*
+           Sqrt(Power(-(r2y*r3x) + r2x*r3y + r2y*r4x - r3y*r4x - r2x*r4y + r3x*r4y,2) + 
+             Power(r2z*r3x - r2x*r3z - r2z*r4x + r3z*r4x + r2x*r4z - r3x*r4z,2) + 
+             Power(-(r2z*r3y) + r2y*r3z + r2z*r4y - r3z*r4y - r2y*r4z + r3y*r4z,2))),2));
+	der_d_th[11] = (Sqrt(Power(r2x,2) + Power(r2y,2) + Power(r2z,2) - 2*r2x*r3x + Power(r3x,2) - 
+        2*r2y*r3y + Power(r3y,2) - 2*r2z*r3z + Power(r3z,2))*
+      (-(r1x*r2z*r3y) + r1x*r2y*r3z + r2z*r3y*r4x - r2y*r3z*r4x + r1x*r2z*r4y - 
+        r2z*r3x*r4y - r1x*r3z*r4y + r2x*r3z*r4y + 
+        r1z*(r2x*r3y - r3y*r4x + r2y*(-r3x + r4x) - r2x*r4y + r3x*r4y) - r1x*r2y*r4z + 
+        r2y*r3x*r4z + r1x*r3y*r4z - r2x*r3y*r4z + 
+        r1y*(r2z*r3x - r2x*r3z - r2z*r4x + r3z*r4x + r2x*r4z - r3x*r4z))*
+      (-((-(r1y*r2x) + r1x*r2y + r1y*r3x - r2y*r3x - r1x*r3y + r2x*r3y)*
+            (-(r2y*r3x) + r2x*r3y + r2y*r4x - r3y*r4x - r2x*r4y + r3x*r4y)*
+            (2*(r2x - r3x)*(r2z*r3x - r2x*r3z - r2z*r4x + r3z*r4x + r2x*r4z - 
+                 r3x*r4z) + 2*(-r2y + r3y)*
+               (-(r2z*r3y) + r2y*r3z + r2z*r4y - r3z*r4y - r2y*r4z + r3y*r4z)))/
+         (2.*Sqrt(Power(-(r1y*r2x) + r1x*r2y + r1y*r3x - r2y*r3x - r1x*r3y + r2x*r3y,
+              2) + Power(r1z*r2x - r1x*r2z - r1z*r3x + r2z*r3x + r1x*r3z - r2x*r3z,2) + 
+             Power(-(r1z*r2y) + r1y*r2z + r1z*r3y - r2z*r3y - r1y*r3z + r2y*r3z,2))*
+           Power(Power(-(r2y*r3x) + r2x*r3y + r2y*r4x - r3y*r4x - r2x*r4y + r3x*r4y,
+              2) + Power(r2z*r3x - r2x*r3z - r2z*r4x + r3z*r4x + r2x*r4z - r3x*r4z,2) + 
+             Power(-(r2z*r3y) + r2y*r3z + r2z*r4y - r3z*r4y - r2y*r4z + r3y*r4z,2),1.5))
+          - ((r1z*r2x - r1x*r2z - r1z*r3x + r2z*r3x + r1x*r3z - r2x*r3z)*
+           (r2z*r3x - r2x*r3z - r2z*r4x + r3z*r4x + r2x*r4z - r3x*r4z)*
+           (2*(r2x - r3x)*(r2z*r3x - r2x*r3z - r2z*r4x + r3z*r4x + r2x*r4z - r3x*r4z) + 
+             2*(-r2y + r3y)*(-(r2z*r3y) + r2y*r3z + r2z*r4y - r3z*r4y - r2y*r4z + 
+                r3y*r4z)))/
+         (2.*Sqrt(Power(-(r1y*r2x) + r1x*r2y + r1y*r3x - r2y*r3x - r1x*r3y + r2x*r3y,
+              2) + Power(r1z*r2x - r1x*r2z - r1z*r3x + r2z*r3x + r1x*r3z - r2x*r3z,2) + 
+             Power(-(r1z*r2y) + r1y*r2z + r1z*r3y - r2z*r3y - r1y*r3z + r2y*r3z,2))*
+           Power(Power(-(r2y*r3x) + r2x*r3y + r2y*r4x - r3y*r4x - r2x*r4y + r3x*r4y,
+              2) + Power(r2z*r3x - r2x*r3z - r2z*r4x + r3z*r4x + r2x*r4z - r3x*r4z,2) + 
+             Power(-(r2z*r3y) + r2y*r3z + r2z*r4y - r3z*r4y - r2y*r4z + r3y*r4z,2),1.5))
+          - ((-(r1z*r2y) + r1y*r2z + r1z*r3y - r2z*r3y - r1y*r3z + r2y*r3z)*
+           (-(r2z*r3y) + r2y*r3z + r2z*r4y - r3z*r4y - r2y*r4z + r3y*r4z)*
+           (2*(r2x - r3x)*(r2z*r3x - r2x*r3z - r2z*r4x + r3z*r4x + r2x*r4z - r3x*r4z) + 
+             2*(-r2y + r3y)*(-(r2z*r3y) + r2y*r3z + r2z*r4y - r3z*r4y - r2y*r4z + 
+                r3y*r4z)))/
+         (2.*Sqrt(Power(-(r1y*r2x) + r1x*r2y + r1y*r3x - r2y*r3x - r1x*r3y + r2x*r3y,
+              2) + Power(r1z*r2x - r1x*r2z - r1z*r3x + r2z*r3x + r1x*r3z - r2x*r3z,2) + 
+             Power(-(r1z*r2y) + r1y*r2z + r1z*r3y - r2z*r3y - r1y*r3z + r2y*r3z,2))*
+           Power(Power(-(r2y*r3x) + r2x*r3y + r2y*r4x - r3y*r4x - r2x*r4y + r3x*r4y,
+              2) + Power(r2z*r3x - r2x*r3z - r2z*r4x + r3z*r4x + r2x*r4z - r3x*r4z,2) + 
+             Power(-(r2z*r3y) + r2y*r3z + r2z*r4y - r3z*r4y - r2y*r4z + r3y*r4z,2),1.5))
+          + ((r2x - r3x)*(r1z*r2x - r1x*r2z - r1z*r3x + r2z*r3x + r1x*r3z - r2x*r3z))/
+         (Sqrt(Power(-(r1y*r2x) + r1x*r2y + r1y*r3x - r2y*r3x - r1x*r3y + r2x*r3y,2) + 
+             Power(r1z*r2x - r1x*r2z - r1z*r3x + r2z*r3x + r1x*r3z - r2x*r3z,2) + 
+             Power(-(r1z*r2y) + r1y*r2z + r1z*r3y - r2z*r3y - r1y*r3z + r2y*r3z,2))*
+           Sqrt(Power(-(r2y*r3x) + r2x*r3y + r2y*r4x - r3y*r4x - r2x*r4y + r3x*r4y,2) + 
+             Power(r2z*r3x - r2x*r3z - r2z*r4x + r3z*r4x + r2x*r4z - r3x*r4z,2) + 
+             Power(-(r2z*r3y) + r2y*r3z + r2z*r4y - r3z*r4y - r2y*r4z + r3y*r4z,2))) + 
+        ((-r2y + r3y)*(-(r1z*r2y) + r1y*r2z + r1z*r3y - r2z*r3y - r1y*r3z + r2y*r3z))/
+         (Sqrt(Power(-(r1y*r2x) + r1x*r2y + r1y*r3x - r2y*r3x - r1x*r3y + r2x*r3y,2) + 
+             Power(r1z*r2x - r1x*r2z - r1z*r3x + r2z*r3x + r1x*r3z - r2x*r3z,2) + 
+             Power(-(r1z*r2y) + r1y*r2z + r1z*r3y - r2z*r3y - r1y*r3z + r2y*r3z,2))*
+           Sqrt(Power(-(r2y*r3x) + r2x*r3y + r2y*r4x - r3y*r4x - r2x*r4y + r3x*r4y,2) + 
+             Power(r2z*r3x - r2x*r3z - r2z*r4x + r3z*r4x + r2x*r4z - r3x*r4z,2) + 
+             Power(-(r2z*r3y) + r2y*r3z + r2z*r4y - r3z*r4y - r2y*r4z + r3y*r4z,2)))))/
+    (Sqrt(Power(r1x,2)*Power(r2y,2) + Power(r1x,2)*Power(r2z,2) - 
+        2*r1x*Power(r2y,2)*r3x - 2*r1x*Power(r2z,2)*r3x + Power(r2y,2)*Power(r3x,2) + 
+        Power(r2z,2)*Power(r3x,2) - 2*Power(r1x,2)*r2y*r3y + 2*r1x*r2x*r2y*r3y + 
+        2*r1x*r2y*r3x*r3y - 2*r2x*r2y*r3x*r3y + Power(r1x,2)*Power(r3y,2) - 
+        2*r1x*r2x*Power(r3y,2) + Power(r2x,2)*Power(r3y,2) + 
+        Power(r2z,2)*Power(r3y,2) + 
+        Power(r1z,2)*(Power(r2x,2) + Power(r2y,2) - 2*r2x*r3x + Power(r3x,2) - 
+           2*r2y*r3y + Power(r3y,2)) - 2*Power(r1x,2)*r2z*r3z + 2*r1x*r2x*r2z*r3z + 
+        2*r1x*r2z*r3x*r3z - 2*r2x*r2z*r3x*r3z - 2*r2y*r2z*r3y*r3z + 
+        Power(r1x,2)*Power(r3z,2) - 2*r1x*r2x*Power(r3z,2) + 
+        Power(r2x,2)*Power(r3z,2) + Power(r2y,2)*Power(r3z,2) + 
+        Power(r1y,2)*(Power(r2x,2) + Power(r2z,2) - 2*r2x*r3x + Power(r3x,2) - 
+           2*r2z*r3z + Power(r3z,2)) - 
+        2*r1y*(-(r2x*r2y*r3x) + r2y*Power(r3x,2) + r1x*(r2x - r3x)*(r2y - r3y) + 
+           Power(r2x,2)*r3y + Power(r2z,2)*r3y - r2x*r3x*r3y + 
+           r1z*(r2y - r3y)*(r2z - r3z) - r2y*r2z*r3z - r2z*r3y*r3z + r2y*Power(r3z,2))\
+         - 2*r1z*(r2z*Power(r3x,2) - r2y*r2z*r3y + r2z*Power(r3y,2) + 
+           r1x*(r2x - r3x)*(r2z - r3z) + Power(r2x,2)*r3z + Power(r2y,2)*r3z - 
+           r2y*r3y*r3z - r2x*r3x*(r2z + r3z)))*
+      Sqrt(Power(r2y*r3x - r2x*r3y - r2y*r4x + r3y*r4x + r2x*r4y - r3x*r4y,2) + 
+        Power(r2z*r3x - r2x*r3z - r2z*r4x + r3z*r4x + r2x*r4z - r3x*r4z,2) + 
+        Power(r2z*r3y - r2y*r3z - r2z*r4y + r3z*r4y + r2y*r4z - r3y*r4z,2))*
+      (((Power(r2x,2) + Power(r2y,2) + Power(r2z,2) - 2*r2x*r3x + Power(r3x,2) - 
+             2*r2y*r3y + Power(r3y,2) - 2*r2z*r3z + Power(r3z,2))*
+           Power(-(r1x*r2z*r3y) + r1x*r2y*r3z + r2z*r3y*r4x - r2y*r3z*r4x + 
+             r1x*r2z*r4y - r2z*r3x*r4y - r1x*r3z*r4y + r2x*r3z*r4y + 
+             r1z*(r2x*r3y - r3y*r4x + r2y*(-r3x + r4x) - r2x*r4y + r3x*r4y) - 
+             r1x*r2y*r4z + r2y*r3x*r4z + r1x*r3y*r4z - r2x*r3y*r4z + 
+             r1y*(r2z*r3x - r2x*r3z - r2z*r4x + r3z*r4x + r2x*r4z - r3x*r4z),2))/
+         ((Power(r1x,2)*Power(r2y,2) + Power(r1x,2)*Power(r2z,2) - 
+             2*r1x*Power(r2y,2)*r3x - 2*r1x*Power(r2z,2)*r3x + 
+             Power(r2y,2)*Power(r3x,2) + Power(r2z,2)*Power(r3x,2) - 
+             2*Power(r1x,2)*r2y*r3y + 2*r1x*r2x*r2y*r3y + 2*r1x*r2y*r3x*r3y - 
+             2*r2x*r2y*r3x*r3y + Power(r1x,2)*Power(r3y,2) - 2*r1x*r2x*Power(r3y,2) + 
+             Power(r2x,2)*Power(r3y,2) + Power(r2z,2)*Power(r3y,2) + 
+             Power(r1z,2)*(Power(r2x,2) + Power(r2y,2) - 2*r2x*r3x + Power(r3x,2) - 
+                2*r2y*r3y + Power(r3y,2)) - 2*Power(r1x,2)*r2z*r3z + 
+             2*r1x*r2x*r2z*r3z + 2*r1x*r2z*r3x*r3z - 2*r2x*r2z*r3x*r3z - 
+             2*r2y*r2z*r3y*r3z + Power(r1x,2)*Power(r3z,2) - 2*r1x*r2x*Power(r3z,2) + 
+             Power(r2x,2)*Power(r3z,2) + Power(r2y,2)*Power(r3z,2) + 
+             Power(r1y,2)*(Power(r2x,2) + Power(r2z,2) - 2*r2x*r3x + Power(r3x,2) - 
+                2*r2z*r3z + Power(r3z,2)) - 
+             2*r1y*(-(r2x*r2y*r3x) + r2y*Power(r3x,2) + r1x*(r2x - r3x)*(r2y - r3y) + 
+                Power(r2x,2)*r3y + Power(r2z,2)*r3y - r2x*r3x*r3y + 
+                r1z*(r2y - r3y)*(r2z - r3z) - r2y*r2z*r3z - r2z*r3y*r3z + 
+                r2y*Power(r3z,2)) - 
+             2*r1z*(r2z*Power(r3x,2) - r2y*r2z*r3y + r2z*Power(r3y,2) + 
+                r1x*(r2x - r3x)*(r2z - r3z) + Power(r2x,2)*r3z + Power(r2y,2)*r3z - 
+                r2y*r3y*r3z - r2x*r3x*(r2z + r3z)))*
+           (Power(r2y*r3x - r2x*r3y - r2y*r4x + r3y*r4x + r2x*r4y - r3x*r4y,2) + 
+             Power(r2z*r3x - r2x*r3z - r2z*r4x + r3z*r4x + r2x*r4z - r3x*r4z,2) + 
+             Power(r2z*r3y - r2y*r3z - r2z*r4y + r3z*r4y + r2y*r4z - r3y*r4z,2))) + 
+        Power(((-(r1y*r2x) + r1x*r2y + r1y*r3x - r2y*r3x - r1x*r3y + r2x*r3y)*
+             (-(r2y*r3x) + r2x*r3y + r2y*r4x - r3y*r4x - r2x*r4y + r3x*r4y))/
+           (Sqrt(Power(-(r1y*r2x) + r1x*r2y + r1y*r3x - r2y*r3x - r1x*r3y + r2x*r3y,
+                2) + Power(r1z*r2x - r1x*r2z - r1z*r3x + r2z*r3x + r1x*r3z - r2x*r3z,
+                2) + Power(-(r1z*r2y) + r1y*r2z + r1z*r3y - r2z*r3y - r1y*r3z + r2y*r3z,
+                2))*Sqrt(Power(-(r2y*r3x) + r2x*r3y + r2y*r4x - r3y*r4x - r2x*r4y + 
+                 r3x*r4y,2) + Power(r2z*r3x - r2x*r3z - r2z*r4x + r3z*r4x + r2x*r4z - 
+                 r3x*r4z,2) + Power(-(r2z*r3y) + r2y*r3z + r2z*r4y - r3z*r4y - 
+                 r2y*r4z + r3y*r4z,2))) + 
+          ((r1z*r2x - r1x*r2z - r1z*r3x + r2z*r3x + r1x*r3z - r2x*r3z)*
+             (r2z*r3x - r2x*r3z - r2z*r4x + r3z*r4x + r2x*r4z - r3x*r4z))/
+           (Sqrt(Power(-(r1y*r2x) + r1x*r2y + r1y*r3x - r2y*r3x - r1x*r3y + r2x*r3y,
+                2) + Power(r1z*r2x - r1x*r2z - r1z*r3x + r2z*r3x + r1x*r3z - r2x*r3z,
+                2) + Power(-(r1z*r2y) + r1y*r2z + r1z*r3y - r2z*r3y - r1y*r3z + r2y*r3z,
+                2))*Sqrt(Power(-(r2y*r3x) + r2x*r3y + r2y*r4x - r3y*r4x - r2x*r4y + 
+                 r3x*r4y,2) + Power(r2z*r3x - r2x*r3z - r2z*r4x + r3z*r4x + r2x*r4z - 
+                 r3x*r4z,2) + Power(-(r2z*r3y) + r2y*r3z + r2z*r4y - r3z*r4y - 
+                 r2y*r4z + r3y*r4z,2))) + 
+          ((-(r1z*r2y) + r1y*r2z + r1z*r3y - r2z*r3y - r1y*r3z + r2y*r3z)*
+             (-(r2z*r3y) + r2y*r3z + r2z*r4y - r3z*r4y - r2y*r4z + r3y*r4z))/
+           (Sqrt(Power(-(r1y*r2x) + r1x*r2y + r1y*r3x - r2y*r3x - r1x*r3y + r2x*r3y,
+                2) + Power(r1z*r2x - r1x*r2z - r1z*r3x + r2z*r3x + r1x*r3z - r2x*r3z,
+                2) + Power(-(r1z*r2y) + r1y*r2z + r1z*r3y - r2z*r3y - r1y*r3z + r2y*r3z,
+                2))*Sqrt(Power(-(r2y*r3x) + r2x*r3y + r2y*r4x - r3y*r4x - r2x*r4y + 
+                 r3x*r4y,2) + Power(r2z*r3x - r2x*r3z - r2z*r4x + r3z*r4x + r2x*r4z - 
+                 r3x*r4z,2) + Power(-(r2z*r3y) + r2y*r3z + r2z*r4y - r3z*r4y - 
+                 r2y*r4z + r3y*r4z,2))),2))) + 
+   ((-(Sqrt(Power(r2x,2) + Power(r2y,2) + Power(r2z,2) - 2*r2x*r3x + Power(r3x,2) - 
+              2*r2y*r3y + Power(r3y,2) - 2*r2z*r3z + Power(r3z,2))*
+            (-(r1x*r2z*r3y) + r1x*r2y*r3z + r2z*r3y*r4x - r2y*r3z*r4x + r1x*r2z*r4y - 
+              r2z*r3x*r4y - r1x*r3z*r4y + r2x*r3z*r4y + 
+              r1z*(r2x*r3y - r3y*r4x + r2y*(-r3x + r4x) - r2x*r4y + r3x*r4y) - 
+              r1x*r2y*r4z + r2y*r3x*r4z + r1x*r3y*r4z - r2x*r3y*r4z + 
+              r1y*(r2z*r3x - r2x*r3z - r2z*r4x + r3z*r4x + r2x*r4z - r3x*r4z))*
+            (2*(r2x - r3x)*(r2z*r3x - r2x*r3z - r2z*r4x + r3z*r4x + r2x*r4z - 
+                 r3x*r4z) + 2*(r2y - r3y)*
+               (r2z*r3y - r2y*r3z - r2z*r4y + r3z*r4y + r2y*r4z - r3y*r4z)))/
+         (2.*Sqrt(Power(r1x,2)*Power(r2y,2) + Power(r1x,2)*Power(r2z,2) - 
+             2*r1x*Power(r2y,2)*r3x - 2*r1x*Power(r2z,2)*r3x + 
+             Power(r2y,2)*Power(r3x,2) + Power(r2z,2)*Power(r3x,2) - 
+             2*Power(r1x,2)*r2y*r3y + 2*r1x*r2x*r2y*r3y + 2*r1x*r2y*r3x*r3y - 
+             2*r2x*r2y*r3x*r3y + Power(r1x,2)*Power(r3y,2) - 2*r1x*r2x*Power(r3y,2) + 
+             Power(r2x,2)*Power(r3y,2) + Power(r2z,2)*Power(r3y,2) + 
+             Power(r1z,2)*(Power(r2x,2) + Power(r2y,2) - 2*r2x*r3x + Power(r3x,2) - 
+                2*r2y*r3y + Power(r3y,2)) - 2*Power(r1x,2)*r2z*r3z + 
+             2*r1x*r2x*r2z*r3z + 2*r1x*r2z*r3x*r3z - 2*r2x*r2z*r3x*r3z - 
+             2*r2y*r2z*r3y*r3z + Power(r1x,2)*Power(r3z,2) - 2*r1x*r2x*Power(r3z,2) + 
+             Power(r2x,2)*Power(r3z,2) + Power(r2y,2)*Power(r3z,2) + 
+             Power(r1y,2)*(Power(r2x,2) + Power(r2z,2) - 2*r2x*r3x + Power(r3x,2) - 
+                2*r2z*r3z + Power(r3z,2)) - 
+             2*r1y*(-(r2x*r2y*r3x) + r2y*Power(r3x,2) + r1x*(r2x - r3x)*(r2y - r3y) + 
+                Power(r2x,2)*r3y + Power(r2z,2)*r3y - r2x*r3x*r3y + 
+                r1z*(r2y - r3y)*(r2z - r3z) - r2y*r2z*r3z - r2z*r3y*r3z + 
+                r2y*Power(r3z,2)) - 
+             2*r1z*(r2z*Power(r3x,2) - r2y*r2z*r3y + r2z*Power(r3y,2) + 
+                r1x*(r2x - r3x)*(r2z - r3z) + Power(r2x,2)*r3z + Power(r2y,2)*r3z - 
+                r2y*r3y*r3z - r2x*r3x*(r2z + r3z)))*
+           Power(Power(r2y*r3x - r2x*r3y - r2y*r4x + r3y*r4x + r2x*r4y - r3x*r4y,2) + 
+             Power(r2z*r3x - r2x*r3z - r2z*r4x + r3z*r4x + r2x*r4z - r3x*r4z,2) + 
+             Power(r2z*r3y - r2y*r3z - r2z*r4y + r3z*r4y + r2y*r4z - r3y*r4z,2),1.5)) + 
+        ((-(r1x*r2y) + r1y*(r2x - r3x) + r2y*r3x + r1x*r3y - r2x*r3y)*
+           Sqrt(Power(r2x,2) + Power(r2y,2) + Power(r2z,2) - 2*r2x*r3x + Power(r3x,2) - 
+             2*r2y*r3y + Power(r3y,2) - 2*r2z*r3z + Power(r3z,2)))/
+         (Sqrt(Power(r1x,2)*Power(r2y,2) + Power(r1x,2)*Power(r2z,2) - 
+             2*r1x*Power(r2y,2)*r3x - 2*r1x*Power(r2z,2)*r3x + 
+             Power(r2y,2)*Power(r3x,2) + Power(r2z,2)*Power(r3x,2) - 
+             2*Power(r1x,2)*r2y*r3y + 2*r1x*r2x*r2y*r3y + 2*r1x*r2y*r3x*r3y - 
+             2*r2x*r2y*r3x*r3y + Power(r1x,2)*Power(r3y,2) - 2*r1x*r2x*Power(r3y,2) + 
+             Power(r2x,2)*Power(r3y,2) + Power(r2z,2)*Power(r3y,2) + 
+             Power(r1z,2)*(Power(r2x,2) + Power(r2y,2) - 2*r2x*r3x + Power(r3x,2) - 
+                2*r2y*r3y + Power(r3y,2)) - 2*Power(r1x,2)*r2z*r3z + 
+             2*r1x*r2x*r2z*r3z + 2*r1x*r2z*r3x*r3z - 2*r2x*r2z*r3x*r3z - 
+             2*r2y*r2z*r3y*r3z + Power(r1x,2)*Power(r3z,2) - 2*r1x*r2x*Power(r3z,2) + 
+             Power(r2x,2)*Power(r3z,2) + Power(r2y,2)*Power(r3z,2) + 
+             Power(r1y,2)*(Power(r2x,2) + Power(r2z,2) - 2*r2x*r3x + Power(r3x,2) - 
+                2*r2z*r3z + Power(r3z,2)) - 
+             2*r1y*(-(r2x*r2y*r3x) + r2y*Power(r3x,2) + r1x*(r2x - r3x)*(r2y - r3y) + 
+                Power(r2x,2)*r3y + Power(r2z,2)*r3y - r2x*r3x*r3y + 
+                r1z*(r2y - r3y)*(r2z - r3z) - r2y*r2z*r3z - r2z*r3y*r3z + 
+                r2y*Power(r3z,2)) - 
+             2*r1z*(r2z*Power(r3x,2) - r2y*r2z*r3y + r2z*Power(r3y,2) + 
+                r1x*(r2x - r3x)*(r2z - r3z) + Power(r2x,2)*r3z + Power(r2y,2)*r3z - 
+                r2y*r3y*r3z - r2x*r3x*(r2z + r3z)))*
+           Sqrt(Power(r2y*r3x - r2x*r3y - r2y*r4x + r3y*r4x + r2x*r4y - r3x*r4y,2) + 
+             Power(r2z*r3x - r2x*r3z - r2z*r4x + r3z*r4x + r2x*r4z - r3x*r4z,2) + 
+             Power(r2z*r3y - r2y*r3z - r2z*r4y + r3z*r4y + r2y*r4z - r3y*r4z,2))))*
+      (-(((-(r1y*r2x) + r1x*r2y + r1y*r3x - r2y*r3x - r1x*r3y + r2x*r3y)*
+             (-(r2y*r3x) + r2x*r3y + r2y*r4x - r3y*r4x - r2x*r4y + r3x*r4y))/
+           (Sqrt(Power(-(r1y*r2x) + r1x*r2y + r1y*r3x - r2y*r3x - r1x*r3y + r2x*r3y,
+                2) + Power(r1z*r2x - r1x*r2z - r1z*r3x + r2z*r3x + r1x*r3z - r2x*r3z,
+                2) + Power(-(r1z*r2y) + r1y*r2z + r1z*r3y - r2z*r3y - r1y*r3z + r2y*r3z,
+                2))*Sqrt(Power(-(r2y*r3x) + r2x*r3y + r2y*r4x - r3y*r4x - r2x*r4y + 
+                 r3x*r4y,2) + Power(r2z*r3x - r2x*r3z - r2z*r4x + r3z*r4x + r2x*r4z - 
+                 r3x*r4z,2) + Power(-(r2z*r3y) + r2y*r3z + r2z*r4y - r3z*r4y - 
+                 r2y*r4z + r3y*r4z,2)))) - 
+        ((r1z*r2x - r1x*r2z - r1z*r3x + r2z*r3x + r1x*r3z - r2x*r3z)*
+           (r2z*r3x - r2x*r3z - r2z*r4x + r3z*r4x + r2x*r4z - r3x*r4z))/
+         (Sqrt(Power(-(r1y*r2x) + r1x*r2y + r1y*r3x - r2y*r3x - r1x*r3y + r2x*r3y,2) + 
+             Power(r1z*r2x - r1x*r2z - r1z*r3x + r2z*r3x + r1x*r3z - r2x*r3z,2) + 
+             Power(-(r1z*r2y) + r1y*r2z + r1z*r3y - r2z*r3y - r1y*r3z + r2y*r3z,2))*
+           Sqrt(Power(-(r2y*r3x) + r2x*r3y + r2y*r4x - r3y*r4x - r2x*r4y + r3x*r4y,2) + 
+             Power(r2z*r3x - r2x*r3z - r2z*r4x + r3z*r4x + r2x*r4z - r3x*r4z,2) + 
+             Power(-(r2z*r3y) + r2y*r3z + r2z*r4y - r3z*r4y - r2y*r4z + r3y*r4z,2))) - 
+        ((-(r1z*r2y) + r1y*r2z + r1z*r3y - r2z*r3y - r1y*r3z + r2y*r3z)*
+           (-(r2z*r3y) + r2y*r3z + r2z*r4y - r3z*r4y - r2y*r4z + r3y*r4z))/
+         (Sqrt(Power(-(r1y*r2x) + r1x*r2y + r1y*r3x - r2y*r3x - r1x*r3y + r2x*r3y,2) + 
+             Power(r1z*r2x - r1x*r2z - r1z*r3x + r2z*r3x + r1x*r3z - r2x*r3z,2) + 
+             Power(-(r1z*r2y) + r1y*r2z + r1z*r3y - r2z*r3y - r1y*r3z + r2y*r3z,2))*
+           Sqrt(Power(-(r2y*r3x) + r2x*r3y + r2y*r4x - r3y*r4x - r2x*r4y + r3x*r4y,2) + 
+             Power(r2z*r3x - r2x*r3z - r2z*r4x + r3z*r4x + r2x*r4z - r3x*r4z,2) + 
+             Power(-(r2z*r3y) + r2y*r3z + r2z*r4y - r3z*r4y - r2y*r4z + r3y*r4z,2)))))/
+    (((Power(r2x,2) + Power(r2y,2) + Power(r2z,2) - 2*r2x*r3x + Power(r3x,2) - 
+           2*r2y*r3y + Power(r3y,2) - 2*r2z*r3z + Power(r3z,2))*
+         Power(-(r1x*r2z*r3y) + r1x*r2y*r3z + r2z*r3y*r4x - r2y*r3z*r4x + r1x*r2z*r4y - 
+           r2z*r3x*r4y - r1x*r3z*r4y + r2x*r3z*r4y + 
+           r1z*(r2x*r3y - r3y*r4x + r2y*(-r3x + r4x) - r2x*r4y + r3x*r4y) - 
+           r1x*r2y*r4z + r2y*r3x*r4z + r1x*r3y*r4z - r2x*r3y*r4z + 
+           r1y*(r2z*r3x - r2x*r3z - r2z*r4x + r3z*r4x + r2x*r4z - r3x*r4z),2))/
+       ((Power(r1x,2)*Power(r2y,2) + Power(r1x,2)*Power(r2z,2) - 
+           2*r1x*Power(r2y,2)*r3x - 2*r1x*Power(r2z,2)*r3x + 
+           Power(r2y,2)*Power(r3x,2) + Power(r2z,2)*Power(r3x,2) - 
+           2*Power(r1x,2)*r2y*r3y + 2*r1x*r2x*r2y*r3y + 2*r1x*r2y*r3x*r3y - 
+           2*r2x*r2y*r3x*r3y + Power(r1x,2)*Power(r3y,2) - 2*r1x*r2x*Power(r3y,2) + 
+           Power(r2x,2)*Power(r3y,2) + Power(r2z,2)*Power(r3y,2) + 
+           Power(r1z,2)*(Power(r2x,2) + Power(r2y,2) - 2*r2x*r3x + Power(r3x,2) - 
+              2*r2y*r3y + Power(r3y,2)) - 2*Power(r1x,2)*r2z*r3z + 2*r1x*r2x*r2z*r3z + 
+           2*r1x*r2z*r3x*r3z - 2*r2x*r2z*r3x*r3z - 2*r2y*r2z*r3y*r3z + 
+           Power(r1x,2)*Power(r3z,2) - 2*r1x*r2x*Power(r3z,2) + 
+           Power(r2x,2)*Power(r3z,2) + Power(r2y,2)*Power(r3z,2) + 
+           Power(r1y,2)*(Power(r2x,2) + Power(r2z,2) - 2*r2x*r3x + Power(r3x,2) - 
+              2*r2z*r3z + Power(r3z,2)) - 
+           2*r1y*(-(r2x*r2y*r3x) + r2y*Power(r3x,2) + r1x*(r2x - r3x)*(r2y - r3y) + 
+              Power(r2x,2)*r3y + Power(r2z,2)*r3y - r2x*r3x*r3y + 
+              r1z*(r2y - r3y)*(r2z - r3z) - r2y*r2z*r3z - r2z*r3y*r3z + r2y*Power(r3z,2)
+              ) - 2*r1z*(r2z*Power(r3x,2) - r2y*r2z*r3y + r2z*Power(r3y,2) + 
+              r1x*(r2x - r3x)*(r2z - r3z) + Power(r2x,2)*r3z + Power(r2y,2)*r3z - 
+              r2y*r3y*r3z - r2x*r3x*(r2z + r3z)))*
+         (Power(r2y*r3x - r2x*r3y - r2y*r4x + r3y*r4x + r2x*r4y - r3x*r4y,2) + 
+           Power(r2z*r3x - r2x*r3z - r2z*r4x + r3z*r4x + r2x*r4z - r3x*r4z,2) + 
+           Power(r2z*r3y - r2y*r3z - r2z*r4y + r3z*r4y + r2y*r4z - r3y*r4z,2))) + 
+      Power(((-(r1y*r2x) + r1x*r2y + r1y*r3x - r2y*r3x - r1x*r3y + r2x*r3y)*
+           (-(r2y*r3x) + r2x*r3y + r2y*r4x - r3y*r4x - r2x*r4y + r3x*r4y))/
+         (Sqrt(Power(-(r1y*r2x) + r1x*r2y + r1y*r3x - r2y*r3x - r1x*r3y + r2x*r3y,2) + 
+             Power(r1z*r2x - r1x*r2z - r1z*r3x + r2z*r3x + r1x*r3z - r2x*r3z,2) + 
+             Power(-(r1z*r2y) + r1y*r2z + r1z*r3y - r2z*r3y - r1y*r3z + r2y*r3z,2))*
+           Sqrt(Power(-(r2y*r3x) + r2x*r3y + r2y*r4x - r3y*r4x - r2x*r4y + r3x*r4y,2) + 
+             Power(r2z*r3x - r2x*r3z - r2z*r4x + r3z*r4x + r2x*r4z - r3x*r4z,2) + 
+             Power(-(r2z*r3y) + r2y*r3z + r2z*r4y - r3z*r4y - r2y*r4z + r3y*r4z,2))) + 
+        ((r1z*r2x - r1x*r2z - r1z*r3x + r2z*r3x + r1x*r3z - r2x*r3z)*
+           (r2z*r3x - r2x*r3z - r2z*r4x + r3z*r4x + r2x*r4z - r3x*r4z))/
+         (Sqrt(Power(-(r1y*r2x) + r1x*r2y + r1y*r3x - r2y*r3x - r1x*r3y + r2x*r3y,2) + 
+             Power(r1z*r2x - r1x*r2z - r1z*r3x + r2z*r3x + r1x*r3z - r2x*r3z,2) + 
+             Power(-(r1z*r2y) + r1y*r2z + r1z*r3y - r2z*r3y - r1y*r3z + r2y*r3z,2))*
+           Sqrt(Power(-(r2y*r3x) + r2x*r3y + r2y*r4x - r3y*r4x - r2x*r4y + r3x*r4y,2) + 
+             Power(r2z*r3x - r2x*r3z - r2z*r4x + r3z*r4x + r2x*r4z - r3x*r4z,2) + 
+             Power(-(r2z*r3y) + r2y*r3z + r2z*r4y - r3z*r4y - r2y*r4z + r3y*r4z,2))) + 
+        ((-(r1z*r2y) + r1y*r2z + r1z*r3y - r2z*r3y - r1y*r3z + r2y*r3z)*
+           (-(r2z*r3y) + r2y*r3z + r2z*r4y - r3z*r4y - r2y*r4z + r3y*r4z))/
+         (Sqrt(Power(-(r1y*r2x) + r1x*r2y + r1y*r3x - r2y*r3x - r1x*r3y + r2x*r3y,2) + 
+             Power(r1z*r2x - r1x*r2z - r1z*r3x + r2z*r3x + r1x*r3z - r2x*r3z,2) + 
+             Power(-(r1z*r2y) + r1y*r2z + r1z*r3y - r2z*r3y - r1y*r3z + r2y*r3z,2))*
+           Sqrt(Power(-(r2y*r3x) + r2x*r3y + r2y*r4x - r3y*r4x - r2x*r4y + r3x*r4y,2) + 
+             Power(r2z*r3x - r2x*r3z - r2z*r4x + r3z*r4x + r2x*r4z - r3x*r4z,2) + 
+             Power(-(r2z*r3y) + r2y*r3z + r2z*r4y - r3z*r4y - r2y*r4z + r3y*r4z,2))),2));
 }
 

@@ -11,6 +11,7 @@
 #include "aa_build_util.h"
 #include "uv_map.h"
 #include "M_matrix.h"
+#include "lapack_we_use.h"
 
 #define SQRT_SAFETY (1e-7)
 
@@ -136,8 +137,9 @@ void syt7::init( double *r )
 
 // initialize the BAR domain on the membrane.
 
-void syt7::init( Simulation *theSimulation, surface *theSurface, double *rsurf, int f, double u, double v )
+void syt7::init( Simulation *theSimulation, surface *theSurface, double *rsurf, int f, double u, double v, int nmer )
 {
+	nmer_saved = nmer;
 	// assume for now this is one of the points on the membrane neck.
 
 	base_init();
@@ -1001,9 +1003,11 @@ void syt7::move_outside( void )
 }
 
 
-void syt7::writeStructure( Simulation *theSimulation, surface_mask *upperSurfaceMask, surface_mask *lowerSurfaceMask, struct atom_rec **at_out, int *nat_out, char **sequence, struct ion_add **ions, int *nions, 
-	aa_build_data *buildData )
+void syt7::writeStructure( Simulation *theSimulation, surface_mask *upperSurfaceMask, surface_mask *lowerSurfaceMask, struct atom_rec **at_out, int *nat_out, char ***sequence, int *nseq_out, int **seq_at_array, char ***patches, struct ion_add **ions, int *nions, 
+	aa_build_data *buildData, int *build_type )
 {
+	*build_type = BUILD_SEQUENCE;
+
 	int nsegments = 2;
 	
 	surface *theSurface;
@@ -1156,7 +1160,13 @@ void syt7::writeStructure( Simulation *theSimulation, surface_mask *upperSurface
 			nmissing++;
 		}
 	}
-	*sequence = seq;
+	*sequence = (char **)malloc( sizeof(char *) * 1 );
+	(*sequence)[0] = seq; 
+	(*seq_at_array) = (int *)malloc( sizeof(int) * 1 );
+	(*seq_at_array)[0] = 0;
+
+	*patches = (char **)malloc( sizeof( char *) * 1 );
+	(*patches)[0] = NULL;
 }
 
 /* this function 
@@ -1168,7 +1178,7 @@ void syt7::writeStructure( Simulation *theSimulation, surface_mask *upperSurface
 void syt7::get( 
 		Simulation *theSimulation, // this is the surface/PBC
 		struct atom_rec *at,
-		int syt7_start, int syt7_stop )
+		int syt7_start, int syt7_stop, int nat_tot )
 {
 	int nsegments = 2;
 	
@@ -1461,6 +1471,258 @@ void syt7::get(
 		double dp = vec1[0]*vec2[0]+vec1[1]*vec2[1]+vec1[2]*vec2[2];
 		printf("DEL %d dist %le dp: %le\n", my_id, dist, dp );
 	}
+
+	// Orientation of the special binding domains.
+	
+	// first: is the domain bound to negatively-charged lipids?
+	
+	int C2_in_position[2] = { 0,0 };
+
+	int strand_min_res[2] = { 179, 310 };
+	int strand_max_res[2] = { 196, 329 }; 
+
+	int pos_res[2][10] = {
+			    { 183, 184, 186, 190, 192, 193, 194 }, 
+			    { 313, 315, 316, 319, 320, 321 }
+				};
+	int sizes[2] = { 7, 6 };
+
+	double avp[2][3] = { { 0,0,0},
+			     { 0,0,0} };
+	double navp[2] = {0,0};
+	double I[2][9];
+	int nbound[2] = {0,0};	
+	int nbound_all[2] = { 0,0 };
+	int nbound_ca[2] = { 0,0 };
+
+        int domain_start[2] = { 1, 255 };
+        int domain_stop[2] = { 256, 500 }; // arbitrary end.
+
+	int res_is_interacting[501];
+	memset( res_is_interacting, 0, sizeof(int) * 501 );
+
+	int nat2_space = 10;
+	int nat2 = 0;
+	int *a2_loop = (int *)malloc( sizeof(int) * nat2_space );
+
+	for( int a2 = 0; a2 < nat_tot; a2++ )
+	{
+		if( strncasecmp( at[a2].resname, "SAPI", 4) && strncasecmp( at[a2].resname, "PAPS", 4 ) )
+			continue;
+	
+		if( at[a2].atname[0] != 'O') continue; // look for charge-bearing oxygens.
+	
+		if( nat2 == nat2_space )
+		{
+			nat2_space *= 2;
+			a2_loop = (int *)realloc( a2_loop, sizeof(int) * nat2_space );
+		}
+
+		a2_loop[nat2] = a2;
+		nat2++;	
+	
+	}
+	for( int domain = 0; domain < 2; domain++ )
+	{
+		memset( I[domain], 0, sizeof(double) * 9 );
+		
+		for( int a = syt7_start; a < syt7_stop ; a++ )
+		{
+			if( at[a].res >= strand_min_res[domain] && at[a].res <= strand_max_res[domain] )
+			{
+				avp[domain][0] += at[a].x;
+				avp[domain][1] += at[a].y;
+				avp[domain][2] += at[a].z;
+				navp[domain] += 1;
+			}
+		}
+
+		avp[domain][0] /= navp[domain];
+		avp[domain][1] /= navp[domain];
+		avp[domain][2] /= navp[domain];
+
+		for( int a = syt7_start; a < syt7_stop ; a++ )
+		{
+			if( at[a].res < domain_start[domain] || at[a].res > domain_stop[domain] )
+				continue;
+
+			int checkit = 0;
+
+			if( at[a].res >= strand_min_res[domain] && at[a].res <= strand_max_res[domain] )
+			{
+				double dr[3] = {
+					at[a].x - avp[domain][0],
+					at[a].y - avp[domain][1],
+					at[a].z - avp[domain][2] };
+				
+				for( int c1 = 0; c1 < 3; c1++ )
+				for( int c2 = 0; c2 < 3; c2++ )
+					I[domain][c1*3+c2] += dr[c1] * dr[c2];
+			}
+
+			for( int r = 0; r < sizes[domain]; r++ )
+			{
+				if( at[a].res == pos_res[domain][r]  )
+					checkit = 1;
+			}
+
+			if( !strcasecmp( at[a].resname, "ASP") && at[a].atname[0] == 'O' )
+			{
+//				for( int a2 = 0; a2 < nat_tot; a2++ )
+//				{
+				for( int a2x = 0; a2x < nat2; a2x++ )
+				{
+					int a2 = a2_loop[a2x];
+
+					if( strncasecmp( at[a2].resname, "SAPI", 4) && strncasecmp( at[a2].resname, "PAPS", 4 ) )
+						continue;
+	
+					if( at[a2].atname[0] != 'O') continue; // look for charge-bearing oxygens.
+	
+					double dr[3] = { at[a].x - at[a2].x, at[a].y - at[a2].y, at[a].z - at[a2].z }; 
+	
+					theSimulation->wrapPBC(dr,alphas);
+	
+					double lr = normalize(dr);
+	
+					if( lr < 6.0 )
+					{
+						res_is_interacting[at[a].res] = -1;
+						nbound_ca[domain] += 1;
+					}
+				} 
+					
+			}
+
+
+			if( !strcasecmp( at[a].resname, "ARG" ) && (strncasecmp( at[a].atname, "NH", 2) && strncasecmp(at[a].atname, "NE", 2) ) )
+				continue; 
+			if( !strcasecmp( at[a].resname, "LYS" ) && (strncasecmp( at[a].atname, "NZ", 2) ) )
+				continue; 
+
+			for( int a2x = 0; a2x < nat2; a2x++ )
+			{
+				int a2 = a2_loop[a2x];
+				if( strncasecmp( at[a2].resname, "SAPI", 4) && strncasecmp( at[a2].resname, "PAPS", 4 ) )
+					continue;
+
+				if( at[a2].atname[0] != 'O') continue; // look for charge-bearing oxygens.
+
+				double dr[3] = { at[a].x - at[a2].x, at[a].y - at[a2].y, at[a].z - at[a2].z }; 
+
+				theSimulation->wrapPBC(dr,alphas);
+
+				double lr = normalize(dr);
+
+				if( lr < 5.0 )
+				{
+					if( checkit )
+					{
+						nbound[domain] += 1;
+						C2_in_position[domain] = 1; 
+					}
+
+					nbound_all[domain] += 1;	
+					res_is_interacting[at[a].res] = 1;
+				}
+			} 
+		}
+	}
+
+	for( int domain = 0; domain < 2; domain++ )
+	{
+		// diagonalize I.
+
+		char jobz = 'V';
+		char uplo = 'U';
+		int order =3;
+		double ev[3];
+		int lwork = 100;	
+		int info = 0;
+		double work[100];
+	
+		dsyev(&jobz,&uplo,&order,I[domain],&order,ev,work,&lwork,&info);
+
+		double vec[3];
+		double maxev=-1;
+		for( int iev = 0; iev < 3; iev++ )
+		{
+			if( ev[iev] > maxev )
+			{
+				maxev = ev[iev];
+				vec[0] = I[domain][3*iev+0];
+				vec[1] = I[domain][3*iev+1];
+				vec[2] = I[domain][3*iev+2];
+			}
+		}
+		normalize(vec);	
+
+		double dist;
+		int f;
+		double col_u, col_v;
+		theSurface->nearPointOnBoxedSurface( avp[domain], &f, &col_u, &col_v, M, mlow, mhigh, &dist );					
+
+		double rp[3], np[3];
+		theSurface->evaluateRNRM( f, col_u, col_v, rp, np, rsurf );
+
+		double dr[3] = { rp[0] - avp[domain][0],
+				 rp[1] - avp[domain][1],
+				 rp[2] - avp[domain][2] };
+		theSimulation->wrapPBC( dr, alphas );
+
+		double c_vec_1[3];
+		double c_vec_2[3];
+		double c_val1, c_val2;
+		double k;
+		theSurface->c( f, col_u, col_v, rsurf, &k, c_vec_1, c_vec_2, &c_val1, &c_val2 ); 
+	
+		if( flip_sign) { c_val1 *= -1; c_val2 *= -1; }
+
+		double del = normalize(dr);
+	
+		double drdu[3];
+		theSurface->ru( f, col_u, col_v, rsurf, drdu);
+		double drdv[3];
+		theSurface->rv( f, col_u, col_v, rsurf, drdv );
+
+		double c_vec_1_3[3] = { 
+				c_vec_1[0]*drdu[0] + c_vec_1[1] * drdv[0],
+				c_vec_1[0]*drdu[1] + c_vec_1[1] * drdv[1],
+				c_vec_1[0]*drdu[2] + c_vec_1[1] * drdv[2]};
+		double c_vec_2_3[3] = { 
+				c_vec_2[0]*drdu[0] + c_vec_2[1] * drdv[0],
+				c_vec_2[0]*drdu[1] + c_vec_2[1] * drdv[1],
+				c_vec_2[0]*drdu[2] + c_vec_2[1] * drdv[2]};
+
+		normalize(c_vec_1_3);
+		normalize(c_vec_2_3);
+
+		// orient in plane.
+
+		double proj[3];
+
+		double dp = dot( vec, np );
+
+		proj[0] = vec[0] - dp * np[0];	
+		proj[1] = vec[1] - dp * np[1];	
+		proj[2] = vec[2] - dp * np[2];	
+
+		normalize(proj);
+	
+		int n_interacting = 0, n_interacting_ca = 0;
+		for( int r = domain_start[domain]; r <= domain_stop[domain]; r++ )		
+		{	
+			if( res_is_interacting[r] )
+				n_interacting += 1;
+			if( res_is_interacting[r] == -1 )
+				n_interacting_ca += 1;	
+		}
+		printf("strand P%d C2%c distance: %lf nbound %d c1: %le c2: %le vec1: %lf %lf %lf vec2: %lf %lf %lf orientation: %lf %lf %lf phi: %lf ninteracting: %d interacting_ca: %d\n", my_id, (domain == 0 ? 'A' : 'B'), del, nbound[domain], c_val1, c_val2, c_vec_1_3[0], c_vec_1_3[1], c_vec_1_3[2], c_vec_2_3[0], c_vec_2_3[1], c_vec_2_3[2], proj[0], proj[1], proj[2], (180.0/M_PI) * acos(fabs(dp)), n_interacting, n_interacting_ca  );
+			
+		
+	}
+	
+	free(a2_loop);
 }
 
 

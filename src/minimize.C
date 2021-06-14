@@ -507,7 +507,7 @@ double surface_fdf( double *p, double *g)
 
 void full_fd_test( double *p )
 {
-	double deps = 1e-8;
+	double deps = 1e-7;
 
 	double *g = (double *)malloc( sizeof(double) * min_nparams );
 	memset( g, 0, sizeof(double) * min_nparams );
@@ -515,7 +515,12 @@ void full_fd_test( double *p )
 	double e0 = surface_fdf( p, g );
 	printf("Finite difference test.\n");
 
-	for( int xp  = 0; xp < min_nparams; xp++ )
+	int pstart = 0;
+
+	if( global_block->disable_mesh )
+		pstart =min_nsurfaceparams;
+
+	for( int xp  = pstart; xp < min_nparams; xp++ )
 	{
 		double de_pm[2];
 	
@@ -534,7 +539,7 @@ void full_fd_test( double *p )
 	
 		if( fabs( (de_pm[0]-de_pm[1])/(2*deps) - g[xp]) > 1e-5 && fr_error > 1e-5 )
 			printf("parm %d fd_der %.14le g %.14le del %.14le BAD\n", xp, (de_pm[0]-de_pm[1])/(2*deps), g[xp],  (de_pm[0]-de_pm[1])/(2*deps) - g[xp] );
-		else if( fabs( (de_pm[0]-de_pm[1])/(2*deps)) > 1e-10 )	
+		else  //if( fabs( (de_pm[0]-de_pm[1])/(2*deps)) > 1e-10 )	
 			printf("parm %d fd_der %.14le g %.14le del %.14le OK\n", xp, (de_pm[0]-de_pm[1])/(2*deps), g[xp],  (de_pm[0]-de_pm[1])/(2*deps) - g[xp] );
 	}
 	
@@ -575,6 +580,10 @@ void fd_test( double *p )
 void Simulation::minimize( int freeze_membrane, int freeze_clathrin  )
 {
 	do_freeze_membrane = freeze_membrane;
+
+	if( global_block->disable_mesh )
+		do_freeze_membrane = 1;
+	
 	min_freeze_clathrin = freeze_clathrin;
 	int prev_enable = enable_elastic_interior; 
 

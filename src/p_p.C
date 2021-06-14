@@ -196,8 +196,10 @@ double PP_G( Simulation *theSimulation )
 		for( int c2 = 0; c2 < ncomplex; c2++ )
 		{
 			if( allComplexes[c2]->disabled ) continue;
+#ifdef DISABLE_SAME_COMPLEX
 			if( c1 == c2 ) 
 				continue;
+#endif
 			if( ourp[c1] && ourp[c2] && c2 < c1 ) 
 				continue;
 			for( int p1 = 0; p1 < allComplexes[c1]->nsites; p1++ )
@@ -214,6 +216,8 @@ double PP_G( Simulation *theSimulation )
 
 				for( int p2 = 0; p2 < allComplexes[c2]->nsites; p2++ )
 				{	
+					if( c1 == c2 && p1 == p2 )
+						continue;
 					double max_sigma2 = allComplexes[c2]->sigma[p2];
 
 					if( allComplexes[c2]->att_sigma[p2] > max_sigma2 )
@@ -457,9 +461,15 @@ double Boxed_PP_V( Simulation *theSimulation )
 				int p2 = subp_for_id[nearlist[x]];
 		
 				if( allComplexes[c2]->disabled ) continue;
-			
+		
+
+#ifdef DISABLE_SAME_COMPLEX	
 				if( c1 == c2 ) 
 					continue;
+#else
+				if( c1 == c2 && p1 == p2 )
+					continue;
+#endif
 				if( c2 < c1 ) 
 					continue;
 	
@@ -622,8 +632,13 @@ double Boxed_PP_G( Simulation *theSimulation )
 				if( allComplexes[c2]->disabled ) continue;
 				int p2 = subp_for_id[nearlist[x]];
 			
+#ifdef DISABLE_SAME_COMPLEX
 				if( c1 == c2 ) 
 					continue;
+#else
+				if( c1 == c2 && p1 == p2 )
+					continue;
+#endif
 				if( ourp[c1] && ourp[c2] && c2 < c1 ) 
 					continue;
 /*
@@ -887,9 +902,13 @@ double handleElasticCollisions( Simulation *theSimulation, pcomplex **allComplex
 				if( ! allComplexes[c2]->isElastic() ) 
 					continue;
 			
+#ifdef DISABLE_SAME_COMPLEX	
 				if( c1 == c2 ) 
 					continue;
-
+#else
+				if( c1 == c2 && p1 == p2 )
+					continue;
+#endif
 				if( ourp[c1] && ourp[c2] && c2 < c1 ) 
 					continue;
 
@@ -1153,9 +1172,13 @@ double nElasticCollisions( Simulation *theSimulation, pcomplex **allComplexes, i
 				if( ! allComplexes[c2]->isElastic() ) 
 					continue;
 			
+#ifdef DISABLE_SAME_COMPLEX	
 				if( c1 == c2 ) 
 					continue;
-
+#else
+				if( c1 == c2 && p1 == p2 )
+					continue;
+#endif
 				if( ourp[c1] && ourp[c2] && c2 < c1 ) 
 					continue;
 
@@ -1280,9 +1303,13 @@ double timePrecedingElasticCollision( Simulation *theSimulation, pcomplex **allC
 					continue;
 			
 				if( allComplexes[c2]->disabled ) continue;
+#ifdef DISABLE_SAME_COMPLEX	
 				if( c1 == c2 ) 
 					continue;
-
+#else
+				if( c1 == c2 && p1 == p2 )
+					continue;
+#endif
 				if( ourp[c1] && ourp[c2] && c2 < c1 ) 
 					continue;
 

@@ -411,21 +411,33 @@ int addStructureToPool( const char *fileNameStruct, const char *fileNamePSF )
 	struct atom_rec *at = (struct atom_rec *)malloc( sizeof(struct atom_rec ) * curNAtoms() );
 
 	rewind(structFile);
-	int nread = loadPDB(structFile, at ); 
+
+	int nread=0;
+	int use_crd = 0;
+
+	int has_pbc = 1;
+
+	if( strlen(fileNameStruct) > 3 && !strncasecmp(fileNameStruct+strlen(fileNameStruct)-3,"crd",3) )
+	{
+		use_crd=1;
+		nread = loadCRD(structFile, at );
+	}
+	else	
+		nread = loadPDB(structFile, at ); 
 
 	if( nread != curNAtoms() )
 	{
-		printf("ERROR reading atoms from pdb '%s'. Expected %d but found %d.\n",
+		printf("ERROR reading atoms from %s '%s'. Expected %d but found %d.\n", (use_crd ? "crd" : "pdb" ),
 			fileNameStruct, curNAtoms(), nread );
 		exit(1);			
 	}
 
 	fclose(structFile);			
 	
-	double Lx,Ly,Lz;
+	double Lx=0,Ly=0,Lz=0;
 	double a,b,g;
 
-	PBCD( &Lx, &Ly, &Lz, &a, &b, &g );
+	has_pbc = !PBCD( &Lx, &Ly, &Lz, &a, &b, &g );
 
 	pool->Lx = Lx;
 	pool->Ly = Ly;
@@ -438,7 +450,7 @@ int addStructureToPool( const char *fileNameStruct, const char *fileNamePSF )
 
 	if( loaded_psf ) // get rings of the molecules for penetration search.
 	{
-		fetchCycleBasis( &basis, &basis_length, &nbasis );
+		fetchPSFCycleBasis( &basis, &basis_length, &nbasis );
 
 		int nb = getNBonds();
 		int *bonds = (int *)malloc( sizeof(int) * nb * 2 );
@@ -547,21 +559,26 @@ int addStructureToPool( const char *fileNameStruct, const char *fileNamePSF )
 	// the last "lipid" doesn't get incremented.
 	nlipids++;
 		
+	for( int l = 0; l < nlipids; l++ )
+		leaflet[l] = 0;
+
 	// get the bilayer center.
+		double wrapto = 0;
 	
+	if( has_pbc )
+	{
 #define N_BINS_MOLDIST 100
-	
+
         double best_chi2 = 1e10;
-	double wrapto = 0;
  
         double moldist[N_BINS_MOLDIST];
         memset( moldist, 0, sizeof(double) * N_BINS_MOLDIST );
 
 
-	for( int l = 0; l < nlipids; l++ )
-	{
-		for( int p = lipid_start[l]; p <= lipid_stop[l]; p++ )
+		for( int l = 0; l < nlipids; l++ )
 		{
+			for( int p = lipid_start[l]; p <= lipid_stop[l]; p++ )
+			{
                       double tz = at[p].z;
 
                       while( tz < 0 ) tz += Lz;
@@ -571,66 +588,65 @@ int addStructureToPool( const char *fileNameStruct, const char *fileNamePSF )
                       if( zb < 0 ) zb = 0;
                       if( zb >= N_BINS_MOLDIST ) zb = N_BINS_MOLDIST-1;
                       moldist[zb] += 1;
+			}
 		}
-	}
 
-         for( int zb = 0; zb < N_BINS_MOLDIST; zb++ )
-         {
-                 double zv = Lz * (zb+0.5) / (double)N_BINS_MOLDIST;
- 
-                  int zlow  = zb- N_BINS_MOLDIST/2;
-                  int zhigh = zlow + N_BINS_MOLDIST;
- 
-                  double Lzhi2 = 0;
-                  for( int iz = zlow; iz < zhigh; iz++ )
-                  {
-                          double dz = Lz * (iz+0.5) / N_BINS_MOLDIST - zv;
- 
-                          int iiz = iz;
-                          while( iiz < 0 ) iiz += N_BINS_MOLDIST;
-                          while( iiz >= N_BINS_MOLDIST ) iiz -= N_BINS_MOLDIST;
- 
-                          Lzhi2 += moldist[iiz] * (dz) * (dz);
-                  }
- 
-                  if( Lzhi2 < best_chi2 )
-                  {
-                          best_chi2 = Lzhi2;
-                          wrapto = zv;
-                  }
-         }
+	         for( int zb = 0; zb < N_BINS_MOLDIST; zb++ )
+	         {
+	                 double zv = Lz * (zb+0.5) / (double)N_BINS_MOLDIST;
+	 
+	                  int zlow  = zb- N_BINS_MOLDIST/2;
+	                  int zhigh = zlow + N_BINS_MOLDIST;
+	 
+	                  double Lzhi2 = 0;
+	                  for( int iz = zlow; iz < zhigh; iz++ )
+	                  {
+	                          double dz = Lz * (iz+0.5) / N_BINS_MOLDIST - zv;
+	 
+	                          int iiz = iz;
+	                          while( iiz < 0 ) iiz += N_BINS_MOLDIST;
+	                          while( iiz >= N_BINS_MOLDIST ) iiz -= N_BINS_MOLDIST;
+	 
+	                          Lzhi2 += moldist[iiz] * (dz) * (dz);
+	                  }
+	 
+	                  if( Lzhi2 < best_chi2 )
+	                  {
+	                          best_chi2 = Lzhi2;
+	                          wrapto = zv;
+	                  }
+	         }
+		
+		// wrap around z periodic dimension
 
-
-
-	// wrap around z periodic dimension
-
-	for( int l = 0; l < nlipids; l++ )
-	{
-		int midlipid = (lipid_start[l]+lipid_stop[l])/2;
-		while( at[midlipid].z - wrapto < -Lz/2 ) at[midlipid].z += Lz;
-		while( at[midlipid].z - wrapto > Lz/2 ) at[midlipid].z -= Lz;
-
-		double lcom_z = 0;
-
-		for( int p = lipid_start[l]; p <= lipid_stop[l]; p++ )
+		for( int l = 0; l < nlipids; l++ )
 		{
-			while( at[p].x - at[midlipid].x < -Lx/2 ) at[p].x += Lx;
-			while( at[p].x - at[midlipid].x >  Lx/2 ) at[p].x -= Lx;
-			
-			while( at[p].y - at[midlipid].y < -Ly/2 ) at[p].y += Ly;
-			while( at[p].y - at[midlipid].y >  Ly/2 ) at[p].y -= Ly;
-			
-			while( at[p].z - at[midlipid].z < -Lz/2 ) at[p].z += Lz;
-			while( at[p].z - at[midlipid].z >  Lz/2 ) at[p].z -= Lz;
-	
-			lcom_z += (at[p].z - wrapto);
-		}
+			int midlipid = (lipid_start[l]+lipid_stop[l])/2;
+			while( at[midlipid].z - wrapto < -Lz/2 ) at[midlipid].z += Lz;
+			while( at[midlipid].z - wrapto > Lz/2 ) at[midlipid].z -= Lz;
 
-		if( lcom_z > 0 )
-			leaflet[l] = 1;
-		else
-			leaflet[l] = -1;
-	} 
+			double lcom_z = 0;
+
+			for( int p = lipid_start[l]; p <= lipid_stop[l]; p++ )
+			{
+				while( at[p].x - at[midlipid].x < -Lx/2 ) at[p].x += Lx;
+				while( at[p].x - at[midlipid].x >  Lx/2 ) at[p].x -= Lx;
+				
+				while( at[p].y - at[midlipid].y < -Ly/2 ) at[p].y += Ly;
+				while( at[p].y - at[midlipid].y >  Ly/2 ) at[p].y -= Ly;
+				
+				while( at[p].z - at[midlipid].z < -Lz/2 ) at[p].z += Lz;
+				while( at[p].z - at[midlipid].z >  Lz/2 ) at[p].z -= Lz;
+		
+				lcom_z += (at[p].z - wrapto);
+			}
+
+			if( lcom_z > 0 )
+				leaflet[l] = 1;
+			else
+				leaflet[l] = -1;
+		} 
+	}
 
 	// subtract off wrapto
 

@@ -284,7 +284,7 @@ void Simulation::gather( parameterBlock *block )
 					{
 						if( cur_complex  < ncomplex )
 						{
-							allComplexes[cur_complex]->get( this, at, seg_start, seg_stop ); 
+							allComplexes[cur_complex]->get( this, at, seg_start, seg_stop, nat ); 
 							allComplexes[cur_complex]->refresh(this);
 							cur_complex++;
 						}

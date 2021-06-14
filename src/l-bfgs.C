@@ -125,15 +125,19 @@ int l_bfgs_iteration( double *place )
 		{
 			back_y[vec_rotor[0]*n+j] = q[j] - last_g[j];	 
 			back_s[vec_rotor[0]*n+j] = cur_x[j] - last_x[j];
+			if( !(back_s[vec_rotor[0]*n+j] < 0 || back_s[vec_rotor[0]*n+j] > -1 ) )
+			{
+				printf("back_s nan.\n");
+			}
 		}
 		
 		double dp = 0;
 
 		for( int j = 0; j < n; j++ )
 			dp += back_y[vec_rotor[0]*n+j] * back_s[vec_rotor[0]*n+j];
+//		printf("dp: %le\n", dp );
 
-
-		if( fabs(dp) < 1e-40 )
+		if( fabs(dp) < 1e-10 )
 		{
 //			printf("Terminating: dp: %.14le\n", dp );
 			memcpy( last_x, cur_x, sizeof(double) * n );
@@ -161,8 +165,14 @@ int l_bfgs_iteration( double *place )
 		local_alpha *= rho[vec_rotor[i]];
 
 		for( int j = 0; j < n; j++ )
+		{
 			q[j] -= local_alpha * back_y[vec_rotor[i]*n+j];
-
+			if( !(q[j] < 0 || q[j] > -1) )
+			{
+				printf("BFGS error.\n");
+				exit(1);
+			}
+		}
 		alpha[vec_rotor[i]] = local_alpha;
 
 //		printf("computed alpha k: %d %le\n", vec_rotor[i], alpha[vec_rotor[i]] );

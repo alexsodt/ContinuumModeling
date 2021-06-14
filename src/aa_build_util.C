@@ -3,7 +3,8 @@
 #include "mutil.h"
 #include "aa_build_util.h"
 #include "GJK.h"
-
+#include "pdb.h"
+#include "globals.h"
 
 void aa_build_data::init( void )
 {
@@ -629,74 +630,90 @@ int aa_build_data::cycleClash( double *coords, int a_start, int *cycle, int len 
 	return clash;
 }
 
-int aa_build_data::nclash_aa( double *coords, int lc, int is_mod, double cutoff )
+int aa_build_data::nclash_aa( double *coords, int lc, int is_mod, double cutoff, int *halve )
 {
 	int nclash = 0;
-	for( int t = 0; t < lc; t++ )
+	
+	int do_halved[3] = {0,0,0};
+
+	if( halve && halve[0] ) do_halved[0]=1;
+	if( halve && halve[1] ) do_halved[1]=1;
+	if( halve && halve[2] ) do_halved[2]=1;
+
+	for( int tdx = 0; tdx <= do_halved[0]; tdx++ )
+	for( int tdy = 0; tdy <= do_halved[1]; tdy++ )
+	for( int tdz = 0; tdz <= do_halved[2]; tdz++ )
 	{
-		double tr[3] = { coords[3*t+0], coords[3*t+1], coords[3*t+2] };
-
-		while( tr[0] < 0 ) tr[0] += PBC_vec[0][0];
-		while( tr[1] < 0 ) tr[1] += PBC_vec[1][1];
-		while( tr[2] < 0 ) tr[2] += PBC_vec[2][2];
-		while( tr[0] >= PBC_vec[0][0] ) tr[0] -= PBC_vec[0][0];
-		while( tr[1] >= PBC_vec[1][1] ) tr[1] -= PBC_vec[1][1];
-		while( tr[2] >= PBC_vec[2][2] ) tr[2] -= PBC_vec[2][2];
-
-		int bx = tr[0] * nx / PBC_vec[0][0];
-		int by = tr[1] * ny / PBC_vec[1][1];
-		int bz = tr[2] * nz / PBC_vec[2][2];
-		
-		if( bx >= nx ) bx -= nx;
-		if( bx < 0 ) bx += nx;
-		if( by >= ny ) by -= ny;
-		if( by < 0 ) by += ny;
-		if( bz >= nz ) bz -= nz;
-		if( bz < 0 ) bz += nz;
-	
-		int b = bx*ny*nz+by*nz+bz;
-		int bad_res = 0;
-	
-		for( int dx = -1; dx <= 1; dx++ )
-		for( int dy = -1; dy <= 1; dy++ )
-		for( int dz = -1; dz <= 1; dz++ )
+		for( int t = 0; t < lc; t++ )
 		{
-			int n_b_x = bx + dx;
-			int n_b_y = by + dy;
-			int n_b_z = bz + dz;
+			double tr[3] = { coords[3*t+0] + tdx * PBC_vec[0][0]/2, coords[3*t+1] + tdy*PBC_vec[1][1]/2, coords[3*t+2] + tdz * PBC_vec[2][2]/2 };
+	
+			while( tr[0] < 0 ) tr[0] += PBC_vec[0][0];
+			while( tr[1] < 0 ) tr[1] += PBC_vec[1][1];
+			while( tr[2] < 0 ) tr[2] += PBC_vec[2][2];
+			while( tr[0] >= PBC_vec[0][0] ) tr[0] -= PBC_vec[0][0];
+			while( tr[1] >= PBC_vec[1][1] ) tr[1] -= PBC_vec[1][1];
+			while( tr[2] >= PBC_vec[2][2] ) tr[2] -= PBC_vec[2][2];
+	
+			int bx = tr[0] * nx / PBC_vec[0][0];
+			int by = tr[1] * ny / PBC_vec[1][1];
+			int bz = tr[2] * nz / PBC_vec[2][2];
+			
+			if( bx >= nx ) bx -= nx;
+			if( bx < 0 ) bx += nx;
+			if( by >= ny ) by -= ny;
+			if( by < 0 ) by += ny;
+			if( bz >= nz ) bz -= nz;
+			if( bz < 0 ) bz += nz;
 		
-			if( n_b_x >= nx ) n_b_x -= nx;
-			if( n_b_x < 0 ) n_b_x += nx;
-			if( n_b_y >= ny ) n_b_y -= ny;
-			if( n_b_y < 0 ) n_b_y += ny;
-			if( n_b_z >= nz ) n_b_z -= nz;
-			if( n_b_z < 0 ) n_b_z += nz;
-
-			int nb = n_b_x*ny*nz+n_b_y*nz+n_b_z;
-
-
-			for( int px = 0; px < theBoxes[nb].np; px++ )
+			int b = bx*ny*nz+by*nz+bz;
+			int bad_res = 0;
+		
+			for( int dx = -1; dx <= 1; dx++ )
+			for( int dy = -1; dy <= 1; dy++ )
+			for( int dz = -1; dz <= 1; dz++ )
 			{
-				int p = theBoxes[nb].plist[px];
+				int n_b_x = bx + dx;
+				int n_b_y = by + dy;
+				int n_b_z = bz + dz;
+			
+				if( n_b_x >= nx ) n_b_x -= nx;
+				if( n_b_x < 0 ) n_b_x += nx;
+				if( n_b_y >= ny ) n_b_y -= ny;
+				if( n_b_y < 0 ) n_b_y += ny;
+				if( n_b_z >= nz ) n_b_z -= nz;
+				if( n_b_z < 0 ) n_b_z += nz;
+	
+				int nb = n_b_x*ny*nz+n_b_y*nz+n_b_z;
+	
+	
+				for( int px = 0; px < theBoxes[nb].np; px++ )
+				{
+					int p = theBoxes[nb].plist[px];
+	
+					if( p < nplaced_pcut && is_mod ) continue;
+					if( p >= nplaced_pcut && (tdx > 0 || tdy > 0 || tdz > 0) ) continue;	
 
-				if( p < nplaced_pcut && is_mod ) continue;
+					double dr[3] = { 
+						placed_atoms[3*p+0] - tr[0], 
+						placed_atoms[3*p+1] - tr[1],
+						placed_atoms[3*p+2] - tr[2] };
+	
+					while( dr[0] < -PBC_vec[0][0]/2 ) dr[0] += PBC_vec[0][0]; 
+					while( dr[1] < -PBC_vec[1][1]/2 ) dr[1] += PBC_vec[1][1]; 
+					while( dr[2] < -PBC_vec[2][2]/2 ) dr[2] += PBC_vec[2][2]; 
+					while( dr[0] >  PBC_vec[0][0]/2 ) dr[0] -= PBC_vec[0][0]; 
+					while( dr[1] >  PBC_vec[1][1]/2 ) dr[1] -= PBC_vec[1][1]; 
+					while( dr[2] >  PBC_vec[2][2]/2 ) dr[2] -= PBC_vec[2][2];
+	
+					double dist = normalize(dr);
 
-				double dr[3] = { 
-					placed_atoms[3*p+0] - coords[3*t+0], 
-					placed_atoms[3*p+1] - coords[3*t+1],
-					placed_atoms[3*p+2] - coords[3*t+2] };
-
-				while( dr[0] < -PBC_vec[0][0]/2 ) dr[0] += PBC_vec[0][0]; 
-				while( dr[1] < -PBC_vec[1][1]/2 ) dr[1] += PBC_vec[1][1]; 
-				while( dr[2] < -PBC_vec[2][2]/2 ) dr[2] += PBC_vec[2][2]; 
-				while( dr[0] >  PBC_vec[0][0]/2 ) dr[0] -= PBC_vec[0][0]; 
-				while( dr[1] >  PBC_vec[1][1]/2 ) dr[1] -= PBC_vec[1][1]; 
-				while( dr[2] >  PBC_vec[2][2]/2 ) dr[2] -= PBC_vec[2][2];
-
-				double dist = normalize(dr);
-
-				if( dist < cutoff )
-					nclash++; 
+	
+					if( dist < cutoff )
+					{
+						nclash++; 
+					}
+				}
 			}
 		}
 	}
@@ -880,4 +897,43 @@ void aa_build_data::addCrossedBonds( int a_start, int a_stop ) // notice I did n
 			}
 		}
 	}
+}
+
+void autoBonds( struct atom_rec *at, int nat, int **bonds_out, int *nbonds_out)
+{
+	double bond_cutoff = 2.0;
+
+	if( doMartini() )
+		bond_cutoff = 6.0;
+
+	int nbondsSpace = 10;
+	int nbonds = 0;
+
+	int *bonds = (int *)malloc( sizeof(int) * 2 * nbondsSpace );
+	
+	for( int a1 = 0; a1 < nat; a1++ )
+	{
+		for( int a2 = a1+1; a2 < nat; a2++ )
+		{
+			double dr[3] = { at[a2].x - at[a1].x,
+					 at[a2].y - at[a1].y,
+					 at[a2].z - at[a1].z };
+
+			double r = normalize(dr);
+
+			if( r < bond_cutoff )
+			{
+				if( nbonds == nbondsSpace )
+				{
+					nbondsSpace *= 2;
+					bonds = (int *)realloc( bonds, sizeof(int) * 2 * nbondsSpace );
+				}
+				bonds[2*nbonds+0] = a1;
+				bonds[2*nbonds+1] = a2;
+				nbonds++;
+			}
+		}						
+	}
+	*bonds_out = bonds;
+	*nbonds_out = nbonds;
 }

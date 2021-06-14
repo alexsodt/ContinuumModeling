@@ -1954,6 +1954,7 @@ int surface::nextFace( int f, double *u_in, double *v_in, double *du_in, double 
 	double dup = -(-(du*ruo2*rvn1) + du*ruo1*rvn2 + dv*rvn2*rvo1 - dv*rvn1*rvo2)/(run2*rvn1 - run1*rvn2);
 	double dvp = -(-(du*run2*ruo1) + du*run1*ruo2 - dv*run2*rvo1 + dv*run1*rvo2)/(run2*rvn1 - run1*rvn2);
 
+
 /*
 	printf("tangent: %lf %lf %lf dup: %lf dvp: %lf du: %lf dv: %lf\n", 
 		du * ru_old[0] + dv * rv_old[0],
@@ -4094,8 +4095,52 @@ d_a_d_rvz += d_a_d_g * d_g_d_rvz;
 	return ctot;
 }
 
+void surface::find_near_spot( int *f_io, double *u_io, double *v_io, double *r_target, double *rsurf )
+{
+	double tol = 1e-5;
 
+	int conv = 0;
 
+	int f = *f_io;
+	double u = *u_io;
+	double v = *v_io;
+
+	while( !conv )
+	{
+		double drdu[3];
+		double drdv[3];	
+	
+		double rp[3],np[3];
+	
+		evaluateRNRM( f, u, v, rp, np, rsurf );
+
+		ru( f, u, v, rsurf, drdu );
+		rv( f, u, v, rsurf, drdv );
+
+		double dr_check[3] = { r_target[0] - rp[0], r_target[1] - rp[1], r_target[2] - rp[2] };
+
+		double del_uv[2];
+		best_align( del_uv, drdu, drdv, dr_check, 0 );
+		double du = del_uv[0];
+		double dv = del_uv[1];
+		double l = sqrt(del_uv[0]*del_uv[0]+del_uv[1]*del_uv[1]);
+
+		if( l < tol ) 
+			conv = 1;	
+
+		int f_1 = f, nf = f;
+		do {
+			f_1 = nf;
+			nf = nextFace( f_1, &u, &v, &du, &dv, rsurf );
+		} while( nf != f_1 );
+
+		f = nf;
+	}
+
+	*f_io = f;
+	*u_io = u;
+	*v_io = v;
+}
 
 
 

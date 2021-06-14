@@ -68,6 +68,226 @@ int pcomplex::addPeripheralProteinHelper( Simulation *theSimulation, surface_mas
 		buildData, noise );
 
 }
+;
+int pcomplex::addAlignedProteinHelper( Simulation *theSimulation, surface_mask *upperMask, surface_mask *lowerMask,
+		struct atom_rec **at_out,
+		int *nat_out,
+		struct ion_add **ions,
+		int *nions,
+		int pool_code, // the pool code 
+		const char *segid, // the segid of the protein to extract
+		int nalign,	// number of alignments.
+		int *pdb_residues, // which residues
+		int *complex_sites,	// which complex sites to align to those residues
+		aa_build_data *buildData, // data structure to put build information (PSF-derived info and atom placements for detecting clashes). 
+		double noise
+		)
+{
+	// this routine should be more fundamental than the ``general'' one below ... combine them?
+	//
+	surface *theSurface;
+	double *rsurf;
+	theSimulation->fetch(sid[0],&theSurface,&rsurf);
+
+	pool_structure *thePool = getPool(pool_code);
+
+	int nat = thePool->nat;
+	struct atom_rec *at = thePool->at;
+
+	int grab = 0;
+
+
+	for( int x = 0; x < nat; x++ )
+	{
+		if( !strcasecmp(at[x].segid, segid ) )
+			grab++;		
+	}
+	
+	double *pcopy = (double *)malloc( sizeof(double) * 3 * (grab+2) );
+
+	grab = 0;
+	
+	int ngrab = nalign;
+	int set_pdb[nalign];
+
+	for( int t = 0; t < nalign; t++ )
+		set_pdb[t] = -1;
+
+	for( int x = 0; x < nat; x++ )
+	{
+		if( !strcasecmp(at[x].segid, segid ) )
+		{
+			pcopy[3*grab+0] = at[x].x;  
+			pcopy[3*grab+1] = at[x].y;
+			pcopy[3*grab+2] = at[x].z; 
+
+			for( int t = 0; t < nalign; t++ )
+			{
+				if( (!strcasecmp( at[x].atname, "CA" ) || !strcasecmp( at[x].atname, "BB" )) && at[x].res == pdb_residues[t] )
+					set_pdb[t] = grab;
+			}
+			grab++;		
+		}
+	}
+	
+	pcopy[grab*3+0] = 1;
+	pcopy[grab*3+1] = 0;
+	pcopy[grab*3+2] = 0;
+	grab++;
+	pcopy[grab*3+0] = 0;
+	pcopy[grab*3+1] = 0;
+	pcopy[grab*3+2] = 0;
+	grab++;
+	
+	for( int t = 0; t < nalign; t++ )
+	{
+		if( set_pdb[t] == -1 )
+		{
+			printf("ERROR could not grab correct atoms for system '%s'.\n", thePool->fileNameStruct);
+			exit(1);
+		}
+	}
+	
+	double align[3*nalign];
+	int surf_align_set[nalign];
+	
+	for( int t = 0; t < nalign; t++ )
+	{
+		align[3*t+0] = rall[3*complex_sites[t]+0];
+		align[3*t+1] = rall[3*complex_sites[t]+1];
+		align[3*t+2] = rall[3*complex_sites[t]+2];
+		surf_align_set[t] = t;
+	} 
+
+
+	alignStructuresOnAtomSet( align, surf_align_set, pcopy, set_pdb, nalign, grab ); 
+
+	// CHECK FOR UNRECOVERABLE CLASHES HERE
+
+	int clash =0;
+	
+	int *output_map = (int *)malloc( sizeof(int) *nat );
+	double *flat_coords = (double *)malloc( sizeof(double) * 3 * nat );
+	int tx = 0;
+	int flat_map = 0;
+
+	// first, get the map and coords.
+
+	for( int a = 0; a < nat; a++ )
+	{
+		output_map[a] = -1;
+
+		if( !strcasecmp(at[a].segid, segid ) )
+		{
+			if( strncasecmp( at[a].atname, "CAL",3 ) || fabs(at[a].charge-2) > 1e-4 )
+			{
+				// loop over its bonds.
+
+				flat_coords[3*flat_map+0] = pcopy[3*tx+0];
+				flat_coords[3*flat_map+1] = pcopy[3*tx+1];
+				flat_coords[3*flat_map+2] = pcopy[3*tx+2];
+				output_map[a] = flat_map;
+				flat_map++;
+				// the map needs to go from the pool'd index (a) to the output index (*nat_out).
+			}
+
+			tx++;
+		}
+	}
+	
+	clash = buildData->checkMappedCycles( flat_coords, output_map, nat, getPool(pool_code)->cycles, getPool(pool_code)->cycle_lengths, getPool(pool_code)->ncycles ); 
+	if( ! clash )
+		clash = buildData->checkMappedBonds( flat_coords, output_map, nat, getPool(pool_code)->bonds, getPool(pool_code)->bond_offsets, getPool(pool_code)->nbonds ); 
+
+/*
+	if( clash )
+	{
+		printf("CLASH! redoing.\n");
+		free(output_map);
+		free(flat_coords);
+		free(pcopy);
+		return 1;	
+	}
+*/
+	// END CHECK.
+	
+	// the x dir check, unused now.
+	grab -= 2;
+	
+	double x_dir[3] = { 
+			pcopy[(grab+1)*3+0] - pcopy[(grab)*3+0],
+			pcopy[(grab+1)*3+1] - pcopy[(grab)*3+1],
+			pcopy[(grab+1)*3+2] - pcopy[(grab)*3+2] };
+
+	(*at_out) = (struct atom_rec *)realloc( *at_out, sizeof(struct atom_rec) * (*nat_out + grab ) );
+	
+	int a_start = *nat_out;
+
+	int naddSpace = *nions+10;
+
+	*ions = (ion_add *)realloc( *ions,  sizeof(ion_add) * naddSpace );
+
+	int place_offset = buildData->curPlace();
+
+	flat_map = 0;
+	tx = 0;
+
+	for( int a = 0; a < nat; a++ )
+	{
+		output_map[a] = -1;
+
+		if( !strcasecmp(at[a].segid, segid ) )
+		{
+			if( !strncasecmp( at[a].atname, "CAL",3 ) && fabs(at[a].charge-2) < 1e-4 )
+			{
+				if( *nions == naddSpace )
+				{
+					naddSpace *= 2;
+					*ions = (ion_add *)realloc( *ions, sizeof(ion_add) * naddSpace );
+				}
+
+				(*ions)[*nions].type = ION_CAL;
+				(*ions)[*nions].x = pcopy[3*tx+0];
+				(*ions)[*nions].y = pcopy[3*tx+1];
+				(*ions)[*nions].z = pcopy[3*tx+2];
+		
+				(*nions) += 1;
+			}
+			else
+			{
+				(*at_out)[*nat_out] = at[a];
+				// the oriented structure.
+				(*at_out)[*nat_out].x = pcopy[3*tx+0];
+				(*at_out)[*nat_out].y = pcopy[3*tx+1];
+				(*at_out)[*nat_out].z = pcopy[3*tx+2];
+
+				// the map needs to go from the pool'd index (a) to the output index (*nat_out).
+
+				flat_coords[3*flat_map+0] = pcopy[3*tx+0];
+				flat_coords[3*flat_map+1] = pcopy[3*tx+1];
+				flat_coords[3*flat_map+2] = pcopy[3*tx+2];
+				output_map[a] = flat_map; // flat_map is the index relative to place_offset below, this is correct.
+			
+				buildData->addAtom( flat_coords+3*flat_map );
+				
+				flat_map++;
+				(*nat_out) += 1;
+			}
+
+			tx++;
+		}
+	}
+
+
+	buildData->addMappedCycles( place_offset, flat_coords, output_map, nat, getPool(pool_code)->cycles, getPool(pool_code)->cycle_lengths, getPool(pool_code)->ncycles ); 
+	buildData->addMappedBonds( place_offset, output_map, nat, getPool(pool_code)->bonds, getPool(pool_code)->bond_offsets, getPool(pool_code)->nbonds ); 
+
+	free(output_map);
+	free(flat_coords);
+	free(pcopy);	
+
+	return 0;
+}
 
 
 int pcomplex::addGeneralProteinHelper( Simulation *theSimulation, surface_mask *upperMask, surface_mask *lowerMask,

@@ -1,6 +1,9 @@
 #ifndef __inputh__
 #define __inputh__
 
+#define CREATE_SYSTEM		1
+#define CREATE_ADD_COMPLEXES	2
+
 struct complex_record
 {
 	char *name;
@@ -10,6 +13,8 @@ struct complex_record
 	int saddle; // move to a saddle point of the membrane
 	int positive; // move to maximize local positive curvature
 	int negative; // move to maximize local negative curvature
+	int place_near; // move to the place nearest here.
+	double r_near[3];
 	int nmer;
 	double coverage;
 	double concentration;
@@ -267,6 +272,9 @@ class parameterBlock
 	double strainInner;
 	double strainOuter;
 
+	char *system_psf;
+	char *system_coords;
+
 	char *innerPatchPDB;
 	char *innerPatchPSF;
 	char *outerPatchPDB;
@@ -288,7 +296,9 @@ class parameterBlock
 	int analyze_pore;
 	double pore_outer_cut;
 	double pore_dz_from_center;
-	int one_eighth; // special cubic phase build: only one eighth of system.
+	int halve_X; // special cubic phase build: potentially only one eighth of system.
+	int halve_Y; 
+	int halve_Z; 
 
 	double shift[3];
 

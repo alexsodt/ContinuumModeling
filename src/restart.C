@@ -152,8 +152,44 @@ void Simulation::loadRestart( FILE *loadFile, int *seed )
 	}
 		
 	for( int c = 0; c < ncomplex; c++ )
-		allComplexes[c]->loadComplex(loadFile,this,0);
+	{
+		int nmer_load = allComplexes[c]->loadComplex(loadFile,this,0);
 
+		if( nmer_load > 0 )
+		{
+			// mismatch of the n-mer state. in this case, we clone the unit and add to it.
+
+			pcomplex *temp = allComplexes[c]->clone();
+			if( allComplexes[c]->bound )
+			{		
+				surface_record *sRec = fetch(allComplexes[c]->sid[0]);
+				if( sRec )
+				{
+					surface *theSurface = sRec->theSurface;
+					double *rsurf = sRec->r;
+					temp->init( this, theSurface, rsurf, allComplexes[c]->fs[0], allComplexes[c]->puv[0], allComplexes[c]->puv[1], nmer_load );
+					int nmer_double_check = temp->loadComplex(loadFile,this,0);
+
+					if( !nmer_double_check ) // ok
+					{
+						int nmer_target = allComplexes[c]->nmer_saved;
+						allComplexes[c]->clone( this, theSurface, rsurf, temp, nmer_target-nmer_load );
+					}
+					else
+					{
+						printf("Logical error cloning complex.\n");
+						exit(1);
+					}
+					temp->destroy();	
+				}
+				else
+				{
+					printf("Surface fetch error for cloned bound complex\n");
+					exit(1);
+				}
+			}
+		}
+	}
 	for( surface_record *sRec = allSurfaces; sRec; sRec = sRec->next )
 	{
 		for( int Q = 0; Q < sRec->NQ; Q++ )

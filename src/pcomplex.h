@@ -19,11 +19,16 @@ struct aa_build_data;
 #define ALIGN_TYPE_CURVATURE	1
 #define ALIGN_TYPE_SURF_AQ	2
 
+#define NO_BUILD		-1
+#define BUILD_SEQUENCE		0	// build a pcomplex from its protein sequence
+#define BUILD_GENERAL		1	// build a protein from its included RTF.
+
 struct pcomplex
 {
 	int disabled; //check
 	int nwatchers; //check
 
+	int nmer_saved;
 	int is_inside; // copyparent
 	int nsites; //check
 	int nattach; //check
@@ -79,13 +84,16 @@ struct pcomplex
 	int alive; //1: alive, 0:dead -- remove from memory during garbage cleanup  
 // End of what Kayla added
 
+	virtual pcomplex *clone( void ) { printf("Clone function not implemented for this pcomplex class.\n"); exit(1); }
+	virtual void clone( Simulation *theSimulation, surface *theSurface, double *rsurf, pcomplex *takeFrom, int add_to);
+
 	virtual void alloc( void );
 	virtual void pfree( void );
 
 	virtual int getNBonds( void ) { return 0; };
 	virtual void putBonds( int *bond_list, double *bond_r = NULL, double *bond_k = NULL );
 
-	virtual void init( Simulation *theSimulation, surface *theSurface, double *, int f, double u, double v ); 
+	virtual void init( Simulation *theSimulation, surface *theSurface, double *, int f, double u, double v, int nmer=1 ); 
 	virtual void init( double *r ); 
 
 	virtual void bind( int f, double u, double v );
@@ -138,17 +146,17 @@ struct pcomplex
 	void applyLangevinNoise( Simulation *theSimulation, double dt, double gamma, double temperature );
 	int saveComplex( char *buffer, int *buflen, int bufLenMax );
 	void saveComplex( FILE * theFile );
-	void loadComplex( FILE * theFile, Simulation *theSimulation, int load_to );
+	int loadComplex( FILE * theFile, Simulation *theSimulation, int load_to );
 	double AttachV( Simulation *theSimulation );
 	double AttachG( Simulation *theSimulation, double *pg );
 	void evaluate_momentum( surface *theSurface, double *rsurf, double *pout );
 	double local_curvature( Simulation *theSimulation);
 	void print_type( char **outp );
-	virtual void writeStructure( Simulation *theSimulation, surface_mask *upperSurfaceMask, surface_mask *lowerSurfaceMask, struct atom_rec **at, int *nat, char **seq, ion_add **ions, int *nions, aa_build_data *buildData );
+	virtual void writeStructure( Simulation *theSimulation, surface_mask *upperSurfaceMask, surface_mask *lowerSurfaceMask, struct atom_rec **at, int *nat, char ***seq, int *nseq, int **seq_at_array, char ***patches, ion_add **ions, int *nions, aa_build_data *buildData, int *build_type );
 	virtual void get( 
 		Simulation *theSimulation, // this is the surface/PBC
 		struct atom_rec *at,
-		int p_start, int p_stop );
+		int p_start, int p_stop, int nat_tot);
 
 
 	void disable( void) { disabled = 1; }
@@ -204,6 +212,20 @@ struct pcomplex
 		aa_build_data *buildData, // data structure to put build information (PSF-derived info and atom placements for detecting clashes). 
 		double noise
 		);
+
+	int addAlignedProteinHelper( Simulation *theSimulation, surface_mask *upperMask, surface_mask *lowerMask,
+		struct atom_rec **at_out,
+		int *nat_out,
+		struct ion_add **ions,
+		int *nions,
+		int pool_code, // the pool code 
+		const char *segid, // the segid of the protein to extract
+		int nalign,	// number of alignments.
+		int *pdb_residues, // which residues
+		int *complex_sites,	// which complex sites to align to those residues
+		aa_build_data *buildData, // data structure to put build information (PSF-derived info and atom placements for detecting clashes). 
+		double noise
+		);
 };
 
 struct actin : pcomplex
@@ -218,24 +240,29 @@ struct simpleParticle : pcomplex
 {
 };
 
+struct CNT : pcomplex
+{
+	void writeStructure( Simulation *theSimulation, surface_mask *upperSurfaceMask, surface_mask *lowerSurfaceMask, struct atom_rec **at, int *nat, char ***seq, int *nseq, int **seq_at_array,  char ***patches, ion_add **ions, int *nions, struct aa_build_data *buildData, int *add_type );
+};
+
 struct simpleLipid : pcomplex
 {
 	double c0_val;
 	void loadParams( parameterBlock *block );
-	virtual void init(  Simulation *theSimulation,surface *theSurface, double *, int f, double u, double v ); 
+	virtual void init(  Simulation *theSimulation,surface *theSurface, double *, int f, double u, double v, int nmer=1 ); 
 };
 
 struct simpleBound : simpleLipid
 {
 	double bound_sigma;
 	void loadParams( parameterBlock *block );
-	virtual void init(  Simulation *theSimulation,surface *theSurface, double *, int f, double u, double v ); 
+	virtual void init(  Simulation *theSimulation,surface *theSurface, double *, int f, double u, double v, int nmer=1 ); 
 };
 
 struct simpleDimer : simpleLipid
 {
 	void loadParams( parameterBlock *block );
-	virtual void init(  Simulation *theSimulation,surface *theSurface, double *, int f, double u, double v ); 
+	virtual void init(  Simulation *theSimulation,surface *theSurface, double *, int f, double u, double v, int nmer=1); 
 };
 
 struct NBAR : pcomplex
@@ -248,7 +275,7 @@ struct NBAR : pcomplex
 	double phi_0;
 
 
-	void init( Simulation *theSimulation, surface *, double *rsurf, int f, double u, double v ); 
+	void init( Simulation *theSimulation, surface *, double *rsurf, int f, double u, double v, int nmer=1 ); 
 	void init( double *r );
 	void bind( int f, double u, double v);
 	void unbind( void );
@@ -268,7 +295,7 @@ struct NBAR : pcomplex
 struct syt7 : pcomplex
 {
 
-	void init( Simulation *theSimulation, surface *, double *rsurf, int f, double u, double v ); 
+	void init( Simulation *theSimulation, surface *, double *rsurf, int f, double u, double v, int nmer=1 ); 
 	void init( double *r );
 	void bind( int f, double u, double v);
 	void unbind( void );
@@ -283,23 +310,28 @@ struct syt7 : pcomplex
 	void get( 
 		Simulation *theSimulation, // this is the surface/PBC
 		struct atom_rec *at,
-		int p_start, int p_stop );
+		int p_start, int p_stop, int nat_tot );
 
 	//void writeStructure( Simulation *theSimulation, struct atom_rec **at, int *nat );
-	void writeStructure( Simulation *theSimulation, surface_mask *upperSurfaceMask, surface_mask *lowerSurfaceMask, struct atom_rec **at, int *nat, char **seq, ion_add **ions, int *nions, struct aa_build_data *buildData );
+	void writeStructure( Simulation *theSimulation, surface_mask *upperSurfaceMask, surface_mask *lowerSurfaceMask, struct atom_rec **at, int *nat, char ***seq, int *nseq, int **seq_at_array /*where the atoms of a segment start and stop*/,  char ***patches, ion_add **ions, int *nions, struct aa_build_data *buildData, int *build_type );
 	void move_inside(void);
 	void move_outside(void);	
 };
 
 struct dynamin : pcomplex
 {
-	int nmer_saved;
 
+	virtual pcomplex *clone( void ) { return new dynamin; }
 	void init( Simulation *theSimulation, surface *, double *rsurf, int f, double u, double v, int nmer ); 
 	void init( double *r, int nmer );
 	void bind( int f, double u, double v);
 	void unbind( void );
 	void loadParams( parameterBlock *block );
+
+	int getNDihe(void);
+	void putDihe( int *dihe_list, double *dihe_theta, double *dihe_k );
+	int getNAngles( void );
+	void putAngles( int *angle_list, double *angle_th, double *angle_k );
 	
 	int getNBonds( void );
 	void putBonds( int *bond_list, double *bond_r = NULL, double *bond_k = NULL );
@@ -311,10 +343,12 @@ struct dynamin : pcomplex
 	void get( 
 		Simulation *theSimulation, // this is the surface/PBC
 		struct atom_rec *at,
-		int p_start, int p_stop );
+		int p_start, int p_stop, int nat_tot );
 
+	void placeSubunit( Simulation *theSimulation, surface *theSurface, double *rsurf, int m, double dynamin_axis[3] );
+	void clone( Simulation *theSimulation, surface *theSurface, double *rsurf, pcomplex *takeFrom, int add_to);
 	//void writeStructure( Simulation *theSimulation, struct atom_rec **at, int *nat );
-	void writeStructure( Simulation *theSimulation, surface_mask *upperSurfaceMask, surface_mask *lowerSurfaceMask, struct atom_rec **at, int *nat, char **seq, ion_add **ions, int *nions, struct aa_build_data *buildData );
+	void writeStructure( Simulation *theSimulation, surface_mask *upperSurfaceMask, surface_mask *lowerSurfaceMask, struct atom_rec **at, int *nat, char ***seq, int *nseq, int **seq_at_array,  char ***patches, ion_add **ions, int *nions, struct aa_build_data *buildData, int *build_type );
 	void move_inside(void);
 	void move_outside(void);	
 };
@@ -322,7 +356,7 @@ struct dynamin : pcomplex
 struct ifitm3 : pcomplex
 {
 
-	void init( Simulation *theSimulation, surface *, double *rsurf, int f, double u, double v ); 
+	void init( Simulation *theSimulation, surface *, double *rsurf, int f, double u, double v, int nmer=1 ); 
 	void init( double *r );
 	void bind( int f, double u, double v);
 	void unbind( void );
@@ -335,7 +369,7 @@ struct ifitm3 : pcomplex
 	double grad( Simulation *theSimulation, double *surface_g, double *particle_g );
 
 	//void writeStructure( Simulation *theSimulation, struct atom_rec **at, int *nat );
-	void writeStructure( Simulation *theSimulation, surface_mask *upperSurfaceMask, surface_mask *lowerSurfaceMask, struct atom_rec **at, int *nat, char **seq, ion_add **ions, int *nions, struct aa_build_data *buildData );
+	void writeStructure( Simulation *theSimulation, surface_mask *upperSurfaceMask, surface_mask *lowerSurfaceMask, struct atom_rec **at, int *nat, char ***seq, int *nseq, int **seq_at_array,  char ***patches, ion_add **ions, int *nions, struct aa_build_data *buildData, int *build_type );
 	void move_inside(void);
 	void move_outside(void);	
 };
@@ -344,7 +378,7 @@ struct dimer : pcomplex
 {
 	double bond_length;
 	double bond_k;
-	void init( Simulation *theSimulation, surface *, double *rsurf, int f, double u, double v ); 
+	void init( Simulation *theSimulation, surface *, double *rsurf, int f, double u, double v, int nmer=1 ); 
 	void init( double *r );
 	void loadParams( parameterBlock *block );
 	
@@ -383,7 +417,7 @@ struct elasticCrowder : pcomplex
 	double att_sigma_inner;
 	double crowder_mass;
 
-	void init( Simulation *theSimulation, surface *, double *rsurf, int f, double u, double v ); 
+	void init( Simulation *theSimulation, surface *, double *rsurf, int f, double u, double v, int nmer=1 ); 
 	void loadParams( parameterBlock * block );
 	int isElastic(void) { return 1; }	
 	void move_inside( void );

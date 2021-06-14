@@ -30,6 +30,6 @@ void readATOM( char *str, struct atom_rec *atrec );
 void printATOM( FILE *toFile, int bead, int res, struct atom_rec *atrec, double aux=0, int write_hex = 0 );
 void printATOM( char *toFile, int bead, int res, struct atom_rec *atrec, double aux=0, int write_hex = 0 );
 void printCRYST( FILE *toFile, double LX, double LY, double LZ, double alpha, double beta, double gamma );
-void writeSEQRES( FILE *theFile, char *seq );
+void writeSEQRES( FILE *theFile, char *seq, int do_martini=0 );
 
 #endif

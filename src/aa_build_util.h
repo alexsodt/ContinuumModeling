@@ -34,6 +34,8 @@ struct aa_build_data
 	int nx, ny, nz;
 	int nx_c, ny_c, nz_c;
 
+	int halve[3];
+	double frac_cen[3]; // the center point of the fractional grab.
 	void init( void );
 	void setupBoxing( double Lx, double Ly, double Lz, int nx, int ny, int nz);
 
@@ -52,7 +54,7 @@ struct aa_build_data
 	void setupBoxing( double PBC_in[3][3], int nx_in, int ny_in, int nz_in);
 	int cycleClash( double *coords, int a_start, int *cycle, int len );
 	int bondClash( double *r1, double *r2 );
-	int nclash_aa( double *coords, int lc, int is_mod, double cutoff=0.5 );
+	int nclash_aa( double *coords, int lc, int is_mod, double cutoff=0.5, int *halve=NULL );
 	
 	int getPcut( void ) { return nplaced_pcut; }
 	void markPcut(void) { nplaced_pcut = nplaced; }
@@ -61,7 +63,7 @@ struct aa_build_data
 
 
 void boxit( double *r_in, int index, caa_box *theBoxes, double PBC_vec[3][3], int nx, int ny, int nz ); 
-
+void autoBonds( struct atom_rec *at, int nat, int **bonds_out, int *nbonds_out);
 
 #endif
 

@@ -69,6 +69,9 @@ void setDefaults( parameterBlock *block )
 	block->create_pore = 0;
 	block->do_rim = 0;
 	block->perfect_solvent_tiling = 0;
+	block->halve_X = 0;
+	block->halve_Y = 0;
+	block->halve_Z = 0;
 
 	block->mode_q_max = -1;
 	block->mode_x = -1;
@@ -264,6 +267,9 @@ void setDefaults( parameterBlock *block )
 	block->scale_solvent_approach = 1.0;
 	block->strainInner = 0;
 	block->strainOuter = 0;
+	
+	block->system_coords = NULL;
+	block->system_psf    = NULL;
 
 	block->innerPatchPDB = NULL;
 	block->innerPatchPSF = NULL;
@@ -1694,21 +1700,47 @@ int getInput( const char **argv, int argc, parameterBlock *block)
 		else if( !strcasecmp( word1, "create_all_atom" ) )
 		{
 			if( !strcasecmp( word2, "TRUE" ) || !strcasecmp( word2, "yes") || !strcasecmp( word2, "on" ) )
-				block->create_all_atom = 1;
+				block->create_all_atom = CREATE_SYSTEM;
 			else if( !strcasecmp( word2, "FALSE" ) || !strcasecmp( word2, "no") || !strcasecmp( word2, "off" ) )
 				block->create_all_atom = 0;
+			else if( !strcasecmp( word2, "add") ) 
+				block->create_all_atom = CREATE_ADD_COMPLEXES;
 			else
 			{
 				printf("Could not interpret input line '%s'.\n", tbuf );
 				ERROR = 1;
 			}	
 		}
-		else if( !strcasecmp( word1, "one_eighth" ) )
+		else if( !strcasecmp( word1, "halve_X" ) )
 		{
 			if( !strcasecmp( word2, "TRUE" ) || !strcasecmp( word2, "yes") || !strcasecmp( word2, "on" ) )
-				block->one_eighth = 1;
+				block->halve_X = 1;
 			else if( !strcasecmp( word2, "FALSE" ) || !strcasecmp( word2, "no") || !strcasecmp( word2, "off" ) )
-				block->one_eighth = 0;
+				block->halve_X = 0;
+			else
+			{
+				printf("Could not interpret input line '%s'.\n", tbuf );
+				ERROR = 1;
+			}	
+		}
+		else if( !strcasecmp( word1, "halve_Y" ) )
+		{
+			if( !strcasecmp( word2, "TRUE" ) || !strcasecmp( word2, "yes") || !strcasecmp( word2, "on" ) )
+				block->halve_Y = 1;
+			else if( !strcasecmp( word2, "FALSE" ) || !strcasecmp( word2, "no") || !strcasecmp( word2, "off" ) )
+				block->halve_Y = 0;
+			else
+			{
+				printf("Could not interpret input line '%s'.\n", tbuf );
+				ERROR = 1;
+			}	
+		}
+		else if( !strcasecmp( word1, "halve_Z" ) )
+		{
+			if( !strcasecmp( word2, "TRUE" ) || !strcasecmp( word2, "yes") || !strcasecmp( word2, "on" ) )
+				block->halve_Z = 1;
+			else if( !strcasecmp( word2, "FALSE" ) || !strcasecmp( word2, "no") || !strcasecmp( word2, "off" ) )
+				block->halve_Z = 0;
 			else
 			{
 				printf("Could not interpret input line '%s'.\n", tbuf );
@@ -1842,6 +1874,20 @@ int getInput( const char **argv, int argc, parameterBlock *block)
 			block->solvatePSF = (char *)malloc( sizeof(char) * (1 + strlen(word2) ) );
 			strcpy( block->solvatePSF, word2 );
 		}
+		else if( !strcasecmp( word1, "coords" ) )
+		{
+			if( block->system_coords )
+				free(block->system_coords);
+			block->system_coords = (char *)malloc( sizeof(char) * (1 + strlen(word2) ) );
+			strcpy( block->system_coords, word2 );
+		}
+		else if( !strcasecmp( word1, "psf" ) )
+		{
+			if( block->system_psf )
+				free(block->system_psf);
+			block->system_psf = (char *)malloc( sizeof(char) * (1 + strlen(word2) ) );
+			strcpy( block->system_psf, word2 );
+		}
 		else if( !strcasecmp( word1, "innerPatchPDB" ) )
 		{
 			if( block->innerPatchPDB )
@@ -1894,42 +1940,55 @@ int getInput( const char **argv, int argc, parameterBlock *block)
 			rec->name = (char *)malloc( sizeof(char) * (1+ strlen(word2) ) );
 			strcpy( rec->name, word2 );
 
-			char *word3 = (char *)malloc( sizeof(char) * (strlen(buffer)+1) );	
-			char *word4 = (char *)malloc( sizeof(char) * (strlen(buffer)+1) );	
-			char *word5 = (char *)malloc( sizeof(char) * (strlen(buffer)+1) );	
-			char *word6 = (char *)malloc( sizeof(char) * (strlen(buffer)+1) );	
-			char *word7 = (char *)malloc( sizeof(char) * (strlen(buffer)+1) );	
+			int nf = nFields( buffer );
 
-			int nr = sscanf( buffer, "%s %s %s %s %s %s %s", word1, word2, word3, word4, word5, word6, word7 );
+			nf-=2;
 
-			if( nr < 4 )
+			char **words = (char **)malloc( sizeof(char *) * (nf) );
+
+			for( int f = 0; f < nf; f++ )
+			{
+				int p = goToField( buffer, 2+f );
+
+				int fl = fieldLen(buffer+p);
+
+				words[f] = (char *)malloc( sizeof(char) * (1+fl) );
+
+				getField( buffer+p, words[f] );
+			}
+
+			if( nf < 2 )
 			{
 				printf("Syntax error in ``add'' command.\n");
 				printf("add COMPLEX nbound|nsolution|coverage|concentration value [inside|outside] [mod] [nmer]\n");
 					exit(1);
 			}
 
-			double value = atof(word4);
+			int woff = 0;
+			double value = atof(words[woff+1]);
 			double uvalue = value;
 
-			if( !strcasecmp(word3, "nbound") ) 
+			if( !strcasecmp(words[woff], "nbound") ) 
 			{
 				uvalue = lround(value);
 				rec->nbound = value;
 			}
-			else if( !strcasecmp( word3, "nsolution") )
+			else if( !strcasecmp( words[woff], "nsolution") )
 			{ 
 				uvalue = lround(value);
 				rec->nsolution = uvalue;
 				rec->coverage = value;
 			}
-			else if( !strcasecmp( word3, "concentration") ) 
+			else if( !strcasecmp( words[woff], "concentration") ) 
 				rec->concentration = value;
-			if( nr >= 5 )
+
+			woff += 2; // nbound value			
+
+			if( nf > woff )
 			{
-				if( !strcasecmp( word5, "inside") ) 
+				if( !strcasecmp( words[woff], "inside") ) 
 					rec->inside_outside = -1;
-				else if( !strcasecmp( word5, "outside" ) )
+				else if( !strcasecmp( words[woff], "outside" ) )
 					rec->inside_outside = 1;
 				else
 				{
@@ -1937,35 +1996,57 @@ int getInput( const char **argv, int argc, parameterBlock *block)
 					exit(1);
 				}
 			}
-			
+	
+			woff += 1;  //in/out
+
 			rec->saddle = 0;
 			rec->positive = 0;
 			rec->negative = 0;
+			rec->place_near = 0;
 
-	
-			if( nr >= 6 )
+			if( nf > woff )
 			{
 				
-				if( !strcasecmp( word6, "saddle") ) 
+				if( !strcasecmp( words[woff], "saddle") ) 
 					rec->saddle = 1;
-				else if( !strcasecmp( word6, "+") ) 
+				else if( !strcasecmp( words[woff], "+") ) 
 					rec->positive = 1;
-				else if( !strcasecmp( word6, "-") ) 
+				else if( !strcasecmp( words[woff], "-") ) 
 					rec->negative = 1;
-				else if( !strcasecmp( word6, "null") )
+				else if( !strcasecmp( words[woff], "near" ) )
+				{
+					if( nf > woff+3 )
+					{
+						rec->place_near = 1;
+						rec->r_near[0] = atof(words[woff+1]);
+						rec->r_near[1] = atof(words[woff+2]);
+						rec->r_near[2] = atof(words[woff+3]);
+						// woff += 3;
+					}
+					else
+					{
+						printf("Error reading three fields for near, '%s'.\n", buffer );
+						exit(1);
+					}
+					woff+=3;
+				}
+				else if( !strcasecmp( words[woff], "null") )
 				{ 
 				}
 				else
 				{
-					printf("Error interpreting optional mod sub-command '%s' in command '%s'.\n", word6, buffer );
+					printf("Error interpreting optional mod sub-command '%s' in command '%s'.\n", words[3], buffer );
 					exit(1);
 				}
+
 			}
+				
+			woff += 1; // location
 	
 			rec->nmer = 1;
 		
-			if( nr >= 6 )
-				rec->nmer = atoi(word7);
+			if( nf > woff )
+				rec->nmer = atoi(words[woff]);
 
 			if( fabs( value -uvalue) > 1e-10 )
 			{
@@ -1973,10 +2054,9 @@ int getInput( const char **argv, int argc, parameterBlock *block)
 				exit(1);
 			}
 
-			free(word3);
-			free(word4);
-			free(word5);
-			free(word6);
+			for( int f = 0; f < nf; f++ )
+				free(words[f]);
+			free(words);
 		}
 		else
 		{

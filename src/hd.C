@@ -870,6 +870,7 @@ int main( int argc, char **argv )
 		for( int c = 0; c < theSimulation->ncomplex; c++ ) theSimulation->allComplexes[c]->refresh(theSimulation );
 		if( par_info.my_id == BASE_TASK && minFile )
 		 	theSimulation->writeLimitingSurface(minFile );
+
 		for( int m = 0; m < block.nmin; m++ )
 		{
 			if( block.point_lock )

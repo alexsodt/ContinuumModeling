@@ -56,6 +56,77 @@ void getLine( FILE *theFile, char *theBuffer )
         theBuffer[i] = '\0';
 }
 
+int fieldLen( const char *buffer )
+{
+	
+	int cnt = 0;
+
+	int cp = 0;
+	while( buffer[cp] && (buffer[cp] == ' ' || buffer[cp] == '\t') )
+		cp++;
+
+	if( !buffer[cp] ) return 0;
+
+	int fc = 0;
+
+	while( buffer[cp] && (buffer[cp] != ' ' && buffer[cp] != '\t') )
+	{	
+		cp++; fc++; 
+	}
+
+	return fc;
+}
+
+void getField( const char *buffer,  char *put )
+{
+	put[0] = '\0';
+
+	int cp = 0;
+	while( buffer[cp] && (buffer[cp] == ' ' || buffer[cp] == '\t') )
+		cp++;
+
+	if( !buffer[cp] ) return ;
+
+	int fc = 0;
+
+	while( buffer[cp] && (buffer[cp] != ' ' && buffer[cp] != '\t') )
+	{	
+		put[fc] = buffer[cp];
+		put[fc+1] = '\0';
+
+		cp++; fc++; 
+	}
+}
+
+int nFields( const char *buffer )
+{
+	int cnt = 0;
+
+	int cp = 0;
+	while( buffer[cp] && (buffer[cp] == ' ' || buffer[cp] == '\t') )
+		cp++;
+
+	if( !buffer[cp] ) return 0;
+
+
+	while( buffer[cp] )
+	{
+		while( buffer[cp] && (buffer[cp] != ' ' && buffer[cp] != '\t') )
+			cp++;
+	
+		cnt++;
+	
+		if( !buffer[cp] ) break;
+
+		while( buffer[cp] && (buffer[cp] == ' ' || buffer[cp] == '\t') )
+			cp++;
+
+		if( !buffer[cp] ) break;
+	}
+	
+	return cnt;	
+}
+
 int goToField( const char * buffer, int f )
 {
 	int ret = -1;

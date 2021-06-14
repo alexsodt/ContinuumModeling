@@ -19,7 +19,7 @@ vpath %.cpp $(SRC_DIR)
 vpath %.h  $(SRC_DIR)
 vpath %.cu $(SRC_DIR)
 
-complex_SRCS = NBAR.C dimer.C crowder.C syt.C ifitm3.C dynamin.C
+complex_SRCS = NBAR.C dimer.C crowder.C syt.C ifitm3.C dynamin.C CNT.C
 util_SRCS    = mutil.C util.C
 amoeba_SRCS  = amoeba_code/amotry.C amoeba_code/amoeba.C amoeba_code/nrutil.C 
 

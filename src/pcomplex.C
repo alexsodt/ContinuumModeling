@@ -1307,9 +1307,15 @@ void pcomplex::init( double *r )
 
 	bound = 0;
 }
-
-void pcomplex::init( Simulation *theSimulation, surface *theSurface, double *rsurf, int f, double u, double v )
+	
+void pcomplex::clone( Simulation *theSimulation, surface *theSurface, double *rsurf, pcomplex *takeFrom, int add_to)
 {
+	printf("NYI.\n");
+}
+
+void pcomplex::init( Simulation *theSimulation, surface *theSurface, double *rsurf, int f, double u, double v, int nmer )
+{
+	nmer_saved = nmer;
 	base_init();
 
 	nsites = 1;
@@ -1545,6 +1551,8 @@ pcomplex *loadComplex( const char *name )
 		the_complex = new MAB;
 	else if( !strcasecmp( name, "crowder" ) )
 		the_complex = new elasticCrowder;
+	else if( !strcasecmp( name, "CNT" ) )
+		the_complex = new CNT;
 	else if( !strcasecmp( name, "simpleParticle" ) )
 		the_complex = new simpleParticle;
 	else if( !strcasecmp( name, "simpleBound" ) )
@@ -1742,7 +1750,11 @@ void Simulation::loadComplexes( parameterBlock *block )
 			{
 				max_c( theSurface, &f, &u, &v, 1000, rsurf, MAX_C_NEG );	
 			}
-
+			else if( rec->place_near )
+			{
+				double dist;
+				theSurface->nearPointOnBoxedSurface( rec->r_near, &f, &u, &v, M, mlow, mhigh, &dist );					
+			}
 
 
 			pcomplex *prot = loadComplex( rec->name );
@@ -1821,23 +1833,25 @@ void simpleBound::loadParams( parameterBlock *block )
 
 
 
-void simpleLipid::init(  Simulation *theSimulation,surface *theSurface, double *rsurf, int f, double u, double v )
+void simpleLipid::init(  Simulation *theSimulation,surface *theSurface, double *rsurf, int f, double u, double v, int nmer)
 {
-	pcomplex::init( theSimulation, theSurface, rsurf, f, u, v );
+	pcomplex::init( theSimulation, theSurface, rsurf, f, u, v, nmer );
 
 	p_c0[0] = c0_val;
 }
 
-void simpleDimer::init(  Simulation *theSimulation,surface *theSurface, double *rsurf, int f, double u, double v )
+void simpleDimer::init(  Simulation *theSimulation,surface *theSurface, double *rsurf, int f, double u, double v, int nmer)
 {
-	simpleLipid::init( theSimulation, theSurface, rsurf, f, u, v );
+	simpleLipid::init( theSimulation, theSurface, rsurf, f, u, v, nmer );
 
 	p_c0[0] = c0_val;
 	p_area[0] = 2 * default_particle_area;
 }
 
-void simpleBound::init(  Simulation *theSimulation,surface *theSurface, double *rsurf, int f, double u, double v )
+void simpleBound::init(  Simulation *theSimulation,surface *theSurface, double *rsurf, int f, double u, double v, int nmer)
 {
+	nmer_saved = nmer;
+
 	base_init();
 
 	nsites = 2;
@@ -2030,19 +2044,33 @@ void pcomplex::applyLangevinNoise( Simulation *theSimulation,  double dt, double
 	}
 }
 
-void pcomplex::loadComplex( FILE *theFile, Simulation *theSimulation, int load_to )
+int pcomplex::loadComplex( FILE *theFile, Simulation *theSimulation, int load_to )
 {
 	char buffer[4096];
 
+	int fp = ftell(theFile);
+
 	getLine( theFile, buffer );
 
-	int nr = sscanf( buffer, "%d", &bound );
+	int check_nmer = 0;
+	int nr = sscanf( buffer, "%d %d", &bound, &check_nmer );
+
+	if( nr == 1 )
+		check_nmer = 1;
+
+	if( check_nmer != nmer_saved )
+	{
+		fseek( theFile, fp, SEEK_SET );
+		return check_nmer;
+	}
 
 	if( bound )
 	{
+
 	}
 	else
 	{
+
 	}
 
 	for( int s = 0; s < nattach; s++ )
@@ -2083,6 +2111,8 @@ void pcomplex::loadComplex( FILE *theFile, Simulation *theSimulation, int load_t
 	}
 
 	refresh(theSimulation);
+
+	return 0;
 }
 
 int pcomplex::saveComplex( char *write_to, int *bytes_written, int max_write)
@@ -2091,7 +2121,7 @@ int pcomplex::saveComplex( char *write_to, int *bytes_written, int max_write)
 
 	char *tbuf = (char *)malloc( sizeof(char) * 10000 );
 
-	sprintf( tbuf, "%d\n", bound );
+	sprintf( tbuf, "%d %d\n", bound, nmer_saved );
 
 	if( strlen(tbuf) >= max_write )
 		return 1;
@@ -2662,9 +2692,9 @@ void pcomplex::uncache(void)
 	memcpy(      rall, cache_rall, sizeof(double) * 3 * nsites );
 }
 
-void pcomplex::writeStructure( Simulation *theSimulation, surface_mask *upperSurfaceMask, surface_mask *lowerSurfaceMask, struct atom_rec **at, int *nat, char **seq, ion_add **ions, int *nions, aa_build_data *buildData )
+void pcomplex::writeStructure( Simulation *theSimulation, surface_mask *upperSurfaceMask, surface_mask *lowerSurfaceMask, struct atom_rec **at, int *nat, char ***seq,  int *nseq, int**seq_at_array, char ***patches, ion_add **ions, int *nions, aa_build_data *buildData, int *build_type )
 {
-
+	*build_type = NO_BUILD;
 
 }
 
@@ -2676,7 +2706,7 @@ char pcomplex::getSiteCode( int p )
 void pcomplex::get( 
 		Simulation *theSimulation, // this is the surface/PBC
 		struct atom_rec *at,
-		int p_start, int p_stop )
+		int p_start, int p_stop, int nat_tot )
 {
 	
 }

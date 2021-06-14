@@ -53,8 +53,10 @@ void dimer::init( double *r )
 
 // initialize the BAR domain on the membrane.
 
-void dimer::init( Simulation *theSimulation, surface *theSurface, double *rsurf, int f, double u, double v )
+void dimer::init( Simulation *theSimulation, surface *theSurface, double *rsurf, int f, double u, double v, int nmer )
 {
+	nmer_saved = nmer;
+
 	base_init();
 
 	nsites = 2;

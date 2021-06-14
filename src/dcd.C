@@ -6,6 +6,7 @@
 #include "util.h"
 #include "pdb.h"
 #include "lapack_we_use.h"
+#include "dcd.h"
 	
 struct DCDheader1
 {
@@ -622,8 +623,28 @@ void copyNAMDBinary( FILE *theFile, struct atom_rec *at)
 	}
 }
 
-void loadCRD( FILE *theFile, struct atom_rec *at)
+int pbc_set = 0;
+double cstats[6] = { 0,0,0,0,0,0};
+
+int PBCD( double *Lx, double *Ly, double *Lz, double *alpha, double *beta, double *gamma )
 {
+
+	*Lx = cstats[0];
+	*Ly = cstats[1];
+	*Lz = cstats[2];
+	*alpha = cstats[3];
+	*beta = cstats[4];
+	*gamma = cstats[5];
+
+	if( pbc_set )
+		return 0;
+	return 1;
+}
+
+int loadCRD( FILE *theFile, struct atom_rec *at)
+{
+	pbc_set = 0;
+
 	char buffer[4096];
 	getLine( theFile, buffer );
 	while( buffer[0] == '*' )
@@ -634,15 +655,15 @@ void loadCRD( FILE *theFile, struct atom_rec *at)
 	int read_nat = 0;
 	sscanf( buffer, "%d", &read_nat );
 
-	if( read_nat != psf_natoms )
-	{
-		printf("natoms psf mismatch.\n");
-		exit(1);
-	}
-
-	for( int x = 0; x < psf_natoms; x++ )
+	for( int x = 0; x < read_nat; x++ )
 	{
 		getLine( theFile, buffer );
+
+		if( feof(theFile) )
+		{
+			printf("Couldn't read all %d atoms from CRD file.\n");
+			exit(1);
+		}
 
 		int atnum, resnum;
 		char resname[1024];
@@ -653,21 +674,23 @@ void loadCRD( FILE *theFile, struct atom_rec *at)
 		sscanf( buffer," %d %d %s %s %lf %lf %lf %s %d ",
 			&atnum, &resnum, resname, atname, &lx, &ly, &lz, (char *)&segName, &segRes );
 
-		at[x].bead = at_num[x];
-		at[x].res = res_num[x];
-		at[x].resname = (char *)malloc( sizeof(char) * (strlen(res_name[x])+1) );
-		at[x].atname = (char *)malloc( sizeof(char) * (strlen(at_name[x])+1) );
-		at[x].segid = (char *)malloc( sizeof(char) * (strlen(seg_name[x])+1) );
+		at[x].bead = atnum;
+		at[x].res = resnum;
+		at[x].resname = (char *)malloc( sizeof(char) * (strlen(resname)+1) );
+		at[x].atname = (char *)malloc( sizeof(char) * (strlen(atname)+1) );
+		at[x].segid = (char *)malloc( sizeof(char) * (strlen(segName)+1) );
 		at[x].aux = 0;
 		at[x].segRes = segRes;
-		strcpy( at[x].resname, res_name[x] );
-		strcpy( at[x].atname, at_name[x] );
-		strcpy( at[x].segid, seg_name[x] );
+		strcpy( at[x].resname, resname );
+		strcpy( at[x].atname, atname );
+		strcpy( at[x].segid, segName );
 		at[x].altloc = ' ';
 		at[x].chain = ' ';
 
-		if( at_q )
+		if( at_q && read_nat == psf_natoms )
 			at[x].charge = at_q[x];
+		else 
+			at[x].charge = 0;
 
 		at[x].x = lx;
 		at[x].y = ly;
@@ -694,6 +717,8 @@ void loadCRD( FILE *theFile, struct atom_rec *at)
 		}
 */
 	}
+
+	return read_nat;
 }
 
 void loadPSFfromPDB( FILE *theFile )
@@ -1117,23 +1142,6 @@ double CellVolume( void )
 	return celv;	
 }
 
-int pbc_set = 0;
-double cstats[6] = { 0,0,0,0,0,0};
-
-int PBCD( double *Lx, double *Ly, double *Lz, double *alpha, double *beta, double *gamma )
-{
-
-	*Lx = cstats[0];
-	*Ly = cstats[1];
-	*Lz = cstats[2];
-	*alpha = cstats[3];
-	*beta = cstats[4];
-	*gamma = cstats[5];
-
-	if( pbc_set )
-		return 0;
-	return 1;
-}
 
 void TransformFractional( double *dr )
 {
@@ -1456,6 +1464,8 @@ int main( int argc, char **argv )
 
 int loadPDB( FILE *theFile, struct atom_rec *at) 
 {
+	pbc_set = 0;
+
         char buffer[4096];
 
         int a = 0; 
@@ -1533,7 +1543,9 @@ int loadPDB( FILE *theFile, struct atom_rec *at)
 
 int loadPDB( FILE *theFile, struct atom_rec *at, int max_space) 
 {
-        char buffer[4096];
+	pbc_set = 0;
+        
+	char buffer[4096];
 
         int a = 0; 
 
@@ -1865,22 +1877,27 @@ int bond_recurse(int *my_bonds, int * my_bond_ids, int *nbonds, int *bond_offset
 } 
 
 
-void fetchCycleBasis( int ***basis_out, int **basis_length, int *nbasis )
+void fetchPSFCycleBasis( int ***basis_out, int **basis_length, int *nbasis )
+{
+	fetchCycleBasis( basis_out, basis_length, nbasis, psf_bonds, npsf_bonds, psf_natoms );
+}
+
+void fetchCycleBasis( int ***basis_out, int **basis_length, int *nbasis,  int *bonds_ext, int nbonds_ext, int nat_ext)
 {
 	// gets a list of cycles from the bond list.
 		
-	int *marked_bond = (int *)malloc( sizeof(int) * npsf_bonds );
-	memset( marked_bond, 0, sizeof(int) * npsf_bonds );
-	int *marked = (int *)malloc( sizeof(int) * psf_natoms );
-	memset( marked, 0, sizeof(int) * psf_natoms );
-	int *nbonds = (int *)malloc( sizeof(int) * psf_natoms );
-	memset( nbonds, 0, sizeof(int) * psf_natoms );
-	int *bond_offset = (int *)malloc( sizeof(int) * psf_natoms );
+	int *marked_bond = (int *)malloc( sizeof(int) * nbonds_ext );
+	memset( marked_bond, 0, sizeof(int) * nbonds_ext );
+	int *marked = (int *)malloc( sizeof(int) * nat_ext );
+	memset( marked, 0, sizeof(int) * nat_ext );
+	int *nbonds = (int *)malloc( sizeof(int) * nat_ext );
+	memset( nbonds, 0, sizeof(int) * nat_ext );
+	int *bond_offset = (int *)malloc( sizeof(int) * nat_ext );
 	
-	for( int b = 0; b < npsf_bonds; b++ )
+	for( int b = 0; b < nbonds_ext; b++ )
 	{
-		int b1 = psf_bonds[2*b+0];
-		int b2 = psf_bonds[2*b+1];
+		int b1 = bonds_ext[2*b+0];
+		int b2 = bonds_ext[2*b+1];
 		if( !strcasecmp( res_name[b1], "TIP3") ) 
 			continue;
 		nbonds[b1] += 1;
@@ -1888,7 +1905,7 @@ void fetchCycleBasis( int ***basis_out, int **basis_length, int *nbasis )
 	}	
 	
 	int cur_offset = 0;
-	for( int b = 0; b < psf_natoms; b++ )
+	for( int b = 0; b < nat_ext; b++ )
 	{
 		bond_offset[b] = cur_offset;
 		cur_offset += nbonds[b];
@@ -1897,11 +1914,11 @@ void fetchCycleBasis( int ***basis_out, int **basis_length, int *nbasis )
 	int *my_bonds = (int *)malloc( sizeof(int) * cur_offset );
 	int *my_bond_ids = (int *)malloc( sizeof(int) * cur_offset );
 
-	memset( nbonds, 0, sizeof(int) * psf_natoms );
-	for( int b = 0; b < npsf_bonds; b++ )
+	memset( nbonds, 0, sizeof(int) * nat_ext );
+	for( int b = 0; b < nbonds_ext; b++ )
 	{
-		int b1 = psf_bonds[2*b+0];
-		int b2 = psf_bonds[2*b+1];
+		int b1 = bonds_ext[2*b+0];
+		int b2 = bonds_ext[2*b+1];
 
 		if( !strcasecmp( res_name[b1], "TIP3") ) 
 			continue;
@@ -1914,7 +1931,7 @@ void fetchCycleBasis( int ***basis_out, int **basis_length, int *nbasis )
 		nbonds[b2]+=1;
 	}	
 
-	int *back_edges = (int *)malloc( sizeof(int) * 2 * npsf_bonds );
+	int *back_edges = (int *)malloc( sizeof(int) * 2 * nbonds_ext );
 	int nback = 0;
 
 	int done = 0;
@@ -1925,14 +1942,14 @@ void fetchCycleBasis( int ***basis_out, int **basis_length, int *nbasis )
 	{
 		bond_recurse( my_bonds, my_bond_ids, nbonds, bond_offset, cur_atom_head, back_edges, &nback, marked, marked_bond, 0, NULL, -1, -1, NULL );
 
-		while( cur_atom_head < psf_natoms )
+		while( cur_atom_head < nat_ext )
 		{
 			if( !marked[cur_atom_head] )
 				break;
 			cur_atom_head++;
 		}
 
-		if( cur_atom_head == psf_natoms )
+		if( cur_atom_head == nat_ext )
 			done = 1;
 	}
 
@@ -1947,17 +1964,17 @@ void fetchCycleBasis( int ***basis_out, int **basis_length, int *nbasis )
 
 	for( int m = 0; m < nback; m++ )
 	{
-		memset( marked, 0, sizeof(int) * psf_natoms );
+		memset( marked, 0, sizeof(int) * nat_ext );
 
-		for( int b = 0; b < npsf_bonds; b++ )	
+		for( int b = 0; b < nbonds_ext; b++ )	
 		{
 			if( marked_bond[b] == 1 )
 				marked_bond[b] = 0;
 		} 
 
 		int b_id = back_edges[m];
-		int a1 = psf_bonds[2*b_id+0]; 
-		int a2 = psf_bonds[2*b_id+1]; 
+		int a1 = bonds_ext[2*b_id+0]; 
+		int a2 = bonds_ext[2*b_id+1]; 
 
 		int *cycle = NULL;
 		int cycle_length;
@@ -1981,14 +1998,14 @@ void fetchCycleBasis( int ***basis_out, int **basis_length, int *nbasis )
 //		for( int i = 0; i < cycle_length; i++ )
 //			printf(" %d", cycle[i] );
 //		printf("\n");
-		while( cur_atom_head < psf_natoms )
+		while( cur_atom_head < nat_ext )
 		{
 			if( !marked[cur_atom_head] )
 				break;
 			cur_atom_head++;
 		}
 
-		if( cur_atom_head == psf_natoms )
+		if( cur_atom_head == nat_ext )
 			done = 1;
 	}
 

@@ -224,6 +224,12 @@ struct boxing
 };
 
 
+// used by createAllAtom
+struct surface_mask;
+struct build_pass;
+struct aa_build_data;
+struct crd_psf_pair;
+
 struct surface
 {
 	int surface_id; // global id.
@@ -462,6 +468,7 @@ struct surface
 	int nextFace( int f, double *u, double *v, double *du, double *dv, double *r, double *mom=NULL, double *coord_transform=NULL);
 	int neighborList( int f, int *neighbors );
 	int map( int face_from, int face_to, double u, double v );
+	void find_near_spot( int *f, double *u_io, double *v_io, double *r_target, double *rsurf );
 
 	void generateBorderMappings(void);
 	double g( int f, double u, double v, double *r );
@@ -583,7 +590,10 @@ struct surface
 	int getCoordinateSystem( int source_f,   double *source_u,  double *source_v, 
 				double *dr, double strain, int leaflet,
 				  double *dx_duv, double *dy_duv, double *rsurf, int *regional_face, int *ncrosses, const double *align_x=NULL );
-
+	void buildLipids( parameterBlock *block, double *rsurf, 
+		aa_build_data *buildData, int halve[3],  FILE *charmmFile, FILE *doubleBondIndexes, 
+		crd_psf_pair **pairs,  int *npairs, int *npair_space, double total_lipid_charge[3],
+		surface_mask *upper_leaflet_mask, surface_mask *lower_leaflet_mask, int pass_pool_ids[3], int do_leaflet[3], double rim_center[3], double *rim_extent_upper, double *rim_extent_lower  );
 	void printCurvatureDistribution( double *r );
 	void minimize( double * r);
 

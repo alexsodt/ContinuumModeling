@@ -8,6 +8,9 @@ void getLine( FILE *theFile, char *theBuffer );
 int readNDoubles( char *buffer, double *vals, int nvalues );
 int readNInts( char *buffer, int *vals, int nvalues );
 int goToField( const char * buffer, int f );
+int nFields( const char *buffer );
+void getField( const char *buffer,  char *put );
+int fieldLen( const char *buffer );
 int my_isnan( double val );
 
 extern void set_default_stream(FILE *fp);

@@ -415,7 +415,7 @@ void printCRYST( FILE *toFile, double LX, double LY, double LZ, double alpha, do
 
 }
 
-void writeSEQRES( FILE *theFile, char *seq )
+void writeSEQRES( FILE *theFile, char *seq, int do_martini)
 {
 	int len = strlen(seq);
 	
@@ -456,7 +456,11 @@ void writeSEQRES( FILE *theFile, char *seq )
 			case 'G':
 				fprintf(theFile, " GLY"); break;
 			case 'H':
-				fprintf(theFile, " HSD"); break;
+				if( do_martini )
+					fprintf(theFile, " HIS");
+				else
+					fprintf(theFile, " HSD"); 
+				break;
 			case 'I':
 				fprintf(theFile, " ILE"); break;
 			case 'K':

@@ -25,7 +25,7 @@ double loadTransform( double *);
 double saveTransform( double *);
 int getNPSFDihedrals( void );
 void putPSFDihedrals( int *dihe_buffer );
-void loadCRD( FILE *theFile, struct atom_rec *at);
+int loadCRD( FILE *theFile, struct atom_rec *at);
 int loadPDB( FILE *theFile, struct atom_rec *at);
 void printCRD( FILE *theFile, struct atom_rec *at, int nat);
 void printSingleCRD( FILE *theFile, struct atom_rec *at );
@@ -50,7 +50,8 @@ typedef struct
 	int *atoms;
 } cycle;
 
-void fetchCycleBasis( int ***basis, int **basis_length, int *nbasis );
+void fetchPSFCycleBasis( int ***basis, int **basis_length, int *nbasis );
+void fetchCycleBasis( int ***basis_out, int **basis_length, int *nbasis, int *bonds_ext, int nat_ext, int nbonds_ext);
 int getNBonds( void );
 void getBonds( int * bonds );
 

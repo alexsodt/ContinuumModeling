@@ -7,6 +7,9 @@
 const int addToPool = 1;
 const int doNotAddToPool = 0;
 
+void processPatch( const char *patch, FILE *write_to, const char *segid );
+int patchFetch( char **patch_out, const char *dir, const char *file );
+int rtfFetch( char **rtf_out, const char *dir, const char*file );
 int pdbFetch( struct atom_rec **out_pdb, int *nout, const char *dir, const char *file, int addToPool=0 );
 char threeToOne( const char *code );
 

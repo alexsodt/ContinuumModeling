@@ -13,7 +13,7 @@
 #include "mesh_utility.h"
 #include "alignSet.h"
 //#define SKIP_OPT
-
+#define FIXED_SEED
 #define FIX_VOLUME
 
 surface *minSurface = NULL;
@@ -257,13 +257,15 @@ int main( int argc, char **argv )
 	quietParallel();
 #endif
 #ifdef FIXED_SEED
-	srand(1);
+	srand(669035);
 #else
           struct timeval tp;
  
           gettimeofday( &tp, NULL );
  
           srand((long)tp.tv_usec);
+
+	printf("SEED: %Ld\n", tp.tv_usec );
 #endif
 
 	char buffer[4096];
@@ -299,6 +301,8 @@ int main( int argc, char **argv )
 
 	while( ! auto_done ) 
 	{
+		printf("Current join_radius: %lf and join_len: %lf\n", join_radius, join_len );
+
 		if( !do_auto ) 
 			auto_done = 1;
 
@@ -369,6 +373,20 @@ int main( int argc, char **argv )
 	
 		printf("Getting the path to chop out of the first mesh.\n");
 		getVertPath( theSurface1, vert1, join_radius, &path1, &pathLen1, r1); 
+		
+		if( pathLen1 < 10 )
+		{
+			printf("Bad pathlen1.. Increase mesh density or increase radius of join.\n");
+			join_radius += dJoin;
+			if( dJoin > 0 ) 
+				dJoin += 1;
+			else
+				dJoin -= 1;
+			dJoin *= -1;
+			printf("dJoin: %lf join_radius: %lf\n", dJoin, join_radius );
+
+			continue;
+		}
 	
 	#ifdef DEBUG_1
 		printf("%d\n", theSurface1->nv );
@@ -561,9 +579,20 @@ int main( int argc, char **argv )
 		int nv;
 		
 		getAltCylinderMesh( &rvals, &edges, &nedges, &nv, pathLen1, join_radius, join_len ); 
+
+		if( nv < pathLen1+pathLen2 )
+		{
+			printf("Strange catastrophic problem... pathLen1+pathLen2 > nv.\n");
+		
+			getAltCylinderMesh( &rvals, &edges, &nedges, &nv, pathLen1, join_radius, join_len ); 
+			exit(1);
+		}
 	
 		// discard edge-edges.
-		
+	
+		// the first pathLen1 pts are the lower edge.
+		// the last pathLen1 pts are the lower edge.
+		//
 		// remove the edges of path1 pointing to path2 and path1
 		for( int v = 0; v < pathLen1; v++ )
 		{

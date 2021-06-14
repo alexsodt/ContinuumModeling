@@ -26,8 +26,10 @@ void CartMatVecIncrScale( double *vec_out, double *vec_in, double *Mat, double s
 void MatVec( double *a, double *b, double *c, int m, int n);
 int nearInteriorPointOnTriangle( double *test_pt, double *vert1, double *vert2, double *vert3, double *output);
 int line_segment_triangle_intersection( double *r1, double *r2, double *v1, double *v2, double *v3, double fudge=0 );
+void brute_force_dihedral( double *,double*,double*,double*,double*);
 double segmentSegmentDist( double *r1A, double *r1B, double *r2A, double *r2B, double *t1_out, double *t2_out);
 double dihe( double *r1, double *r2, double *r3, double *r4 ); 
+void cp_der_dot( double *v1, double *v2, double *der, double *dot );
 void normal_cp_der( double *r2, double *r1, double *r3, double nrm_der[27] );
 void fillcpder( double *der, double *dr, 
 		int wrt,
@@ -36,6 +38,6 @@ void fillcpder( double *der, double *dr,
 void fillcp( double *der, double *r );
 
 // given drdu and drdv, find {u,v} pair that aligns along target, normalized.
-void best_align( double *out_uv, double *ru, double *rv, double *target );
+void best_align( double *out_uv, double *ru, double *rv, double *target, int normalize=1 );
 
 #endif

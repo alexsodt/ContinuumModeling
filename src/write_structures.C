@@ -1502,21 +1502,70 @@ void Simulation::writeLimitingSurface( FILE *theFile )
 		if( allComplexes[c]->disabled ) continue;
 		if( allComplexes[c]->nsites <= 0 ) continue;
 
-		double p_loop[3] = { allComplexes[c]->rall[0], allComplexes[c]->rall[1], allComplexes[c]->rall[2] };
+		int nsites = allComplexes[c]->nsites;
+
+		double all_coords[3*nsites];
+
+		memcpy( all_coords, allComplexes[c]->rall, sizeof(double) * 3 * nsites );
+
+		int nbonds = allComplexes[c]->getNBonds();
+		int theBonds[nbonds*2];
+		int looped[nsites];
+		memset( looped, 0, sizeof(int) * nsites );
+
+		allComplexes[c]->putBonds( theBonds );
+
+		int done = 0;
+
+		while( !done )
+		{
+			done = 1;
+
+			for( int b = 0; b < nbonds; b++ )
+			{
+				int b1 = theBonds[2*b+0];
+				int b2 = theBonds[2*b+1];
+
+				if( !looped[b1] && !looped[b2] ) continue;
+	
+				if( !looped[b1] ) 
+				{
+					double dr[3] = { all_coords[3*b1+0] - all_coords[3*b2+0],
+							 all_coords[3*b1+1] - all_coords[3*b2+1],
+							 all_coords[3*b1+2] - all_coords[3*b2+2] };
+					wrapPBC(dr, alpha);
+
+					all_coords[3*b1+0] = all_coords[3*b2+0] + dr[0];			
+					all_coords[3*b1+1] = all_coords[3*b2+1] + dr[1];			
+					all_coords[3*b1+2] = all_coords[3*b2+2] + dr[2];			
+					looped[b1] = 1;
+					done=0;
+				}
+
+				if( !looped[b2] )
+				{
+					double dr[3] = { all_coords[3*b2+0] - all_coords[3*b1+0],
+							 all_coords[3*b2+1] - all_coords[3*b1+1],
+							 all_coords[3*b2+2] - all_coords[3*b1+2] };
+					wrapPBC(dr, alpha);
+
+					all_coords[3*b2+0] = all_coords[3*b1+0] + dr[0];			
+					all_coords[3*b2+1] = all_coords[3*b1+1] + dr[1];			
+					all_coords[3*b2+2] = all_coords[3*b1+2] + dr[2];			
+					looped[b2] = 1;
+					done=0;
+				}
+			}
+		}
 		
 		for( int p = 0; p < allComplexes[c]->nsites; p++ )
 		{
 			char siteCode = allComplexes[c]->getSiteCode(p);
-			double dr[3] = { allComplexes[c]->rall[3*p+0] - p_loop[0],
-					 allComplexes[c]->rall[3*p+1] - p_loop[1],
-					 allComplexes[c]->rall[3*p+2] - p_loop[2] };
 				
-			wrapPBC( dr, alpha );
-
 			fprintf(theFile, "%c %lf %lf %lf\n", siteCode, 
-				p_loop[0] + dr[0],
-				p_loop[1] + dr[1],
-				p_loop[2] + dr[2] );
+				all_coords[3*p+0],
+				all_coords[3*p+1],
+				all_coords[3*p+2] );
 			nsites_written++;
 		}
 	}
