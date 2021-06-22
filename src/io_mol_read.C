@@ -415,7 +415,7 @@ int addStructureToPool( const char *fileNameStruct, const char *fileNamePSF )
 	int nread=0;
 	int use_crd = 0;
 
-	int has_pbc = 1;
+	pool->has_pbc = 1;
 
 	if( strlen(fileNameStruct) > 3 && !strncasecmp(fileNameStruct+strlen(fileNameStruct)-3,"crd",3) )
 	{
@@ -437,7 +437,7 @@ int addStructureToPool( const char *fileNameStruct, const char *fileNamePSF )
 	double Lx=0,Ly=0,Lz=0;
 	double a,b,g;
 
-	has_pbc = !PBCD( &Lx, &Ly, &Lz, &a, &b, &g );
+	pool->has_pbc = !PBCD( &Lx, &Ly, &Lz, &a, &b, &g );
 
 	pool->Lx = Lx;
 	pool->Ly = Ly;
@@ -565,7 +565,7 @@ int addStructureToPool( const char *fileNameStruct, const char *fileNamePSF )
 	// get the bilayer center.
 		double wrapto = 0;
 	
-	if( has_pbc )
+	if( pool->has_pbc )
 	{
 #define N_BINS_MOLDIST 100
 
@@ -763,6 +763,18 @@ struct pool_structure *getPool(int id)
 void deleteFromPool( int id )
 {
 
+}
+
+int poolIsMartini( int id )
+{
+	pool_structure *thePool = getPool(id);
+	struct atom_rec *at = thePool->at;
+	for( int a = 0; a < thePool->nat; a++ )
+	{
+		if( at[a].resname[0] == 'W' && !at[a].resname[1] )
+			return 1;
+	}
+	return 0;
 }
 
 

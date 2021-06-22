@@ -41,6 +41,8 @@ struct pool_structure
 	struct atom_rec *at;
 	int nat;
 
+	int has_pbc;
+
 	double Lx,Ly,Lz;
 
 	struct pool_structure *next;
@@ -55,7 +57,7 @@ extern struct pool_structure *thePool;
 int addStructureToPool( const char *fileNameStruct, const char *fileNamePSF );
 struct pool_structure *getPool(int id);
 void deleteFromPool(int id);
-
+int poolIsMartini( int id );
 
 #endif
 

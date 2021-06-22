@@ -5,6 +5,7 @@
 #include "GJK.h"
 #include "pdb.h"
 #include "globals.h"
+#include "io_mol_read.h"
 
 void aa_build_data::init( void )
 {
@@ -30,6 +31,13 @@ void aa_build_data::init( void )
 	nplacedSpace = 100;
 
 	placed_atoms = (double *)malloc( sizeof(double) * 3 * nplacedSpace );	
+	deleted = (int* )malloc( sizeof(int) * nplacedSpace );
+
+	del_space = 1024;
+	charmm_delete_buffer = (char *)malloc( sizeof(char) * (1+del_space) );
+	charmm_delete_buffer[0] = '\0';
+		
+	add_mode = 0;
 }
 
 int aa_build_data::curPlace( void )
@@ -43,11 +51,13 @@ int aa_build_data::addAtom( double *r )
 	{
 		nplacedSpace *= 2;
 		placed_atoms = (double *)realloc( placed_atoms, sizeof(double) * nplacedSpace * 3 );		
+		deleted = (int *)realloc( deleted, sizeof(int) * nplacedSpace );
 	}
 
 	placed_atoms[3*nplaced+0] = r[0];
 	placed_atoms[3*nplaced+1] = r[1];
 	placed_atoms[3*nplaced+2] = r[2];
+	deleted[nplaced] = 0;
 
 	boxit( placed_atoms+3*nplaced, nplaced, theBoxes, PBC_vec, nx, ny, nz );
 
@@ -399,7 +409,7 @@ void aa_build_data::addSpecialCycle( int *cycle, int len, double *coords )
 
 }
 
-int aa_build_data::bondClash( double *r1, double *r2 )
+int aa_build_data::bondClash_worker( double *r1, double *r2, int action, int i, int j)
 {
 	int clash = 0;
 
@@ -418,9 +428,9 @@ int aa_build_data::bondClash( double *r1, double *r2 )
 	int by = bond_com[1] * ny_c / PBC_vec[1][1];
 	int bz = bond_com[2] * nz_c / PBC_vec[2][2];
 			
-	for( int dx = -1; dx <= 1 && !clash; dx++ )
-	for( int dy = -1; dy <= 1 && !clash; dy++ )
-	for( int dz = -1; dz <= 1 && !clash; dz++ )
+	for( int dx = -1; dx <= 1 && (action == ACTION_DELETE || !clash); dx++ )
+	for( int dy = -1; dy <= 1 && (action == ACTION_DELETE || !clash); dy++ )
+	for( int dz = -1; dz <= 1 && (action == ACTION_DELETE || !clash); dz++ )
 	{
 		int n_b_x = bx + dx;
 		int n_b_y = by + dy;
@@ -435,19 +445,23 @@ int aa_build_data::bondClash( double *r1, double *r2 )
 
 		int nb = n_b_x*ny_c*nz_c+n_b_y*nz_c+n_b_z;
 
-		for( int px = 0; px < cycleBoxes[nb].np && !clash; px++ )
+		for( int px = 0; px < cycleBoxes[nb].np && (action == ACTION_DELETE || !clash) ; px++ )
 		{
 			int c = cycleBoxes[nb].plist[px];
 
 			double ring_com[3] = {0,0,0};
-	
+			int del = 0;
 			for( int t = 0; t < global_cycle_len[c]; t++ )
 			{
 				int loff = global_cycles[c][t];
 				ring_com[0] += (placed_atoms)[3*loff+0];
 				ring_com[1] += (placed_atoms)[3*loff+1];
 				ring_com[2] += (placed_atoms)[3*loff+2];
+				if( deleted[loff] )
+					del = 1;
 			}
+
+			if( del ) continue;
 	
 			ring_com[0] /= global_cycle_len[c];
 			ring_com[1] /= global_cycle_len[c];
@@ -486,15 +500,24 @@ int aa_build_data::bondClash( double *r1, double *r2 )
 	
 				double convex_set[3*global_cycle_len[c]];
 			
-				for( int t = 0; t < global_cycle_len[c] && !clash; t++ )
+				int an_off;
+				int abort = 0;
+				for( int t = 0; t < global_cycle_len[c] && (action == ACTION_DELETE || !clash); t++ )
 				{
 					int loff1 = global_cycles[c][t];
-	
+
+					if( loff1 == i || loff1 == j )
+					{
+						abort = 1;
+						break;
+					}
+					an_off = loff1;
 					convex_set[3*t+0] = (placed_atoms)[loff1*3+0];
 					convex_set[3*t+1] = (placed_atoms)[loff1*3+1];
 					convex_set[3*t+2] = (placed_atoms)[loff1*3+2];
 					if( t > 0 )
 					{
+
 						double dr[3] = { convex_set[3*t+0] - convex_set[3*(t-1)+0],
 									convex_set[3*t+1] - convex_set[3*(t-1)+1],
 									convex_set[3*t+2] - convex_set[3*(t-1)+2] };
@@ -511,13 +534,27 @@ int aa_build_data::bondClash( double *r1, double *r2 )
 					}
 				}
 	
-				if( box_GJK( convex_set, global_cycle_len[c], r1_s, r2_s, 0.75 ) )
-					clash = 2;
+				if( ! abort )
+				{
+					if( box_GJK( convex_set, global_cycle_len[c], r1_s, r2_s, 0.75 ) )
+					{
+						if( action == ACTION_DELETE )
+						{
+							deleteResidue( an_off );
+						}
+						clash = 2;
+					}
+				}
 			}
 		}
 	}
 
 	return clash;
+}
+
+int aa_build_data::bondClash( double *r1, double *r2 )
+{
+	return bondClash_worker( r1, r2, ACTION_REPORT );
 }
 
 int aa_build_data::cycleClash( double *coords, int a_start, int *cycle, int len )
@@ -573,6 +610,8 @@ int aa_build_data::cycleClash( double *coords, int a_start, int *cycle, int len 
 		for( int px = 0; px < theBoxes[nb].np && !clash; px++ )
 		{
 			int p = theBoxes[nb].plist[px];
+					
+			if( deleted[p] ) continue;
 
 			double dr[3] = { 
 				placed_atoms[3*p+0] - ring_com[0], 
@@ -612,6 +651,8 @@ int aa_build_data::cycleClash( double *coords, int a_start, int *cycle, int len 
 					double r1[3] = { (placed_atoms)[3*p+0], (placed_atoms)[3*p+1],(placed_atoms)[3*p+2]};
 					double r2[3] = { (placed_atoms)[3*p2+0], (placed_atoms)[3*p2+1],(placed_atoms)[3*p2+2]};
 
+					if( deleted[p2] ) continue;
+
 					r1[0] += shift[0];
 					r1[1] += shift[1];
 					r1[2] += shift[2];
@@ -630,7 +671,7 @@ int aa_build_data::cycleClash( double *coords, int a_start, int *cycle, int len 
 	return clash;
 }
 
-int aa_build_data::nclash_aa( double *coords, int lc, int is_mod, double cutoff, int *halve )
+int aa_build_data::nclash_aa_worker( double *coords, int lc, int is_mod, double cutoff, int *halve, int action )
 {
 	int nclash = 0;
 	
@@ -690,6 +731,8 @@ int aa_build_data::nclash_aa( double *coords, int lc, int is_mod, double cutoff,
 				for( int px = 0; px < theBoxes[nb].np; px++ )
 				{
 					int p = theBoxes[nb].plist[px];
+
+					if( deleted[p] ) continue;
 	
 					if( p < nplaced_pcut && is_mod ) continue;
 					if( p >= nplaced_pcut && (tdx > 0 || tdy > 0 || tdz > 0) ) continue;	
@@ -711,6 +754,9 @@ int aa_build_data::nclash_aa( double *coords, int lc, int is_mod, double cutoff,
 	
 					if( dist < cutoff )
 					{
+						if( action == ACTION_DELETE )
+							deleteResidue( p );
+
 						nclash++; 
 					}
 				}
@@ -719,6 +765,11 @@ int aa_build_data::nclash_aa( double *coords, int lc, int is_mod, double cutoff,
 	}
 
 	return nclash;
+}
+
+int aa_build_data::nclash_aa( double *coords, int lc, int is_mod, double cutoff, int *halve )
+{
+	return nclash_aa_worker( coords, lc, is_mod, cutoff, halve, ACTION_REPORT );
 }
 	
 void aa_build_data::setupBoxing( double PBC_in[3][3], int nx_in, int ny_in, int nz_in )
@@ -936,4 +987,138 @@ void autoBonds( struct atom_rec *at, int nat, int **bonds_out, int *nbonds_out)
 	}
 	*bonds_out = bonds;
 	*nbonds_out = nbonds;
+}
+
+void aa_build_data::addSystemPool( int pool_code )
+{
+	system_pool = pool_code;
+
+	pool_structure *pool = getPool(pool_code);
+	
+	int place_offset = curPlace();
+	struct atom_rec * at = pool->at;
+
+	double *flat_coords = (double *)malloc( sizeof(double) * 3 * pool->nat );
+	int *output_map = (int *)malloc( sizeof(int) * pool->nat );
+	for( int a = 0; a < pool->nat; a++ )
+	{
+		flat_coords[3*a+0] = at[a].x;
+		flat_coords[3*a+1] = at[a].y;
+		flat_coords[3*a+2] = at[a].z;
+
+		output_map[a] = a; // trivial mapping since everything is in.
+		addAtom( flat_coords+3*a );
+	}
+
+	addMappedCycles( place_offset, flat_coords, output_map, pool->nat, pool->cycles, pool->cycle_lengths, pool->ncycles );
+	addMappedBonds( place_offset, output_map, pool->nat, pool->bonds, pool->bond_offsets, pool->nbonds ); 
+	
+	free(output_map);
+	free(flat_coords);
+}
+
+int aa_build_data::deleteResidue( int index )
+{
+	pool_structure *pool = getPool(system_pool);
+
+	if( !pool )
+	{
+		printf("System pool not set. Residues cannot be deleted.\n");
+		exit(1);
+	}
+
+	struct atom_rec *at = pool->at;
+	int nat = pool->nat;
+
+	if( index >= nat )
+	{
+		// outside of pool
+		return 0;
+
+//		printf("Attempting to delete a residue outside of the system pool (nat: %d index to delete: %d).\n",
+//		nat, index );
+//		exit(1);
+	}
+	
+	deleted[index] = 1;
+
+	int t = index-1;
+	while( t >= 0 && at[index].res == at[t].res && !strcasecmp(at[index].segid, at[t].segid) )
+	{
+		deleted[t] = 1;
+		t--;
+	}
+	t = index+1;
+	while( t < nat && at[index].res == at[t].res && !strcasecmp(at[index].segid, at[t].segid) )
+	{
+		deleted[t] = 1;
+		t++;
+	}
+
+	int len = strlen("delete atom sele atom * * * end") + strlen(at[index].resname) + strlen(at[index].segid);
+
+
+	char *string_to_add = (char *)malloc( sizeof(char) * (len + 1 + 256 ) );
+
+	if( !strcasecmp( at[index].resname, "CER180" ) ||
+	    !strcasecmp( at[index].resname, "BGLC") || 
+	    !strcasecmp( at[index].resname, "BGAL") ||
+	    !strcasecmp( at[index].resname, "ANE5AC" ) )
+	{
+		sprintf(string_to_add, "delete atom sele atom %s * * end\n",
+			at[index].segid  );
+	}
+	else
+		sprintf(string_to_add, "delete atom sele atom %s %d * end\n",
+			at[index].segid, at[index].segRes );
+	int clen = strlen(charmm_delete_buffer);
+	if( strlen(string_to_add) + clen >= del_space )
+	{
+		del_space = strlen(string_to_add) + clen + 1024;
+		charmm_delete_buffer = (char *)realloc( charmm_delete_buffer, sizeof(char) * (del_space+1) );
+	}	
+	
+	strcpy( charmm_delete_buffer + clen, string_to_add ); 
+
+	return 1;				
+}
+
+int aa_build_data::inAddMode( void )
+{
+	return add_mode;
+}
+
+int aa_build_data::activateAddMode( void )
+{
+	add_mode = 1;
+}
+
+int aa_build_data::deactivateAddMode( void )
+{
+	add_mode = 0;
+}
+
+void aa_build_data::deleteClashes( int start, int num )
+{
+	// delete all clashes with these atoms.	
+	if( add_mode  )
+	{
+		double cutoff = 1.0;
+
+		if( doMartini()  )
+			cutoff = 2.5;
+
+		nclash_aa_worker( placed_atoms+start*3, num, 0, cutoff, NULL, ACTION_DELETE );
+	
+		for( int a = start; a < start+num; a++ )
+		{
+			for( int b = 0; b < global_nbonds[a]; b++ )
+			{
+				int a2 = global_bonds[global_bond_offsets[a]+b];
+
+				bondClash_worker( placed_atoms+a*3, placed_atoms+a2*3, ACTION_DELETE, a, a2 );
+			}
+		}
+	}
+	
 }

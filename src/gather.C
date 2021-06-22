@@ -13,6 +13,7 @@
 #include "mutil.h"
 #include "pcomplex.h"
 #include <math.h>
+#include "maxc.h"
 
 double Simulation::nearCurvature( double *rpt, double *c_out, double *k_out, double *dp_out, double *dz_out, int *leaflet_out, double *out_nrm )
 {
@@ -84,23 +85,98 @@ double Simulation::nearCurvature( double *rpt, double *c_out, double *k_out, dou
 	return min_c;
 }
 
+static double fusion_pore_center[3] = {0,0,0};
+static double fusion_pore_r 	    = 0;
+static double fusion_pore_h	    = 0;
+static int is_fusion_pore = 0;
+
+int getFusionPoreData( double *center, double *r, double *h )
+{
+	if( is_fusion_pore )
+	{
+		center[0] = fusion_pore_center[0];
+		center[1] = fusion_pore_center[1];
+		center[2] = fusion_pore_center[2];
+		*r = fusion_pore_r;
+		*h = fusion_pore_h;
+
+		return 1;
+	}
+	
+	return 0;
+}
+
 void Simulation::gather( parameterBlock *block )
 {
+			double vec1[3], vec2[3];
 	for( surface_record *sRec = allSurfaces; sRec; sRec = sRec->next )
 	{
 		double av_c = 0;
 		double av_k = 0;
 		double sum_g = 0;	
+	
+		double uv_max_neg[2];
+		int f_max_neg;	
+		double max_neg = 1e10;
+	
+		double uv_max_pos[2];
+		int f_max_pos;	
+		double max_pos = -1e10;
+		
+		double uv_max_k[2];
+		int f_max_k;	
+		double max_k = 1e10;
 
 		for( int f = 0; f < sRec->theSurface->nt; f++ )
 		{
 			double k;
 			double g = sRec->theSurface->g(f, 1.0/3.0, 1.0/3.0, sRec->r ); 
-			av_c += g * sRec->theSurface->c(f, 1.0/3.0, 1.0/3.0, sRec->r, &k ); 
+			double c1,c2;
+			double c = sRec->theSurface->c(f, 1.0/3.0, 1.0/3.0, sRec->r, &k, vec1, vec2, &c1, &c2 );
+			av_c += g * c; 
 			av_k += k * g;
 			sum_g += g;
+
+			if( c1 > max_pos )
+			{
+				max_pos = c1;
+				uv_max_pos[0] = 1.0/3.0;
+				uv_max_pos[1] = 1.0/3.0;
+				f_max_pos = f;
+			}
+			else if( c2 > max_pos )
+			{
+				max_pos = c2;
+				uv_max_pos[0] = 1.0/3.0;
+				uv_max_pos[1] = 1.0/3.0;
+				f_max_pos = f;
+			}
+			
+			if( c1 < max_neg )
+			{
+				max_neg = c1;
+				uv_max_neg[0] = 1.0/3.0;
+				uv_max_neg[1] = 1.0/3.0;
+				f_max_neg = f;
+			}
+			if( c2 < max_neg )
+			{
+				max_neg = c2;
+				uv_max_neg[0] = 1.0/3.0;
+				uv_max_neg[1] = 1.0/3.0;
+				f_max_neg = f;
+			}
+
+			if( k < max_k )
+			{
+				max_k = c;
+				uv_max_k[0] = 1.0/3.0;
+				uv_max_k[1] = 1.0/3.0;
+				f_max_k = f;
+			}
 		}
 
+		double *rsurf = sRec->r;
 		double chi_check = -av_k / (8*M_PI);
 	
 		printf("K_tot: %lf\n", av_k );	
@@ -130,6 +206,98 @@ void Simulation::gather( parameterBlock *block )
 				printf("Flipping.\n");
 			else
 				printf("Not flipping.\n");
+
+			// printf("Getting fusion pore info.
+
+			if( sRec->gather_flip )
+			{
+				double uvt[2] = { uv_max_pos[0], uv_max_pos[1] };
+				int ft = f_max_pos;
+
+				uv_max_pos[0] = uv_max_neg[0];
+				uv_max_pos[1] = uv_max_neg[1];
+				f_max_pos = f_max_neg;
+
+				uv_max_neg[0] = uvt[0];
+				uv_max_neg[1] = uvt[1];
+				f_max_neg = ft;	
+			}
+
+                               
+			max_c( sRec->theSurface, &f_max_k, uv_max_k+0, uv_max_k+1, 1000, rsurf, MAX_C_GAUSS );     
+			max_c( sRec->theSurface, &f_max_pos, uv_max_pos+0, uv_max_pos+1, 1000, rsurf, MAX_C_POS );     
+			max_c( sRec->theSurface, &f_max_neg, uv_max_neg+0, uv_max_neg+1, 1000, rsurf, MAX_C_NEG );     
+   
+			double k;
+			double cpos[2];
+			double cneg[2];
+			double ck[2];
+			sRec->theSurface->c(f_max_k, uv_max_k[0], uv_max_k[1], rsurf, &k, vec1,vec2, ck+0, ck+1 );
+			sRec->theSurface->c(f_max_pos, uv_max_pos[0], uv_max_pos[1], rsurf, &k, vec1,vec2,cpos+0, cpos+1 );
+			sRec->theSurface->c(f_max_neg, uv_max_neg[0], uv_max_neg[1], rsurf, &k, vec1,vec2,cneg+0, cneg+1 );
+			
+
+			
+ 
+			double nrm_junk[3];
+			double max_saddle[3];
+			double max_pos[3];
+			double max_neg[3];
+
+			sRec->theSurface->evaluateRNRM( f_max_k, uv_max_k[0], uv_max_k[1], max_saddle, nrm_junk, rsurf ); 
+			sRec->theSurface->evaluateRNRM( f_max_pos, uv_max_pos[0], uv_max_pos[1], max_pos, nrm_junk, rsurf ); 
+			sRec->theSurface->evaluateRNRM( f_max_neg, uv_max_neg[0], uv_max_neg[1], max_neg, nrm_junk, rsurf ); 
+
+			printf("Max saddle at %lf %lf %lf c: %lf %lf\n", max_saddle[0], max_saddle[1], max_saddle[2] , ck[0], ck[1] ); 
+			printf("Max pos at %lf %lf %lf c: %lf %lf\n", max_pos[0], max_pos[1], max_pos[2], cpos[0], cpos[1] ); 
+			printf("Max neg at %lf %lf %lf c: %lf %lf\n", max_neg[0], max_neg[1], max_neg[2], cneg[0], cneg[1]  ); 
+		
+			double cen[3]={0,0,0};
+
+			
+			int f_ring[20];
+			double uv_ring[40];
+			double rim_pts[60];
+			int nrim = 20;
+			int nrim_out = 20;
+			sRec->theSurface->get_cut_points( 2, max_pos[2], f_ring, uv_ring, rim_pts, nrim, rsurf, &nrim_out, cen, 0, 0  );
+
+			printf("center: %lf %lf %lf\n", cen[0], cen[1], cen[2] );
+			
+			double av_r = 0;
+			double av_r2 = 0;
+			double com[3]={0,0,0};
+			for( int i = 0; i < nrim_out; i++ )
+			{
+				com[0] += rim_pts[3*i+0] / nrim_out;
+				com[1] += rim_pts[3*i+1] / nrim_out;
+				com[2] += rim_pts[3*i+2] / nrim_out;
+			} 
+
+			printf("com: %lf %lf %lf\n", com[0], com[1], com[2] );	 
+			
+			for( int i = 0; i < nrim_out; i++ )
+			{
+				double dr[3] = { rim_pts[3*i+0] - com[0],
+						 rim_pts[3*i+1] - com[1],
+						 rim_pts[3*i+2] - com[2] };
+				double r =normalize(dr);
+				av_r += r;
+				av_r2 += r*r;
+			}
+			av_r /= nrim_out;
+			av_r2 /= nrim_out;
+			double var = av_r2 -av_r*av_r;
+	
+			printf("r: %lf stdd %lf\n", av_r, sqrt(var) );
+	
+			fusion_pore_center[0] = com[0];
+			fusion_pore_center[1] = com[1];
+			fusion_pore_center[2] = com[2];
+			fusion_pore_r = av_r;
+			fusion_pore_h = 0;
+
+			is_fusion_pore = 1;
 		}
 		else
 		{	

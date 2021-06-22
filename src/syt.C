@@ -12,6 +12,7 @@
 #include "uv_map.h"
 #include "M_matrix.h"
 #include "lapack_we_use.h"
+#include "gather.h"
 
 #define SQRT_SAFETY (1e-7)
 
@@ -1495,6 +1496,10 @@ void syt7::get(
 	int nbound_all[2] = { 0,0 };
 	int nbound_ca[2] = { 0,0 };
 
+	double domain_com[2][3] = { {0,0,0},
+				    {0,0,0} };
+	double ndom[2] = {0,0};
+
         int domain_start[2] = { 1, 255 };
         int domain_stop[2] = { 256, 500 }; // arbitrary end.
 
@@ -1504,6 +1509,10 @@ void syt7::get(
 	int nat2_space = 10;
 	int nat2 = 0;
 	int *a2_loop = (int *)malloc( sizeof(int) * nat2_space );
+
+	double *depth = (double *)malloc( sizeof(double) * 500 );
+	for( int r = 0; r < 500; r++)
+		depth[r] = -1;
 
 	for( int a2 = 0; a2 < nat_tot; a2++ )
 	{
@@ -1522,12 +1531,21 @@ void syt7::get(
 		nat2++;	
 	
 	}
+
 	for( int domain = 0; domain < 2; domain++ )
 	{
 		memset( I[domain], 0, sizeof(double) * 9 );
 		
 		for( int a = syt7_start; a < syt7_stop ; a++ )
 		{
+			if( at[a].res >= domain_start[domain] && at[a].res <= domain_stop[domain] )
+			{
+				domain_com[domain][0] += at[a].x;
+				domain_com[domain][1] += at[a].y;
+				domain_com[domain][2] += at[a].z;
+				ndom[domain] += 1;	
+			}
+
 			if( at[a].res >= strand_min_res[domain] && at[a].res <= strand_max_res[domain] )
 			{
 				avp[domain][0] += at[a].x;
@@ -1568,8 +1586,6 @@ void syt7::get(
 
 			if( !strcasecmp( at[a].resname, "ASP") && at[a].atname[0] == 'O' )
 			{
-//				for( int a2 = 0; a2 < nat_tot; a2++ )
-//				{
 				for( int a2x = 0; a2x < nat2; a2x++ )
 				{
 					int a2 = a2_loop[a2x];
@@ -1723,6 +1739,111 @@ void syt7::get(
 	}
 	
 	free(a2_loop);
+
+	double fp_center[3];
+	double fp_r;
+	double fp_h;
+
+	domain_com[0][0] /= ndom[0];
+	domain_com[0][1] /= ndom[0];
+	domain_com[0][2] /= ndom[0];
+	
+	domain_com[1][0] /= ndom[1];
+	domain_com[1][1] /= ndom[1];
+	domain_com[1][2] /= ndom[1];
+
+	double fp_thresh = 20.0;
+
+
+	if( getFusionPoreData( fp_center, &fp_r, &fp_h ) )
+	{
+
+
+		printf("FP cen: %lf %lf %lf\n", fp_center[0], fp_center[1], fp_center[2] );
+		printf("FP r: %lf\n", fp_r );
+		printf("FP h: %lf\n", fp_h );		
+
+		double dr_A[3] = { domain_com[0][0] - fp_center[0], domain_com[0][1] - fp_center[1], domain_com[0][2] - fp_center[2] };
+		double dr_B[3] = { domain_com[1][0] - fp_center[0], domain_com[1][1] - fp_center[1], domain_com[1][2] - fp_center[2] };
+
+		double dist;	
+		int f_com_A;
+		double uv_A[2];
+		theSurface->nearPointOnBoxedSurface( domain_com[0], &f_com_A, uv_A, uv_A+1, M, mlow, mhigh, &dist );		
+	
+		double c_vec_1[3];
+		double c_vec_2[3];
+		double c_val_A1, c_val_A2;
+		double k;
+		theSurface->c( f_com_A, uv_A[0], uv_A[1], rsurf, &k, c_vec_1, c_vec_2, &c_val_A1, &c_val_A2 ); 
+		
+		int f_com_B;
+		double uv_B[2];
+		theSurface->nearPointOnBoxedSurface( domain_com[1], &f_com_B, uv_B, uv_B+1, M, mlow, mhigh, &dist );		
+	
+		double c_val_B1, c_val_B2;
+		theSurface->c( f_com_B, uv_B[0], uv_B[1], rsurf, &k, c_vec_1, c_vec_2, &c_val_B1, &c_val_B2 ); 
+	
+		double put[3];
+
+		MinImage3D( dr_A, theSimulation->PBC_vec, put ); 
+		MinImage3D( dr_B, theSimulation->PBC_vec, put ); 
+
+		double r_A = normalize(dr_A);
+		double r_B = normalize(dr_B);
+
+		int is_FP[2] = {0,0};
+
+		if( r_A < fp_r + fp_thresh )
+			is_FP[0] = 1;
+		if( r_B < fp_r + fp_thresh )
+			is_FP[1] = 1;
+
+		printf("CONTACTS %d C2A: r: %lf c: %lf %lf C2B: r: %lf c: %lf %lf res_depths:", my_id, r_A, c_val_A1, c_val_A2, r_B, c_val_B1, c_val_B2 );
+		int max = -1;		
+		for( int a = syt7_start; a < syt7_stop ; a++ )
+		{
+			if( !strcasecmp( at[a].atname, "CA") ) 
+			{
+				double rp[3] = { at[a].x, at[a].y, at[a].z };
+
+				double dist;
+				int f;
+				double col_u, col_v;
+				theSurface->nearPointOnBoxedSurface( rp, &f, &col_u, &col_v, M, mlow, mhigh, &dist );		
+
+				double rpt[3], npt[3];
+
+				theSurface->evaluateRNRM( f, col_u, col_v, rpt, npt, rsurf );
+
+				double dr[3] = { rp[0] - rpt[0], rp[1] - rpt[1], rp[2] - rpt[2] };
+	
+				double put[3];
+				MinImage3D( dr, theSimulation->PBC_vec, put );
+
+				double d = normalize(dr);
+
+				depth[at[a].res] = d; 
+				max = at[a].res;
+			}		
+		}
+
+		for( int r = 1; r <= max; r++ )
+			printf(" %lf", depth[r] );
+		printf("\n");
+
+	}	
+
+
+	// CLASSIFICATION
+
+	// * C2A near fusion pore
+	
+	// * C2B near fusion pore
+
+	// * Both near fusion pore
+	
+	// Both in bulk region
 }
 
 
