@@ -34,7 +34,7 @@ Check Min_Distance::NearestSimplex()
 	double l3 = dot(simplex[1],n3);
 	double l4 = dot(simplex[2],n4);
 
-	const double eps = 1e-15;
+	const double eps = 1e-12;
 
 	int con1 = (k1 >= -eps && l1 <= k1+eps) || ( k1 <= eps && l1 >= k1-eps );
 	int con2 = (k2 >= -eps && l2 <= k2+eps) || ( k2 <= eps && l2 >= k2-eps );

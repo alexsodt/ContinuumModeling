@@ -160,6 +160,8 @@ void Simulation::loadRestart( FILE *loadFile, int *seed )
 			// mismatch of the n-mer state. in this case, we clone the unit and add to it.
 
 			pcomplex *temp = allComplexes[c]->clone();
+			temp->is_inside = allComplexes[c]->is_inside;
+			
 			if( allComplexes[c]->bound )
 			{		
 				surface_record *sRec = fetch(allComplexes[c]->sid[0]);

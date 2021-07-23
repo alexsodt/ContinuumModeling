@@ -251,6 +251,13 @@ void dynamin::clone( Simulation *theSimulation, surface *theSurface, double *rsu
 	for( int m = nmer_copy; m < nmer_saved; m++ )
 		placeSubunit( theSimulation, theSurface, rsurf, m, dynamin_axis );
 	
+	for( int a = nmer_copy*2; a < nsites; a++ )
+	{
+		PBC_ext[3*a+0] = 0;
+		PBC_ext[3*a+1] = 0;
+		PBC_ext[3*a+2] = 0;
+	}
+	
 	setrall(theSimulation);
 	
 	int nbonds = getNBonds();
@@ -262,11 +269,23 @@ void dynamin::clone( Simulation *theSimulation, surface *theSurface, double *rsu
 	memset( lock, 0, sizeof(int) * nsites);
 	lock[0] = 1;
 
+
+//#define DEBUG_BLOCK
+#ifdef DEBUG_BLOCK
 	for( int a = 0; a < nsites; a++ )
 	{
-		PBC_ext[3*a+0] = 0;
-		PBC_ext[3*a+1] = 0;
-		PBC_ext[3*a+2] = 0;
+		if( a < nattach )
+			printf("C %lf %lf %lf\n", rall[3*a+0], rall[3*a+1], rall[3*a+2] );
+		else
+			printf("O %lf %lf %lf\n", rall[3*a+0], rall[3*a+1], rall[3*a+2] );
+	}
+	exit(1);
+#endif
+
+	for( int s = 0; s < nattach; s++ )
+	{
+		double nrmx[3];
+	//	theSurface->evaluateRNRM( fs[s], puv[2*s+0], puv[2*s+1], rall+3*s, nrmx, rsurf ); 
 	}
 
 	int done = 0;
@@ -293,7 +312,9 @@ void dynamin::clone( Simulation *theSimulation, surface *theSurface, double *rsu
 	
 			double put[3];
 	
+
 			MinImage3D( dr_r, theSimulation->PBC_vec, put, theSimulation->alpha );
+			
 	
 			if( a2 >= nattach )
 			{
@@ -316,6 +337,8 @@ void dynamin::clone( Simulation *theSimulation, surface *theSurface, double *rsu
 			lock[a2] = 1;
 		}
 	}
+
+	refresh(theSimulation);
 }
 
 void dynamin::placeSubunit( Simulation *theSimulation, surface *theSurface, double *rsurf, int m, double dynamin_axis[3]  )
@@ -366,7 +389,6 @@ void dynamin::placeSubunit( Simulation *theSimulation, surface *theSurface, doub
 			n_start[0] *= io_sign;
 			n_start[1] *= io_sign;
 			n_start[2] *= io_sign;
-			printf("RStart: %lf %lf %lf\n", r_start[0], r_start[1], r_start[2] );
 			double dr_u[3];
 			theSurface->ru( p_f, p_u, p_v, rsurf, dr_u );
 			double dr_v[3];
@@ -403,7 +425,6 @@ void dynamin::placeSubunit( Simulation *theSimulation, surface *theSurface, doub
 			double put_discard[3];
 			MinImage3D( cdr, theSimulation->PBC_vec, put_discard, theSimulation->alpha );
 		
-			printf("R_next %lf %lf %lf moved %lf %lf %lf\n", r_pt[0], r_pt[1], r_pt[2], cdr[0], cdr[1], cdr[2] );
 		
 			double perp_dir[3];
 			cross( use_axis, npt, perp_dir );
@@ -431,7 +452,6 @@ void dynamin::placeSubunit( Simulation *theSimulation, surface *theSurface, doub
 			n_final[0] *= io_sign;
 			n_final[1] *= io_sign;
 			n_final[2] *= io_sign;
-			printf("R_final %lf %lf %lf moved %lf %lf %Lf\n", r_final[0], r_final[1], r_final[2], r_final[0] - r_pt[0], r_final[1] - r_pt[1], r_final[2] - r_pt[2] );
 		}
 	}
 
@@ -656,12 +676,12 @@ void dynamin::placeSubunit( Simulation *theSimulation, surface *theSurface, doub
 	
 			if( pot < best_pot )
 			{
-				printf("bestPot: %lf rot: %lf\n", best_pot, rot );
+//				printf("bestPot: %lf rot: %lf\n", best_pot, rot );
 				best_pot = pot;
 				best_rot = rot;
 			}
-			else
-				printf("less bestPot: %lf rot: %lf\n", best_pot, rot );
+//			else
+//				printf("less bestPot: %lf rot: %lf\n", best_pot, rot );
 		}
 			
 		memcpy(put, tpts, sizeof(double) * 3 * aq_sites_per_nmer );

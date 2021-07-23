@@ -104,6 +104,7 @@ class parameterBlock
 	double alpha_restraint_z;
 	double alpha_restraint_k;
 	int write_alpha_period;
+	int track_water_io;
 
 	// umbrella sampling particle g(r)
 	int bin;

@@ -851,7 +851,14 @@ void aa_build_data::addCrossedBonds( int a_start, int a_stop ) // notice I did n
 		int bx = (placed_atoms)[3*xl+0] * nx / PBC_vec[0][0];
 		int by = (placed_atoms)[3*xl+1] * ny / PBC_vec[1][1];
 		int bz = (placed_atoms)[3*xl+2] * nz / PBC_vec[2][2];
-				
+		
+		while( bx < 0 ) bx += nx;
+		while( bx >= nx ) bx -= nx;
+		while( by < 0 ) by += ny;
+		while( by >= ny ) by -= ny;
+		while( bz < 0 ) bz += nz;
+		while( bz >= nz ) bz -= nz;
+
 		double r1A[3] = { (placed_atoms)[3*xl+0], (placed_atoms)[3*xl+1],(placed_atoms)[3*xl+2]};
 				
 		// loop over nearby boxes
@@ -1106,7 +1113,7 @@ void aa_build_data::deleteClashes( int start, int num )
 		double cutoff = 1.0;
 
 		if( doMartini()  )
-			cutoff = 2.5;
+			cutoff = 4.0;
 
 		nclash_aa_worker( placed_atoms+start*3, num, 0, cutoff, NULL, ACTION_DELETE );
 	

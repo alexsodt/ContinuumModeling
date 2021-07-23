@@ -95,12 +95,43 @@ int genFetch( char **patch_out, const char *dir, const char *file, const char *e
 
 int patchFetch( char **patch_out, const char *dir, const char *file )
 {
-	genFetch( patch_out, dir, file, "patch" );
+	return genFetch( patch_out, dir, file, "patch" );
 }
 
-int rtfFetch( char **rtf_out, const char *dir, const char*file )
+typedef struct rtf_registry
 {
-	genFetch( rtf_out, dir, file, "str" );
+	char *dir;
+	char *file;
+	struct rtf_registry *next;
+} rtf_registry;
+
+rtf_registry *theRegistry = NULL;
+
+
+int rtfFetch( char **rtf_out, const char *dir, const char*file, int register_rtf )
+{
+	if( register_rtf )
+	{
+		for( rtf_registry *aReg = theRegistry; aReg; aReg = aReg->next )
+		{
+			if( !strcasecmp( aReg->dir, dir ) && !strcasecmp( aReg->file, file ) )
+			{
+				*rtf_out = NULL;
+				return 1;
+			}
+		}
+
+		rtf_registry *aReg = (rtf_registry *)malloc( sizeof(rtf_registry) );
+
+		aReg->dir = (char *)malloc( sizeof(char) * (1+strlen(dir) ) );
+		aReg->file = (char *)malloc( sizeof(char) * (1+strlen(file) ) );
+		strcpy( aReg->dir, dir );
+		strcpy( aReg->file, file );
+		aReg->next = theRegistry;
+		theRegistry = aReg;
+	}
+
+	return genFetch( rtf_out, dir, file, "str" );
 }
 
 void processPatch( const char *patch, FILE *write_to, const char *segid )

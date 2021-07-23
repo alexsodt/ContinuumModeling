@@ -390,7 +390,7 @@ void surface::createAllAtom( Simulation *theSimulation, parameterBlock *block, p
 
 		for( int p = 0; p < ncomplex; p++ )
 		{
-			int cur_placed = buildData->curPlace();;
+			int cur_placed = buildData->curPlace();
 			char **seq_arr = NULL;
 			int *seq_at_array = NULL;
 			int nseq= 0;
@@ -398,10 +398,11 @@ void surface::createAllAtom( Simulation *theSimulation, parameterBlock *block, p
 			char **patches;
 			int build_type;
 			allComplexes[p]->writeStructure( theSimulation, upper_leaflet_mask, lower_leaflet_mask, &pcomplex_atoms, &npcomplex_atoms, &seq_arr, &nseq, &seq_at_array, &patches, &add_ions, &nions, buildData, &build_type );
-	
+			
+			int ntot_plus = buildData->curPlace() - cur_placed;	
 			int ntot = npcomplex_atoms - pcomp_start;
 			if( buildData->inAddMode() )
-				buildData->deleteClashes( cur_placed, ntot );
+				buildData->deleteClashes( cur_placed, ntot_plus );
 			nsegs_for_complex[p]=0;
 
 			double pcharge = 0;	
@@ -603,7 +604,7 @@ void surface::createAllAtom( Simulation *theSimulation, parameterBlock *block, p
 					fprintf(charmmFile, "write psf  unit 10 card\n");
 		
 					fprintf(charmmFile, "open read card unit 10 name \"%s\"\n",  fileName );	
-					fprintf(charmmFile, "read coor unit 10 pdb resi\n");
+					fprintf(charmmFile, "read coor unit 10 pdb\n");
 		
 					fprintf(charmmFile, "open write unit 10 card name \"%s.crd\"\n", use_segid );
 					fprintf(charmmFile, "write coor unit 10 card\n");
@@ -1243,7 +1244,7 @@ void surface::createAllAtom( Simulation *theSimulation, parameterBlock *block, p
 	
 			fprintf(charmmFile, "close unit 10\n" );	
 			fprintf(charmmFile, "open unit 10 card read name \"%s.crd\"\n", use_segid);	
-			fprintf(charmmFile, "read coor card unit 10 resid\n" );	
+			fprintf(charmmFile, "read coor card unit 10 append\n" );	
 			fprintf(charmmFile, "close unit 10\n" );
 			fprintf(charmmFile, "\n");	
 		}

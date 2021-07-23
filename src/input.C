@@ -286,6 +286,7 @@ void setDefaults( parameterBlock *block )
 	block->solvatePDB = NULL;
 	block->solvatePSF = NULL;
 
+	block->track_water_io = 0;
 	block->do_gather = 0;
 	block->structureName = NULL;
 	block->dcdName = NULL;
@@ -973,6 +974,18 @@ int getInput( const char **argv, int argc, parameterBlock *block)
 				block->do_gather = 1;
 			else if( !strcasecmp( word2, "FALSE" ) || !strcasecmp( word2, "no") || !strcasecmp( word2, "off" ) )
 				block->do_gather = 0;
+			else
+			{
+				printf("Could not interpret input line '%s'.\n", tbuf );
+				ERROR = 1;
+			}	
+		}
+		else if( !strcasecmp( word1, "track_water_io" ) )
+		{
+			if( !strcasecmp( word2, "TRUE" ) || !strcasecmp( word2, "yes") || !strcasecmp( word2, "on" ) )
+				block->track_water_io = 1;
+			else if( !strcasecmp( word2, "FALSE" ) || !strcasecmp( word2, "no") || !strcasecmp( word2, "off" ) )
+				block->track_water_io = 0;
 			else
 			{
 				printf("Could not interpret input line '%s'.\n", tbuf );

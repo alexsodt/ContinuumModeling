@@ -131,8 +131,11 @@ int main( int argc, char **argv )
 		}
 	}
 
+//	printf("max z: %lf\n", max_z );
+
 	int trigger = 0;
-	double leaflets[4];
+	int i_leaflets[4] = {-1,-1,-1,-1};
+	double leaflets[4]={-1,-1,-1,-1};
 	double trigger_value = 0;
 	int ileaflet = 0;
 
@@ -147,21 +150,29 @@ int main( int argc, char **argv )
 			trigger = 1;
 			trigger_value = rho_z[use_z];
 			leaflets[ileaflet] = use_z;
+			i_leaflets[ileaflet] = use_z;
 		}
 
 		if( trigger && rho_z[use_z] > trigger_value )
 		{
 			trigger_value = rho_z[use_z];
 			leaflets[ileaflet] = use_z;
+			i_leaflets[ileaflet] = use_z;
 		}
 
-		if( trigger && rho_z[use_z] < 0.5 * trigger_value )
+		if( trigger && rho_z[use_z] < 0.8 * trigger_value )
 		{
 			trigger = 0;
 			ileaflet++;
 		}
 	
 		if( ileaflet == 4 ) break;
+	}
+
+	if( ileaflet != 4 )
+	{
+		printf("Couldn't find four leaflet indicators.\n");
+		exit(1);
 	}
 
 	double lz[4] =
@@ -171,8 +182,11 @@ int main( int argc, char **argv )
 		Lc * (leaflets[2]+0.5) / nz,
 		Lc * (leaflets[3]+0.5) / nz
 	};
-	
 
+	
+	//printf("leaflets: %lf %lf %lf %lf\n", leaflets[0], leaflets[1], leaflets[2], leaflets[3] );
+
+#ifdef WRAP_STANDARD
 	for( int dz = 1; dz < 4; dz++ )	
 	{
 		while( lz[dz] - lz[dz-1] < -Lc/2 )
@@ -187,13 +201,84 @@ int main( int argc, char **argv )
 				lz[ddz] -= Lc;
 		}
 	}	
+#else
+		
+	while( lz[1] - lz[0] < -Lc/2 )
+	{
+		lz[1] += Lc;
+	}
+	while( lz[1] - lz[0] >= Lc/2 )
+	{
+		lz[1] -= Lc;
+	}
+	
+	while( lz[3] - lz[2] < -Lc/2 )
+	{
+		lz[3] += Lc;
+	}
+	while( lz[3] - lz[2] >= Lc/2 )
+	{
+		lz[3] -= Lc;
+	}
+	// wrap such that we put water outside.
 
+	// loop "down".
+
+	int down_lim = i_leaflets[3];
+
+	while( down_lim < i_leaflets[0] )
+		down_lim += nz; 
+	while( down_lim > i_leaflets[0] )
+		down_lim -= nz; 
+
+	double sum_down = 0;
+	for( int lz = i_leaflets[0]; lz >= down_lim; lz-- )
+	{
+		int use_lz = lz;
+		while( use_lz < 0 )
+			use_lz += nz;
+		sum_down += rho_z[lz];
+	} 
+	
+	int up_lim = i_leaflets[2];
+
+	while( up_lim > i_leaflets[2] )
+		up_lim += nz; 
+	while( up_lim > i_leaflets[1] )
+		up_lim -= nz; 
+
+	double sum_up = 0;
+	for( int lz = i_leaflets[1]; lz <= up_lim; lz++ )
+	{
+		int use_lz = lz;
+		while( use_lz >= nz)
+			use_lz -= nz;
+		sum_up += rho_z[lz];
+	}
+
+	if( sum_down < sum_up )
+	{
+		if( lz[2] < lz[1] )
+		{
+			lz[2] += nz;
+			lz[3] += nz;
+		}
+		while( lz[2] - lz[1] >= nz )
+		{
+			lz[2] -= nz;
+			lz[3] -= nz;
+		}
+	} 
+
+#endif
 //	printf("lz2: %le %le %le %le\n", lz[0], lz[1], lz[2], lz[3] );
 
 	double thickness = fabs((lz[1]+lz[0])/2-(lz[3]+lz[2])/2);
-
-	double best_chi2 = 1e10;
+	
 	double wrapto = 0;
+
+#ifdef WRAP_STANDARD
+	double best_chi2 = 1e10;
 	int nbins = nz;
 	
 	for( int zb = 0; zb < nz; zb++ )
@@ -222,6 +307,11 @@ int main( int argc, char **argv )
 	                 wrapto = zv;
 	         }
 	}
+#else
+	wrapto = (lz[1]+lz[0]+lz[3]+lz[2])/4;
+
+#endif
+
 //	printf("wrapto: %lf\n",wrapto );
 	
 	double com[3] = {0,0,0};

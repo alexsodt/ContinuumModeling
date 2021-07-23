@@ -178,6 +178,9 @@ void Simulation::setupDensity( char *fileName, int shiftRho, int use_fixed_point
 
 	for( surface_record *sRec = allSurfaces; sRec; sRec = sRec->next )
 	{
+		for( int m = 0; m < 3; m++ )
+		for( int m2 = 0; m2 < 3; m2++ )
+			sRec->theSurface->PBC_vec[m][m2] = PBC_vec[m][m2];
 		for( int i = 0; i < sRec->theSurface->nv; i++ )
 		{
 			sRec->theSurface->theVertices[i].r[0] *= scale_x;
