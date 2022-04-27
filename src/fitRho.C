@@ -198,7 +198,7 @@ void Simulation::setupDensity( char *fileName, int shiftRho, int use_fixed_point
 
 #define RUN_SMOOTHER
 
-	#define N_SMOOTH	10
+	#define N_SMOOTH	1
 	printf("Smoothing.\n");
 	for( int siter = 0; siter < N_SMOOTH; siter++ )
 	{
@@ -629,7 +629,7 @@ double surface::rhoWorker( double * r, double *gr, double PBC_vec[3][3], int do_
 
 #if 1	
 	double massive_k = 1e5;
-	double min_thresh = 8.0;
+	double min_thresh = 4.0;
 	double max_thresh = 25.0;
 	if( thickness_inner < min_thresh )
 	{
@@ -1515,15 +1515,161 @@ int surface::get_cut_points( int cartesian_component, double value, int *f_pts, 
 
 	}
 #endif
-	
-	if( reduce_convex )	
+
+	if( reduce_convex == 2 )
 	{
+		void giftwrap( double *pre_pts_in, int *ptsOrdered, int npts, int *nconvex, int expand );
+	
+		int ptsOrdered[n_cut_points];
+		double r_xy[2*n_cut_points];
+		
+		// brute force wrap.
+	
+		ptsOrdered[0] = 0;
+
+		int used[n_cut_points];
+		memset( used, 0, sizeof(int) * n_cut_points );
+
+		used[0] = 1;
+
+		int done =0;
+		int curp = 0;
+		int norder = 1;
+		while( !done )
+		{
+			int sorter[n_cut_points];
+			double d[n_cut_points];
+			for( int i = 0; i < n_cut_points; i++ )
+			{
+				double dr[3] = { rall[3*i+0] - rall[3*curp+0], rall[3*i+1] - rall[3*curp+1], rall[3*i+2] - rall[3*curp+2] };
+	
+				wrapPBC(dr);
+	
+				d[i] = normalize(dr);			
+	
+				sorter[i] = i;
+			}
+
+			int sdone = 0;
+		
+			while(!sdone)
+			{
+				sdone = 1;
+		
+				for( int i = 0; i < n_cut_points-1; i++ )
+				{
+					if( d[sorter[i]] > d[sorter[i+1]] )
+					{
+						int tmp = sorter[i];
+						sorter[i] = sorter[i+1];
+						sorter[i+1]=tmp;
+						sdone=0;
+					}
+				}
+			}
+
+			done=1;
+			for( int x = 0; x < n_cut_points; x++ )
+			{
+				if( !used[sorter[x]] )
+				{
+					ptsOrdered[norder] = sorter[x];
+					used[sorter[x]] = 1;
+					done = 0;
+					norder++;
+					curp = sorter[x];
+					break;
+				}
+			}
+		}		
+
+		int nconvex = n_cut_points;
+
+		int f_out[nconvex];
+		double uv_out[nconvex*2];
+		double rallout[nconvex*3];
+	
+		for( int t = 0; t < nconvex; t++ )
+		{
+			f_out[t] = f_pts[ptsOrdered[t]];
+			uv_out[2*t+0] = uv_pts[ptsOrdered[t]*2+0];	
+			uv_out[2*t+1] = uv_pts[ptsOrdered[t]*2+1];	
+	
+			rallout[3*t+0] = rall[3*ptsOrdered[t]+0];
+			rallout[3*t+1] = rall[3*ptsOrdered[t]+1];
+			rallout[3*t+2] = rall[3*ptsOrdered[t]+2];
+		}	
+	
+		memcpy( f_pts, f_out, sizeof(int) * nconvex );	
+		memcpy( uv_pts, uv_out, sizeof(double) * nconvex*2 );	
+		memcpy( rall, rallout, sizeof(double) * nconvex*3 );	
+		*nconvex_out = nconvex;
+	}
+	else if( reduce_convex )	
+	{
+
 		void giftwrap( double *pre_pts_in, int *ptsOrdered, int npts, int *nconvex, int expand );
 	
 		int ptsOrdered[n_cut_points];
 		double r_xy[2*n_cut_points];
 		int nconvex = 0;
 		
+		// brute force wrap.
+		
+
+		int sorter[n_cut_points];
+		double d[n_cut_points];
+		for( int i = 0; i < n_cut_points; i++ )
+		{
+			double dr[3] = { rall[3*i+0] - rall[0], rall[3*i+1] - rall[1], rall[3*i+2] - rall[2] };
+
+			wrapPBC(dr);
+
+			d[i] = normalize(dr);			
+
+			sorter[i] = i;
+		}
+
+		int done = 0;
+		while(!done)
+		{
+			done = 1;
+	
+			for( int i = 0; i < n_cut_points-1; i++ )
+			{
+				if( d[sorter[i]] > d[sorter[i+1]] )
+				{
+					int tmp = sorter[i];
+					sorter[i] = sorter[i+1];
+					sorter[i+1]=tmp;
+					done=0;
+				}
+			}
+		}
+
+		for( int ix = 1; ix < n_cut_points; ix ++ )
+		{
+			int i = sorter[ix];
+			int best_sorter = 0;
+			double best_del = 1e10;
+			for( int jx = 0; jx < ix; jx++ )
+			{
+				int j = sorter[jx];
+				double dr[3] = { rall[3*i+0] - rall[3*j+0], rall[3*i+1] - rall[3*j+1], rall[3*i+2] - rall[3*j+2] };
+				wrapPBC(dr);
+
+				double l = dr[0]*dr[0]+dr[1]*dr[1]+dr[2]*dr[2];
+
+				if( l < best_del )
+				{
+					best_del = l;
+					rall[3*i+0] = rall[3*j+0] + dr[0];
+					rall[3*i+1] = rall[3*j+1] + dr[1];
+					rall[3*i+2] = rall[3*j+2] + dr[2];
+				}
+			}
+		}
+
 		for( int i = 0; i < n_cut_points; i++ )
 		{
 			double t[3] = { rall[3*i+0], rall[3*i+1], rall[3*i+2] };
@@ -1887,7 +2033,7 @@ double surface::cutGrad( double *r, double *g )
 
 double ring_perimeter( surface *theSurface, double trial_z, double *rsurf, double *cen, int use_cen)
 {
-	int n_cut_points = 20;
+	int n_cut_points = 30;
 	int *f_pts = (int *)malloc( sizeof(int) * n_cut_points );
 	double *uv_pts = (double *)malloc( sizeof(double) * 2 * n_cut_points );
 	double *rall = (double *)malloc( sizeof(double) * 3 * n_cut_points );
@@ -1935,9 +2081,40 @@ void surface::GetFusionPoreRegionStats( double *rsurf, parameterBlock *block )
 	if( pore_dz_from_center < 0 )
 		default_dz = 1;
 
-	double zm[3] = {-25, 0, 25};	
-	double pm[3];
+
+	double minz = 0;
+	double minz_p = 1e10;
+	int nbins = 100;
 	double cen[3] = {0,0,0};
+	double min_ok_p = 1e10;
+	double max_ok_p = -1e10;
+
+	for( int it = 0; it < nbins; it++ )
+	{
+		double z = -PBC_vec[2][2] + (it+0.5) * 3*PBC_vec[2][2]/nbins; 
+		
+		double p = ring_perimeter(this, z, rsurf, cen, 0 ); 
+		printf("z: %lf perimeter: %lf\n", z, p );
+
+
+		if( p > 0 )
+		{
+			if( z < min_ok_p )
+				min_ok_p = z;
+			if( z > max_ok_p )
+				max_ok_p = z;
+		}
+
+		if( p > 0 && p < minz_p )
+		{
+			minz = z;
+			minz_p = p;
+		}
+	}
+	
+	double zmid = (max_ok_p+min_ok_p)/2;
+	double zm[3] = {zmid-25,zmid,zmid+25};	
+	double pm[3];
 
 	for( int t= 0; t < 3; t++ )
 	{
@@ -1947,6 +2124,7 @@ void surface::GetFusionPoreRegionStats( double *rsurf, parameterBlock *block )
 
 	if( pm[0] == -1 && pm[1] == -1 && pm[2] == -1 )
 	{
+
 		printf("Can't find the pore center.\n");
 		exit(1);
 	}
@@ -2239,6 +2417,7 @@ void surface::GetFusionPoreRegionStats( double *rsurf, parameterBlock *block )
 		theData[t].sumJ2=0;
 		theData[t].sumK=0;
 		theData[t].sumK2=0;
+		theData[t].area=0;
 	}
 
 	int plim = 5;
@@ -2290,6 +2469,11 @@ void surface::GetFusionPoreRegionStats( double *rsurf, parameterBlock *block )
 					theData[f].sumK += K * l_A;
 					theData[f].sumK2 += K*K * l_A;
 					theData[f].area += l_A;	
+
+					if( l_A > 1e5 )
+					{
+						printf("funny l_A.\n", l_A );
+					}
 	 
 				}
 			}
@@ -2646,7 +2830,7 @@ void surface::GetFusionPoreRegionStats( double *rsurf, parameterBlock *block )
 		fprintf(gatherFile,"\n");
 	}
 		
-	printf("Finished with gather.\n" );
+	printf("Finished with fusion pore gather.\n" );
 	fflush(stdout);
 
 	char fileNamePD[256];

@@ -2627,12 +2627,13 @@ void surface::finishLoad( int total_valence, int *load_tri, int nload_tri, surfa
 			double dp = cp[0] * r1[0] + cp[1] * r1[1] + cp[2] * r1[2];
 
 	
-			if( dp > 0 && dp > 0.7)
+/*			if( dp > 0 && dp > 0.7)
 			{
 				printf("FLIPPING\n");
 				flipOrientation();
 				sortFaces();
 			}
+*/
 		}
 	
 		setEdgeRev();	

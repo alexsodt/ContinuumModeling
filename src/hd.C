@@ -164,13 +164,6 @@ int main( int argc, char **argv )
 	double *r1 = NULL;
 	theSurface1->loadLattice( block.meshName , 0. );
 
-	for( int t = 0; t < theSurface1->nv; t++ )
-	{
-		theSurface1->theVertices[t].r[0] += block.shift[0];
-		theSurface1->theVertices[t].r[1] += block.shift[1];
-		theSurface1->theVertices[t].r[2] += block.shift[2];
-	}
-
 
 
 	double Lx = theSurface1->PBC_vec[0][0];
@@ -298,6 +291,8 @@ int main( int argc, char **argv )
 //	theSimulation->allSurfaces->theSurface->printCurvatureDistribution( theSimulation->allSurfaces->r );
 
 	global_block = &block; //yikes
+
+	
 
 	if( block.fitRho )
 		theSimulation->setupDensity( block.fitRho, block.shiftRho, block.do_fixed_point_rho, block.fitCoupling, block.midplane_fit );
@@ -769,6 +764,13 @@ int main( int argc, char **argv )
 			useSurface->area(sRec->r, -1, &cur_area, &area0 );
 			printf("Surface %d area: %le area0: %le volume: i: %le o: %le\n", sRec->id, cur_area, area0 , Vi, Vo );
 		}
+		for( int t = 0; t < theSurface1->nv; t++ )
+		{
+			theSurface1->theVertices[t].r[0] += block.shift[0];
+			theSurface1->theVertices[t].r[1] += block.shift[1];
+			theSurface1->theVertices[t].r[2] += block.shift[2];
+		}
+
 	}
 
 	
@@ -801,6 +803,12 @@ int main( int argc, char **argv )
 		}
 			
 		setupSparseVertexPassing( theSimulation );
+	}
+	
+	if( block.flipFile )
+	{
+		theSimulation->plotFlipFlopEvents(&block);
+		exit(1);
 	}
 
 	double V = 0;
@@ -2354,10 +2362,21 @@ int main( int argc, char **argv )
 
 	if( block.outputMesh )
 	{
+		for( surface_record *sRec = theSimulation->allSurfaces; sRec; sRec = sRec->next )
+			sRec->theSurface->put(sRec->r);
 		char *fileName = (char *)malloc( sizeof(char) * strlen(block.jobName) + 6 );
 		sprintf(fileName, "%s.mesh", block.jobName );
 
 		theSimulation->allSurfaces->theSurface->saveSurface(fileName);	
+	
+		surface *theSurface1 = theSimulation->allSurfaces->theSurface;
+		for( int t = 0; t < theSurface1->nv; t++ )
+		{
+			theSurface1->theVertices[t].r[0] += block.shift[0];
+			theSurface1->theVertices[t].r[1] += block.shift[1];
+			theSurface1->theVertices[t].r[2] += block.shift[2];
+	
+		}
 	}
 
 	if( block.create_all_atom )

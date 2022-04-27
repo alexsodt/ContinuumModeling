@@ -146,6 +146,19 @@ void io_initialize_read( char *fileName )
 			theFrame->nframes = curNFrames();
 		}
 	}
+	else 
+	{
+		rewind(theFrame->file_handle);
+		
+		if( !strcasecmp(fileName+strlen(fileName)-3,"pdb") )
+			theFrame->nframes = 1;
+		else
+		{
+			readDCDHeader( theFrame->file_handle );	
+			setAligned();
+			theFrame->nframes = curNFrames();
+		}
+	}
 	theFrame->read_init = 1;
 #endif	
 }
@@ -226,10 +239,11 @@ void io_readFrame( char *fileName )
 				}
 				for( int xl = 0; xl < nlibrary; xl++ )
 				{
-					if( !lipidLibrary[xl].ns_atom ) continue;
+					if( !lipidLibrary[xl].ns_atom && ! lipidLibrary[xl].ns_atom_M ) continue;
 
 					if( !strcasecmp( lipidLibrary[xl].name, at[a].resname) &&
-					    !strcasecmp( lipidLibrary[xl].ns_atom, at[a].atname) )
+					    ((lipidLibrary[xl].ns_atom && !strcasecmp( lipidLibrary[xl].ns_atom, at[a].atname)) ||
+					    (lipidLibrary[xl].ns_atom_M && !strcasecmp( lipidLibrary[xl].ns_atom_M, at[a].atname))) )
 					{
 						added = 1;
 						if( theFrame->n_ns_atoms == nspace )
@@ -274,6 +288,13 @@ int io_nNSAtoms( void )
 	}
 
 	return theFrame->n_ns_atoms;	
+}
+
+void io_get_PBC( double *Lx, double *Ly, double *Lz )
+{
+	*Lx = theFrame->cur_PBC[0][0];
+	*Ly = theFrame->cur_PBC[1][1];
+	*Lz = theFrame->cur_PBC[2][2];
 }
 
 void io_getNSAtomStartStop( int index, int *start, int *stop )

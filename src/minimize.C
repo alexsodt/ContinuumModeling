@@ -20,7 +20,7 @@ static int min_nsurfaceparams = 0;
 static int do_freeze_membrane = 0;
 static pcomplex **min_complexes;
 static int fix_thickness = 0;
-extern double VA,VC;
+extern double VA,VC, AVC, SUMK;
 double VV = 0;
 extern double water_KV;
 Simulation *min_simulation = NULL;
@@ -706,7 +706,7 @@ void Simulation::minimize( int freeze_membrane, int freeze_clathrin  )
 	printf("Entering minimize with e_init: %le\n", e_init );
 	l_bfgs_setup( use_m, num_params, p, 1.0, surface_f, surface_fdf); 
 
-	printf("Minimize IN: V: %.14le VA: %lf VC: %lf VV: %lf\n", e_init, VA, VC, VV );
+	printf("Minimize IN: V: %.14le VA: %lf VC: %lf VV: %lf AVC: %le, SUMK: %le \n", e_init, VA, VC, VV, AVC, SUMK );
 	if( mag_init > 1e-20 )
 	{
 		for( int x = 0; x < nsteps; x++ )
@@ -733,7 +733,7 @@ void Simulation::minimize( int freeze_membrane, int freeze_clathrin  )
 
 //	full_fd_test(p);
 
-	printf("Minimize OUT: VG: %.14le VV: %.14le VA: %lf VC: %lf VV: %lf grad rms %le\n", v, e, VA, VC, VV, rms );
+	printf("Minimize OUT: VG: %.14le VV: %.14le VA: %lf VC: %lf VV: %lf AVC: %le SUMK: %le grad rms %le\n", v, e, VA, VC, VV, AVC, SUMK, rms );
 
 	enable_elastic_interior = prev_enable;
 

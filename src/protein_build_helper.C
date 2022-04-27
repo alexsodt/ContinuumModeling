@@ -80,7 +80,9 @@ int pcomplex::addAlignedProteinHelper( Simulation *theSimulation, surface_mask *
 		int *pdb_residues, // which residues
 		int *complex_sites,	// which complex sites to align to those residues
 		aa_build_data *buildData, // data structure to put build information (PSF-derived info and atom placements for detecting clashes). 
-		double noise
+		double noise,
+		int do_multisegment,
+		double nrm_displace
 		)
 {
 	// this routine should be more fundamental than the ``general'' one below ... combine them?
@@ -99,8 +101,8 @@ int pcomplex::addAlignedProteinHelper( Simulation *theSimulation, surface_mask *
 
 	for( int x = 0; x < nat; x++ )
 	{
-		if( !strcasecmp(at[x].segid, segid ) )
-			grab++;		
+		if( do_multisegment ? !strncasecmp(at[x].segid, segid, strlen(segid) ) : !strcasecmp(at[x].segid, segid ) )
+				grab++;		
 	}
 	
 	double *pcopy = (double *)malloc( sizeof(double) * 3 * (grab+2) );
@@ -112,10 +114,13 @@ int pcomplex::addAlignedProteinHelper( Simulation *theSimulation, surface_mask *
 
 	for( int t = 0; t < nalign; t++ )
 		set_pdb[t] = -1;
+	
+	int *used = (int *)malloc( sizeof(int) * nat );
+	memset( used, 0, sizeof(int) * nat );
 
 	for( int x = 0; x < nat; x++ )
 	{
-		if( !strcasecmp(at[x].segid, segid ) )
+		if( do_multisegment ? !strncasecmp(at[x].segid, segid, strlen(segid) ) : !strcasecmp(at[x].segid, segid ) )
 		{
 			pcopy[3*grab+0] = at[x].x;  
 			pcopy[3*grab+1] = at[x].y;
@@ -123,12 +128,19 @@ int pcomplex::addAlignedProteinHelper( Simulation *theSimulation, surface_mask *
 
 			for( int t = 0; t < nalign; t++ )
 			{
-				if( (!strcasecmp( at[x].atname, "CA" ) || !strcasecmp( at[x].atname, "BB" )) && at[x].res == pdb_residues[t] )
+				if( set_pdb[t] != -1 ) continue;
+
+				if( ((!strcasecmp( at[x].atname, "CA" ) || !strcasecmp( at[x].atname, "BB" )) && at[x].res == pdb_residues[t]) && !used[x] )
+				{
 					set_pdb[t] = grab;
+					used[x] = 1;
+				}
 			}
 			grab++;		
 		}
 	}
+
+	free( used);
 	
 	pcopy[grab*3+0] = 1;
 	pcopy[grab*3+1] = 0;
@@ -153,9 +165,21 @@ int pcomplex::addAlignedProteinHelper( Simulation *theSimulation, surface_mask *
 	
 	for( int t = 0; t < nalign; t++ )
 	{
-		align[3*t+0] = rall[3*complex_sites[t]+0];
-		align[3*t+1] = rall[3*complex_sites[t]+1];
-		align[3*t+2] = rall[3*complex_sites[t]+2];
+		double usep[3] = { rall[3*complex_sites[t]+0], rall[3*complex_sites[t]+1], rall[3*complex_sites[t]+2] }; 
+		if( complex_sites[t] < nattach && fabs(nrm_displace) > 1e-3 )
+		{
+			double  np[3];
+
+			theSurface->evaluateRNRM( fs[complex_sites[t]], puv[complex_sites[t]*2+0], puv[complex_sites[t]*2+1], usep, np, rsurf );
+	
+			usep[0] += np[0] * nrm_displace;
+			usep[1] += np[1] * nrm_displace;
+			usep[2] += np[2] * nrm_displace;
+		}
+
+		align[3*t+0] = usep[0];
+		align[3*t+1] = usep[1];
+		align[3*t+2] = usep[2];
 		surf_align_set[t] = t;
 	} 
 
@@ -173,11 +197,12 @@ int pcomplex::addAlignedProteinHelper( Simulation *theSimulation, surface_mask *
 
 	// first, get the map and coords.
 
+
 	for( int a = 0; a < nat; a++ )
 	{
 		output_map[a] = -1;
 
-		if( !strcasecmp(at[a].segid, segid ) )
+		if( do_multisegment ? !strncasecmp(at[a].segid, segid, strlen(segid) ) : !strcasecmp(at[a].segid, segid ) )
 		{
 			if( strncasecmp( at[a].atname, "CAL",3 ) || fabs(at[a].charge-2) > 1e-4 )
 			{
@@ -236,7 +261,7 @@ int pcomplex::addAlignedProteinHelper( Simulation *theSimulation, surface_mask *
 	{
 		output_map[a] = -1;
 
-		if( !strcasecmp(at[a].segid, segid ) )
+		if( do_multisegment ? !strncasecmp(at[a].segid, segid, strlen(segid) ) : !strcasecmp(at[a].segid, segid ) )
 		{
 			if( !strncasecmp( at[a].atname, "CAL",3 ) && fabs(at[a].charge-2) < 1e-4 )
 			{

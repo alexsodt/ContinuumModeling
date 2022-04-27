@@ -224,7 +224,9 @@ struct pcomplex
 		int *pdb_residues, // which residues
 		int *complex_sites,	// which complex sites to align to those residues
 		aa_build_data *buildData, // data structure to put build information (PSF-derived info and atom placements for detecting clashes). 
-		double noise
+		double noise,
+		int multi_segment=0,
+		double nrm_displace=0
 		);
 };
 
@@ -274,6 +276,7 @@ struct NBAR : pcomplex
 	double theta_0;
 	double phi_0;
 
+	virtual void getDirName( char put[256]);
 
 	void init( Simulation *theSimulation, surface *, double *rsurf, int f, double u, double v, int nmer=1 ); 
 	void init( double *r );
@@ -287,9 +290,23 @@ struct NBAR : pcomplex
 
 	double V( Simulation *theSimulation );
 	double grad( Simulation *theSimulation, double *surface_g, double *particle_g );
+	
+	void writeStructure( Simulation *theSimulation, surface_mask *upperSurfaceMask, surface_mask *lowerSurfaceMask, struct atom_rec **at, int *nat, char ***seq, int *nseq, int **seq_at_array,  char ***patches, ion_add **ions, int *nions, struct aa_build_data *buildData, int *build_type );
 
 	void move_inside(void);
 	void move_outside(void);	
+};
+
+struct DVL : pcomplex // disshevelled
+{
+	void get( 
+		Simulation *theSimulation, // this is the surface/PBC
+		struct atom_rec *at,
+		int p_start, int p_stop, int nat_tot );
+	void getLocalLipidComposition( 
+		Simulation *theSimulation, 
+		struct atom_rec *at,
+		int dvl_start, int dvl_stop, int nat_tot );
 };
 
 struct syt7 : pcomplex
@@ -311,12 +328,50 @@ struct syt7 : pcomplex
 		Simulation *theSimulation, // this is the surface/PBC
 		struct atom_rec *at,
 		int p_start, int p_stop, int nat_tot );
+	void getLocalLipidComposition( 
+		Simulation *theSimulation, 
+		struct atom_rec *at,
+		int syt7_start, int syt7_stop, int nat_tot );
 
 	//void writeStructure( Simulation *theSimulation, struct atom_rec **at, int *nat );
 	void writeStructure( Simulation *theSimulation, surface_mask *upperSurfaceMask, surface_mask *lowerSurfaceMask, struct atom_rec **at, int *nat, char ***seq, int *nseq, int **seq_at_array /*where the atoms of a segment start and stop*/,  char ***patches, ion_add **ions, int *nions, struct aa_build_data *buildData, int *build_type );
 	void move_inside(void);
 	void move_outside(void);	
 };
+
+struct C2Domain : pcomplex
+{
+	virtual int resStart( ) { return 1; } 
+	virtual int resStop( ) { return 255; } 
+	virtual int putCBLResidues( int put[5] ) { put[0] = 166; put[1] = 172; put[2] = 225; put[3] = 227; put[4] = 233; }
+
+	void get( 
+		Simulation *theSimulation, // this is the surface/PBC
+		struct atom_rec *at,
+		int p_start, int p_stop, int nat_tot );
+	void getLocalLipidComposition( 
+		Simulation *theSimulation, 
+		struct atom_rec *at,
+		int c2_start, int c2_stop, int nat_tot );
+};
+
+struct C2A : C2Domain
+{
+	virtual int resStart( ) { return 1; } 
+	virtual int resStop( ) { return 255; } 
+	virtual int putCBLResidues( int put[5] ) { put[0] = 166; put[1] = 172; put[2] = 225; put[3] = 227; put[4] = 233; }
+	virtual int altContactSite( int put[5] ) { put[0] = 297; put[1] = 303; put[2] = 357; put[3] = 359; put[4] = 365; }
+};
+
+struct C2B : C2Domain
+{
+	virtual int resStart( ) { return 256; } 
+	virtual int resStop( ) { return 500; } 
+	virtual int putCBLResidues( int put[5] ) { put[0] = 297; put[1] = 303; put[2] = 357; put[3] = 359; put[4] = 365; }
+	// for alignment:
+	virtual int altContactSite( int put[5] ) { put[0] = 297; put[1] = 303; put[2] = 357; put[3] = 359; put[4] = 365; }
+};
+
 
 struct dynamin : pcomplex
 {
@@ -328,13 +383,15 @@ struct dynamin : pcomplex
 	void unbind( void );
 	void loadParams( parameterBlock *block );
 
-	int getNDihe(void);
-	void putDihe( int *dihe_list, double *dihe_theta, double *dihe_k );
-	int getNAngles( void );
-	void putAngles( int *angle_list, double *angle_th, double *angle_k );
+	virtual void getDirName( char put[256]);
+	virtual void getParams(void);
+	virtual int getNDihe(void);
+	virtual void putDihe( int *dihe_list, double *dihe_theta, double *dihe_k );
+	virtual int getNAngles( void );
+	virtual void putAngles( int *angle_list, double *angle_th, double *angle_k );
 	
-	int getNBonds( void );
-	void putBonds( int *bond_list, double *bond_r = NULL, double *bond_k = NULL );
+	virtual int getNBonds( void );
+	virtual void putBonds( int *bond_list, double *bond_r = NULL, double *bond_k = NULL );
 
 	double V( Simulation *theSimulation );
 	double grad( Simulation *theSimulation, double *surface_g, double *particle_g );
@@ -351,6 +408,21 @@ struct dynamin : pcomplex
 	void writeStructure( Simulation *theSimulation, surface_mask *upperSurfaceMask, surface_mask *lowerSurfaceMask, struct atom_rec **at, int *nat, char ***seq, int *nseq, int **seq_at_array,  char ***patches, ion_add **ions, int *nions, struct aa_build_data *buildData, int *build_type );
 	void move_inside(void);
 	void move_outside(void);	
+};
+
+struct sdynamin : dynamin
+{
+	virtual pcomplex *clone( void ) { return new sdynamin; }
+	virtual void getDirName( char put[256]);
+	void getParams(void);
+	int getNDihe(void);
+	void putDihe( int *dihe_list, double *dihe_theta, double *dihe_k );
+	int getNAngles( void );
+	void putAngles( int *angle_list, double *angle_th, double *angle_k );
+	
+	int getNBonds( void );
+	void putBonds( int *bond_list, double *bond_r = NULL, double *bond_k = NULL );
+
 };
 
 struct ifitm3 : pcomplex

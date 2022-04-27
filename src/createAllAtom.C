@@ -307,6 +307,12 @@ void surface::createAllAtom( Simulation *theSimulation, parameterBlock *block, p
 					printf("Could not read PBC info (required) from %s.\n", block->innerPatchPDB );
 					exit(1);
 				}
+		
+				if( getPool(pass_pool_id[pass])->bonds == NULL )
+				{
+					printf("Building structure requires PSF information (%s).\n", block->innerPatchPDB );
+					exit(1);
+				}
 			}
 			else if( pass == 1 && block->outerPatchPDB ) 
 			{
@@ -315,6 +321,12 @@ void surface::createAllAtom( Simulation *theSimulation, parameterBlock *block, p
 				if( !getPool(pass_pool_id[pass])->has_pbc )
 				{
 					printf("Could not read PBC info (required) from %s.\n", block->outerPatchPDB );
+					exit(1);
+				}
+				
+				if( getPool(pass_pool_id[pass])->bonds == NULL )
+				{
+					printf("Building structure requires PSF information (%s).\n", block->outerPatchPDB );
 					exit(1);
 				}
 			}
@@ -335,6 +347,12 @@ void surface::createAllAtom( Simulation *theSimulation, parameterBlock *block, p
 				if( !getPool(pass_pool_id[pass])->has_pbc )
 				{
 					printf("Could not read PBC info (required) from %s.\n", block->patchPDB );
+					exit(1);
+				}
+				
+				if( getPool(pass_pool_id[pass])->bonds == NULL )
+				{
+					printf("Building structure requires PSF information (%s).\n", block->patchPDB );
 					exit(1);
 				}
 			}
@@ -537,10 +555,14 @@ void surface::createAllAtom( Simulation *theSimulation, parameterBlock *block, p
 					}
 					fprintf(charmmFile, "nbonds atom switch cdie vdw vfswitch  -\n"
 		"       ctonnb 10.0 ctofnb 12.0 cutnb 14.0 cutim 16.0 -\n"
-		"       inbfrq -1 imgfrq -1 wmin 1.0 cdie eps 80.0\n"
+		"       inbfrq -1 imgfrq -1 wmin 1.0 cdie eps 80.0\n" );
+
+		if( !activate_martini )
+		{
+		fprintf(charmmFile, 
 		"energy\n"
 		"mini sd nstep 200 nprint 10\n" );
-					
+		}			
 					fprintf(charmmFile, "open write unit 10 card name \"%s.crd\"\n", use_segid );
 					fprintf(charmmFile, "write coor unit 10 card\n");
 					fprintf(charmmFile, "delete atom sele atom * * * end\n");
@@ -907,14 +929,14 @@ void surface::createAllAtom( Simulation *theSimulation, parameterBlock *block, p
 						dr_rcom[0] - buildData->frac_cen[0],
 						dr_rcom[1] - buildData->frac_cen[1],
 						dr_rcom[2] - buildData->frac_cen[2] };
-					
+		/* don't do PBC, exclude stuf outside the bounds.			
 					while( dr_fr[0] < -0.5 ) dr_fr[0] += 1;
 					while( dr_fr[1] < -0.5 ) dr_fr[1] += 1;
 					while( dr_fr[2] < -0.5 ) dr_fr[2] += 1;
 					while( dr_fr[0] > 0.5 ) dr_fr[0] -= 1;
 					while( dr_fr[1] > 0.5 ) dr_fr[1] -= 1;
 					while( dr_fr[2] > 0.5 ) dr_fr[2] -= 1;
-			
+		*/	
 					int continue_flag = 0;
 
 					for( int c = 0; c < 3; c++ )
@@ -1025,6 +1047,9 @@ void surface::createAllAtom( Simulation *theSimulation, parameterBlock *block, p
 		// exterior and interior concentrations.
 
 		double nwaters = (water_atom/3); 
+		if( activate_martini )
+			nwaters = 4 * water_atom;
+
 		double water_vol_A3 = nwaters * 29; // cubic angstroms.
 		double water_vol_L = water_vol_A3 * (1e-27);
 	
@@ -2087,9 +2112,12 @@ int TestAdd( surface *theSurface, int l, int *lipid_start, int *lipid_stop, stru
 
 		double clash_cutoff = 0.5;
 
-		nclash = buildData->nclash_aa( coords, lc, is_mod ); 
+		if( activate_martini )
+			clash_cutoff = 3.0;
 
-		if( nclash > 10 )
+		nclash = buildData->nclash_aa( coords, lc, is_mod, clash_cutoff ); 
+
+		if( activate_martini ? nclash > 1 : nclash > 10 )
 			clash = 1;
 
 		if( clash ) continue;
@@ -2512,7 +2540,27 @@ crd_psf_pair **pairs,  int *npairs, int *npair_space, double total_lipid_charge[
 
 		double rpt[3], npt[3];
 		upper_rim_patch->evaluateRNRM( 0, 1.0/3.0, 1.0/3.0, rpt, npt, upper_patch_r );
-		
+	
+		double ndp = rpt[0]*npt[0] + rpt[1] * npt[1] + rpt[2] * npt[2];
+	
+		if( ndp < 0 )
+		{
+			printf("Inverting aux spheres.\n");
+			for( int i = 0; i < upper_rim_patch->nv; i++ )
+			{	
+				upper_patch_r[3*i+0] *= -1;
+				upper_patch_r[3*i+1] *= -1;
+				upper_patch_r[3*i+2] *= -1;
+			}
+			
+			for( int i = 0; i < lower_rim_patch->nv; i++ )
+			{	
+				lower_patch_r[3*i+0] *= -1;
+				lower_patch_r[3*i+1] *= -1;
+				lower_patch_r[3*i+2] *= -1;
+			}
+		}
+
 		double R_approx = sqrt(rpt[0]*rpt[0]+rpt[1]*rpt[1]+rpt[2]*rpt[2]);
 
 		double scale = *rim_extent_upper/R_approx;
@@ -2569,8 +2617,8 @@ crd_psf_pair **pairs,  int *npairs, int *npair_space, double total_lipid_charge[
 		free(r_cut_lower);
 		free(uv_lower);
 
-		free(upper_patch_r);
-		free(lower_patch_r);
+//		free(upper_patch_r);
+//		free(lower_patch_r);
 	}
 	// get regions of the bilayer which we will map collectively attempting to leave a minimum of seams.
 
@@ -2636,6 +2684,85 @@ crd_psf_pair **pairs,  int *npairs, int *npair_space, double total_lipid_charge[
 		passes[l].orientation = ( l == 0 ? -1 : 1 );
 	}
 	
+	surface_mask rim_mask_upper;
+	surface_mask rim_mask_lower;
+
+	if( block->do_rim )
+	{
+		if( pass_pool_id[2] < 0 )	
+		{
+			printf("Need altPatchPDB set to build hemifusion structure.\n");
+			exit(1);
+		}
+
+		rim_mask_upper.build( upper_rim_patch, upper_patch_r, getPool(pass_pool_id[2])->Lx * getPool(pass_pool_id[2])->Ly / 4 ); 
+		rim_mask_lower.build( lower_rim_patch, lower_patch_r, getPool(pass_pool_id[2])->Lx * getPool(pass_pool_id[2])->Ly / 4 ); 
+
+		for( int l = 2; l < 4; l++ )
+		{
+			passes[l].structure_take_from = 2; // this is where the "aux" structure is.
+
+			for ( int c = 0; c < 3; c++ )
+			{
+				passes[l].min_cut[c] = 1e30; // exclude above
+				passes[l].max_cut[c] = -1e30; // exclude below
+			}
+
+			passes[l].useSurface = ( l == 2 ? lower_rim_patch : upper_rim_patch);
+			passes[l].strain = block->strainInner;
+			passes[l].rsurf = ( l == 2 ? lower_patch_r : upper_patch_r );
+			passes[l].orientation = -1; // always use the inside of our spheres for the rims.
+	
+			// get regions for rims.
+		
+			if( l == 2 ) 
+				passes[l].theMask = &rim_mask_lower; 
+			else
+				passes[l].theMask = &rim_mask_upper; 
+		}		
+			
+		// now, the spatial constraints on where to use which surface.
+		if( rim_sense > 0 )
+		{
+			// remove from the leaflet on the side opposite the normal.
+			
+			passes[0].min_cut[0] = -1e30; // infinite in xy
+			passes[0].max_cut[0] = 1e30;
+			passes[0].min_cut[1] = -1e30;
+			passes[0].max_cut[1] = 1e30;
+			passes[0].min_cut[2] = rim_center[2] - dz_rim;
+			passes[0].max_cut[2] = rim_center[2] + dz_rim;
+		}
+		else
+		{
+			// remove from the leaflet on the side with the normal.
+			passes[1].min_cut[0] = -1e30; // infinite in xy
+			passes[1].max_cut[0] = 1e30;
+			passes[1].min_cut[1] = -1e30;
+			passes[1].max_cut[1] = 1e30;
+			passes[1].min_cut[2] = rim_center[2] - dz_rim;
+			passes[1].max_cut[2] = rim_center[2] + dz_rim;
+		}
+		// lower rim.
+		passes[2].min_cut[0] = -1e30; // infinite in xy
+		passes[2].max_cut[0] = 1e30;
+		passes[2].min_cut[1] = -1e30;
+		passes[2].max_cut[1] = 1e30;
+		passes[2].min_cut[2] = -1e30;
+		passes[2].max_cut[2] = rim_center[2] - dz_rim;
+		
+		// upper rim.
+		passes[3].min_cut[0] = -1e30; // infinite in xy
+		passes[3].max_cut[0] = 1e30;
+		passes[3].min_cut[1] = -1e30;
+		passes[3].max_cut[1] = 1e30;
+		passes[3].min_cut[2] = rim_center[2] + dz_rim;
+		passes[3].max_cut[2] = 1e30;
+
+		rim_mask_upper.applyPoolToAllRegions( pass_pool_id[2] );
+		rim_mask_lower.applyPoolToAllRegions( pass_pool_id[2] );
+	}
+	
 	const char *out_in[3]= {"IN","OUT", "RIM"};
 			
 	sprintf(cur_filename, "segment_%s%d.crd", out_in[0], seg_cntr );
@@ -2677,7 +2804,7 @@ crd_psf_pair **pairs,  int *npairs, int *npair_space, double total_lipid_charge[
 			int *regional_face = (int *)malloc( sizeof(int) * useSurface->nt );
 			memset( regional_face, 0, sizeof(int) * useSurface->nt );
 	
-			int *tri_list = (int *)malloc( sizeof(int) * nt );
+			int *tri_list = (int *)malloc( sizeof(int) * useSurface->nt );
 
 			surface_mask *theMask = passes[tx].theMask; 
 
@@ -3045,6 +3172,11 @@ crd_psf_pair **pairs,  int *npairs, int *npair_space, double total_lipid_charge[
 				&cur_size, &cur_natoms,&cur_atom,  &cur_res, &junk, gm1_switch );
 
 	free(cur_segname);
+
+	if( upper_patch_r )
+		free(upper_patch_r );
+	if( lower_patch_r )
+		free(lower_patch_r );
 	
 //	*cur_res_in = cur_res;
 //	*cur_size_in = cur_size;

@@ -6765,7 +6765,7 @@ double d_nrmz_d_rux=0,d_nrmz_d_ruy=0,d_nrmz_d_ruz=0,d_nrmz_d_rvx=0,d_nrmz_d_rvy=
 
 			// insert marker
 #ifndef FIXED_A
-			d_e_d_g  = (kg * e1 * e2 ) * dudv * theFormulas[frm].weight;
+			d_e_d_g  = (kg * e1 * e2 ) * dudv * theIrregularFormulas[frm].weight;
 #endif
 
 #ifdef LOCAL_LIPID_ENERGY

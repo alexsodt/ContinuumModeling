@@ -7,6 +7,7 @@ struct fixed_lipid
 	double c0;
 	double APL;
 	const char *ns_atom;
+	const char *ns_atom_M;
 };
 
 struct lipid
@@ -15,6 +16,7 @@ struct lipid
 	double c0;
 	double APL;
 	char *ns_atom;
+	char *ns_atom_M;
 };
 
 #ifdef __lipidcompositionc__

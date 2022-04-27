@@ -9,7 +9,7 @@
 #include "pcomplex.h"
 #include "mutil.h"
 	
-static int plim = 3;
+static int plim = 1;
 
 void surface::writeSurface( const char *fileName)
 {
@@ -1533,7 +1533,9 @@ void Simulation::writeLimitingSurface( FILE *theFile )
 					double dr[3] = { all_coords[3*b1+0] - all_coords[3*b2+0],
 							 all_coords[3*b1+1] - all_coords[3*b2+1],
 							 all_coords[3*b1+2] - all_coords[3*b2+2] };
-					wrapPBC(dr, alpha);
+					double put[3];				
+					MinImage3D( dr, PBC_vec, put, alpha );	
+//					wrapPBC(dr, alpha);
 
 					all_coords[3*b1+0] = all_coords[3*b2+0] + dr[0];			
 					all_coords[3*b1+1] = all_coords[3*b2+1] + dr[1];			
@@ -1547,7 +1549,8 @@ void Simulation::writeLimitingSurface( FILE *theFile )
 					double dr[3] = { all_coords[3*b2+0] - all_coords[3*b1+0],
 							 all_coords[3*b2+1] - all_coords[3*b1+1],
 							 all_coords[3*b2+2] - all_coords[3*b1+2] };
-					wrapPBC(dr, alpha);
+					double put[3];				
+					MinImage3D( dr, PBC_vec, put, alpha );	
 
 					all_coords[3*b2+0] = all_coords[3*b1+0] + dr[0];			
 					all_coords[3*b2+1] = all_coords[3*b1+1] + dr[1];			

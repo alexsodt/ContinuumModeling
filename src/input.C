@@ -33,6 +33,8 @@ void setDefaults( parameterBlock *block )
 	
 	block->track_lipid_rho = NULL; 
 
+	block->special_force_plot = 0;
+	block->flipFile = NULL;
 	block->freeze_clathrin = 0;
 	block->clathrinStructure = NULL;
 	block->clathrin_force_k = 1.0;
@@ -664,6 +666,14 @@ int getInput( const char **argv, int argc, parameterBlock *block)
 			if( block->structureName ) free(block->structureName);
 			block->structureName = (char *)malloc( sizeof(char) * (1 + strlen(word2) ) );
 			strcpy( block->structureName, word2 );
+		}
+		else if( !strcasecmp( word1, "special_force_plot" ) )
+			block->special_force_plot = atoi( word2 );
+		else if( !strcasecmp( word1, "flipFile" ) ) // for gathering.
+		{
+			if( block->flipFile ) free(block->flipFile);
+			block->flipFile = (char *)malloc( sizeof(char) * (1 + strlen(word2) ) );
+			strcpy( block->flipFile, word2 );
 		}
 		else if( !strcasecmp( word1, "dcd" ) ) // for gathering.
 		{

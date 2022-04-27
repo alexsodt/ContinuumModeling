@@ -1136,3 +1136,144 @@ void NBAR::move_outside( void )
 	theta_0 = fabs(theta_0);
 	
 }
+
+void NBAR::getDirName( char name[256] )
+{
+	sprintf(name,"NBAR");
+}
+
+void NBAR::writeStructure( Simulation *theSimulation, surface_mask *upperSurfaceMask, surface_mask *lowerSurfaceMask, struct atom_rec **at_out, int *nat_out, char ***sequence_array, int *nseq_out, int **seq_at_array, char ***patches, struct ion_add **ions, int *nions, 
+	aa_build_data *buildData, int *build_type )
+{
+
+	if( nmer_saved != 1 )
+	{
+		printf("NBAR can only currently handle nmer=1.\n");
+		exit(1);
+	}
+
+	*build_type = BUILD_SEQUENCE;
+
+	int nsegments = nmer_saved;
+
+	char dirName[256];
+
+	getDirName( dirName );
+
+	struct atom_rec *at_fetch;
+	int nat;
+
+	int pool_code = pdbFetch( &at_fetch, &nat, dirName, "NBAR_martini3", addToPool );
+	
+	const char *segment_names[] = { "PROA", "PROB" };
+
+	int a_markers[nmer_saved*2];
+	int tadd = 2;
+	double com[nmer_saved*2][3];
+	int ncom[nmer_saved];
+	
+	int a_start = *nat_out;
+	
+	*patches = (char **)malloc( sizeof(char *) * 2*nmer_saved );
+		
+	a_markers[0] = *nat_out;
+
+	int clash=0;
+	int res[3] = {181, 226, 181 };
+	int cmplx[3] = {0,1,2};
+	double random_noise = 1e-3;
+	double nrm_displace = 35.0;
+	int ntries=0;
+
+	int doMultiSegment=1;
+	while( (clash = addAlignedProteinHelper( theSimulation, upperSurfaceMask, lowerSurfaceMask,
+		at_out, nat_out,
+		ions, nions,	
+		pool_code,
+		"PRO",
+		3,
+		res,
+		cmplx,	
+		buildData, random_noise, doMultiSegment, nrm_displace )) && ntries < 500)
+	{
+		// re-orient.
+	
+		if( ntries % 5 == 0 )
+			random_noise *= 1.05;	
+		ntries++;
+	}
+	
+	// find the end.
+	
+	char pseg[256];
+	strcpy(pseg, (*at_out)[a_start].segid );
+
+	for( int a = a_start; a < *nat_out; a++ )
+	{
+		a_markers[1] = a;
+
+		if( strcasecmp( pseg, (*at_out)[a].segid ) ) 
+			break;	
+	}
+	
+	patchFetch( (*patches)+0, dirName, "PROA" );
+	patchFetch( (*patches)+1, dirName, "PROB" );
+
+	struct atom_rec *at = *at_out;
+	// make sure the domains are in the same PBC
+
+	*sequence_array = (char **)malloc( sizeof(char*) * tadd );
+	*seq_at_array = (int *)malloc( sizeof(int) * tadd );
+
+	*nseq_out = tadd;
+
+	for( int t = 0; t < tadd; t++ )
+	{
+		int seq_space = 10;
+		int nseq = 0;
+	
+		char *seq = (char *)malloc( sizeof(char) * seq_space );
+	
+		int start = a_markers[t];
+		
+		seq[nseq] = threeToOne( at[start].resname );
+		nseq++;
+		int stop = *nat_out; 
+		if( t < tadd-1 )
+			stop = a_markers[t+1];
+	
+		(*seq_at_array)[t] = start;
+
+		int pres = at[start].res;
+		for( int a = start; a < stop; a++ )
+		{
+			if( at[a].res != pres )
+			{
+				int doff = at[a].res - pres;
+	
+				if( nseq-1 + doff >= seq_space )
+				{
+					seq_space *= 2;
+					seq_space += doff;	
+	
+					seq = (char *)realloc( seq, sizeof(char) * (seq_space+1) );
+				}
+	
+				for( int ts = nseq; ts < nseq-1+doff; ts++ )
+					seq[ts] = 'X';		
+	
+				nseq = nseq-1+doff;
+	
+				seq[nseq] = threeToOne( at[a].resname ); 
+				nseq++;
+			}
+	
+			pres = at[a].res;
+		}	
+	
+		seq[nseq] = '\0';
+
+		(*sequence_array)[t] = seq;
+		
+	}
+}

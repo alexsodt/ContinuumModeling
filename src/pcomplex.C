@@ -1541,8 +1541,12 @@ pcomplex *loadComplex( const char *name )
 		the_complex = new NBAR;
 	else if( !strcasecmp( name, "syt7" ) )
 		the_complex = new syt7;
+	else if( !strcasecmp( name, "dvl" ) )
+		the_complex = new DVL;
 	else if( !strcasecmp( name, "dynamin" ) )
 		the_complex = new dynamin;
+	else if( !strcasecmp( name, "sdynamin" ) )
+		the_complex = new sdynamin;
 	else if( !strcasecmp( name, "ifitm3" ) )
 		the_complex = new ifitm3;
 	else if( !strcasecmp( name, "dimer" ) )
@@ -1714,6 +1718,8 @@ void Simulation::loadComplexes( parameterBlock *block )
 			prot->loadParams(block);
 			if( !strcasecmp( rec->name, "dynamin" ) )
 				((dynamin *)prot)->init(tp, rec->nmer ); 				 
+			else if( !strcasecmp( rec->name, "sdynamin" ) )
+				((sdynamin *)prot)->init(tp, rec->nmer ); 				 
 			else
 				prot->init(tp); 				 
 		
@@ -1767,6 +1773,8 @@ void Simulation::loadComplexes( parameterBlock *block )
 
 			if( !strcasecmp( rec->name, "dynamin" ) )
 				((dynamin *)prot)->init(this, theSurface, rsurf, f,u,v, rec->nmer ); 				 
+			else if( !strcasecmp( rec->name, "sdynamin" ) )
+				((sdynamin *)prot)->init(this, theSurface, rsurf, f,u,v, rec->nmer ); 				 
 			else
 				prot->init(this, theSurface, rsurf, f,u,v); 				 
 

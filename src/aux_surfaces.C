@@ -115,5 +115,17 @@ surface *getAuxSphere( int nsubdiv )
 
 	newSurface->generatePlan();
 
+	double rpt[3], npt[3];
+
+	double *rpts = (double *)malloc( sizeof(double) * 3 * (1+ newSurface->nv) );
+	newSurface->get(rpts);
+	rpts[3*newSurface->nv+0]=1.0;
+	rpts[3*newSurface->nv+1]=1.0;
+	rpts[3*newSurface->nv+2]=1.0;
+	newSurface->evaluateRNRM( 0, 1.0/3.0, 1.0/3.0, rpt, npt, rpts );
+
+	double dp = rpt[0] * npt[0] + rpt[1] * npt[1] + rpt[2] * npt[2];
+
+	free(rpts);
 	return newSurface;
 }

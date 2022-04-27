@@ -36,23 +36,71 @@ static double inner_to_outer = bilayer_thickness/2 + PH_width/2 + PH_to_stalk;
 static double dynamin_stride = 6.35;
 static double dynamin_rotor  = 23.68; // the three-sites have to be this distance apart.
 static double dynamin_R         = 85; // the approximate radius of the ideal dynamin tube
+static double dynamin_outer_R = dynamin_R + inner_to_outer;
 static double dynamin_angle = 100; // the angle that one dynamin dimer takes up.
 static double dynamin_axis_angle = 10.0; // just a guess, replace with correct value.
 static double axis_stride = 40.0; // approx.
 
-static double dynamin_outer_R = dynamin_R + inner_to_outer;
 
 static double monomer_MW = 1000 * 200000; //amu per dimer.
 static double site_radius = 10.0;
-static double inter_bond = dynamin_stride;
 
 // this is determined by making the sites line up through one rotation.
-static double bond_length_2 = 2 * dynamin_R * sin( 0.5 * dynamin_rotor * (M_PI/180) );
-static double bond_length_1 = 2 * dynamin_R * sin( 0.5 * (dynamin_angle/2-dynamin_rotor) * (M_PI/180.) );
 
-static double bond_angle_2  = 180 - dynamin_rotor; 
-static double bond_angle_1  = bond_angle_2/2 + ( 90 + 0.5 * dynamin_rotor - dynamin_angle/4);
-static double dynamin_dihe	    = 3.0; // very small?
+double elbow_1_to_membrane = 65.0;
+double elbow_angle	 = 120.0;	// check
+double elbow_to_elbow    = 70.0;
+double plane_angle       = 21.094992;	// check
+double el_el_G_angle     = 70.596031;	// check
+double elbow_to_G	 = 84.113721;	// check
+double el_G_el_angle  = (161.273414);	// check
+double final_dihe	 = 11.862716;	// check
+
+void sdynamin::getParams( void )
+{
+	PH_width = 30.0;
+	PH_to_stalk = 30.0;
+	inner_to_outer = bilayer_thickness/2 + PH_width/2 + PH_to_stalk;
+	dynamin_stride = 14.63;
+	dynamin_rotor  = 26.14;
+	dynamin_angle = 100;
+	dynamin_axis_angle = 10.0;
+
+	dynamin_R         = 65; // the approximate radius of the ideal dynamin tube
+	dynamin_outer_R = dynamin_R + inner_to_outer;
+	
+	elbow_1_to_membrane = 65.0;
+	elbow_angle	 = 122.0;
+	elbow_to_elbow    = 70.0;
+	plane_angle       = 29.742715;
+	el_el_G_angle     = 73.292420; // check
+	elbow_to_G	 = 86.032050;
+	el_G_el_angle  = 157.978543;
+	final_dihe	 = 18.720648;
+}
+
+void dynamin::getParams( void )
+{
+	PH_width = 30.0;
+	PH_to_stalk = 30.0;
+	inner_to_outer = bilayer_thickness/2 + PH_width/2 + PH_to_stalk;
+	dynamin_stride = 6.35;
+	dynamin_rotor  = 23.68;
+	dynamin_angle = 100;
+	dynamin_axis_angle = 10.0;
+
+	dynamin_R         = 85; // the approximate radius of the ideal dynamin tube
+	dynamin_outer_R = dynamin_R + inner_to_outer;
+
+	elbow_1_to_membrane = 65.0;
+	elbow_angle	 = 120.0;
+	elbow_to_elbow    = 70.0;
+	plane_angle       = 21.094992;
+	el_el_G_angle     = 70.596031;
+	elbow_to_G	 = 84.113721;
+	el_G_el_angle  = (161.273414);
+	final_dihe	 = 11.862716;
+} 
 
 void dynamin::init( double *r, int nmer )
 {
@@ -89,18 +137,11 @@ void dynamin::init( double *r, int nmer )
 
 // this is just above the PHD:
 
-double origin_to_elbow_1 = 130.864301;
-double elbow_1_to_membrane = 65.0;
-double elbow_angle	 = 120.0;
-double elbow_to_elbow    = 70.0;
-double plane_angle       = 21.094992;
-double el_el_G_angle     = 70.596031;
-double elbow_to_G	 = 84.113721;
-double el_G_el_angle  = (161.273414);
-double final_dihe	 = 18.720648; //11.862716;
 
 void dynamin::clone( Simulation *theSimulation, surface *theSurface, double *rsurf, pcomplex *takeFrom, int add_to)
 {
+	getParams();
+
 	int nmer_copy = takeFrom->nmer_saved;
 
 	double io_sign = 1;
@@ -306,6 +347,7 @@ void dynamin::clone( Simulation *theSimulation, surface *theSurface, double *rsu
 	
 			if( lock[a2] ) continue;
 			if( !lock[a1] ) continue;
+
 	
 	
 			double dr_r[3] = { rall[3*a2+0] - rall[3*a1+0], rall[3*a2+1] - rall[3*a1+1], rall[3*a2+2] - rall[3*a1+2] };
@@ -328,9 +370,9 @@ void dynamin::clone( Simulation *theSimulation, surface *theSurface, double *rsu
 			}	
 			else
 			{
-				PBC_ext[3*a2+0] = put[0];
-				PBC_ext[3*a2+1] = put[1];
-				PBC_ext[3*a2+2] = put[2];
+				PBC_ext[3*a2+0] += put[0];
+				PBC_ext[3*a2+1] += put[1];
+				PBC_ext[3*a2+2] += put[2];
 			}
 
 			done = 0;	
@@ -343,6 +385,8 @@ void dynamin::clone( Simulation *theSimulation, surface *theSurface, double *rsu
 
 void dynamin::placeSubunit( Simulation *theSimulation, surface *theSurface, double *rsurf, int m, double dynamin_axis[3]  )
 {
+	getParams();
+
 	double r_1[3]={1e10,1e10,1e10};
 	double r_2[3]={1e10,1e10,1e10};
 
@@ -725,6 +769,8 @@ void dynamin::placeSubunit( Simulation *theSimulation, surface *theSurface, doub
 
 void dynamin::init( Simulation *theSimulation, surface *theSurface, double *rsurf, int f, double u, double v, int nmer)
 {
+	getParams();
+
 	// assume for now this is one of the points on the membrane neck.
 #if 0
 	// hack to start, get the site to align with the dynamin pdb.
@@ -1243,7 +1289,6 @@ void dynamin::putBonds( int *bond_list, double *bond_r, double *bond_k_in)
 	int bonds_per_nmer = (aq_sites_per_nmer + attach_per_nmer - 1) + aq_sites_per_nmer-1;
 
 /*
-double origin_to_elbow_1 = 130.864301;
 double elbow_1_to_membrane = 45.0;
 double elbow_angle	 = 120.0;
 double elbow_to_elbow    = 70.0;
@@ -1603,83 +1648,6 @@ double dynamin::V( Simulation *theSimulation  )
 	}
 
 
-#if 0
-	for( int m = 0; m < nmer_saved; m++ )
-	{
-		int s0 = m*nattach_per_nmer;
-		int a0 = nattach + m*aq_sites_per_nmer;
-
-		int angles[3][3] = { {s0,a0,a0+1}, {a0,a0+1,a0+2}, {a0+1,a0+2,s0+1} };
-		double phi0[3] = { (M_PI/180.0)*bond_angle_1, (M_PI/180.0)*bond_angle_2, (M_PI/180.0)*bond_angle_1 };
-		 
-		for( int a = 0; a < 3; a++ )
-		{
-			int a1 = angles[a][0];
-			int a2 = angles[a][1];
-			int a3 = angles[a][2];
-			
-			double l_angle_k = angle_k;
-
-			double dr1[3] = { r[3*a1+0] - r[3*a2+0],
-					 r[3*a1+1] - r[3*a2+1],
-					 r[3*a1+2] - r[3*a2+2] };
-			double dr2[3] = { r[3*a3+0] - r[3*a2+0],
-					 r[3*a3+1] - r[3*a2+1],
-					 r[3*a3+2] - r[3*a2+2] };
-			double ln1 = normalize(dr1);
-			double ln2 = normalize(dr2);
-
-			double dp = dr1[0]*dr2[0]+dr1[1]*dr2[1]+dr1[2]*dr2[2];
-			double ac = acos(dp);
-
-			pot += 0.5 * l_angle_k * (ac - phi0[a]) * (ac -phi0[a]);	
-		}
-	}
-	for( int m = 0; m < nmer_saved; m++ )
-	{
-		int s0 = m*nattach_per_nmer;
-		int a0 = nattach + m*aq_sites_per_nmer;
-
-		int dihedrals[2][4] = { {s0,a0,a0+1,a0+2}, {a0,a0+1,a0+2,s0+1} };
-		double phi0[2] = { (M_PI/180.0)*dynamin_dihe, (M_PI/180.0)*dynamin_dihe };
-		 
-		for( int d = 0; d < 2; d++ )
-		{
-			double l_dihe_k = dihe_k;
-			double dihedral_target = phi0[d];
-
-			int a1 = dihedrals[d][0];
-			int a2 = dihedrals[d][1];
-			int a3 = dihedrals[d][2];
-			int a4 = dihedrals[d][3];
-			
-			double dr1A[3] = { r[3*a1+0] - r[3*a2+0],
-					 r[3*a1+1] - r[3*a2+1],
-					 r[3*a1+2] - r[3*a2+2] };
-			double dr1B[3] = { r[3*a3+0] - r[3*a2+0],
-					 r[3*a3+1] - r[3*a2+1],
-					 r[3*a3+2] - r[3*a2+2] };
-			
-			double dr2A[3] = { r[3*a2+0] - r[3*a3+0],
-					 r[3*a2+1] - r[3*a3+1],
-					 r[3*a2+2] - r[3*a3+2] };
-			double dr2B[3] = { r[3*a4+0] - r[3*a3+0],
-					 r[3*a4+1] - r[3*a3+1],
-					 r[3*a4+2] - r[3*a3+2] };
-	
-			double n1[3], n2[3];
-	
-			cross( dr1A,dr1B,n1);
-			cross( dr2A,dr2B,n2);
-			normalize(n1);
-			normalize(n2);
-			double dp = n1[0]*n2[0]+n1[1]*n2[1]+n1[2]*n2[2];
-			double theta = acos(dp);
-
-			pot += 0.5 * l_dihe_k * (theta - dihedral_target ) * (theta - dihedral_target );
-		}
-	}
-#endif
 
 
 #ifdef DEBUG_DYNAMIN
@@ -2132,159 +2100,6 @@ double dynamin::grad( Simulation *theSimulation,  double *surfacer_g, double *su
 	}
 #endif
 
-#if 0
-	// angles
-
-	int nattach_per_nmer = 2;
-
-	for( int m = 0; m < nmer_saved; m++ )
-	{
-		int s0 = m*nattach_per_nmer;
-		int a0 = nattach + m*aq_sites_per_nmer;
-
-		int angles[3][3] = { {s0,a0,a0+1}, {a0,a0+1,a0+2}, {a0+1,a0+2,s0+1} };
-		double phi0[3] = { (M_PI/180.0)*bond_angle_1, (M_PI/180.0)*bond_angle_2, (M_PI/180.0)*bond_angle_1 };
-		 
-		for( int a = 0; a < 3; a++ )
-		{
-			int a1 = angles[a][0];
-			int a2 = angles[a][1];
-			int a3 = angles[a][2];
-			double l_angle_k = angle_k;
-
-			double dr1[3] = { r[3*a1+0] - r[3*a2+0],
-					 r[3*a1+1] - r[3*a2+1],
-					 r[3*a1+2] - r[3*a2+2] };
-			double dr2[3] = { r[3*a3+0] - r[3*a2+0],
-					 r[3*a3+1] - r[3*a2+1],
-					 r[3*a3+2] - r[3*a2+2] };
-			double ln1 = normalize(dr1);
-			double ln2 = normalize(dr2);
-
-			double dp = dr1[0]*dr2[0]+dr1[1]*dr2[1]+dr1[2]*dr2[2];
-			double ac = acos(dp);
-
-			pot += 0.5 * l_angle_k * (ac - phi0[a]) * (ac -phi0[a]);	
-	
-			double der_A = l_angle_k * (ac-phi0[a]);
-			double der_cos = -1.0/sqrt(1e-10+1.0-dp*dp); 
-	
-			// numerator derivative
-	
-			surfacer_g[3*a1+0] += der_A * der_cos * dr2[0] / ln1;
-			surfacer_g[3*a1+1] += der_A * der_cos * dr2[1] / ln1;
-			surfacer_g[3*a1+2] += der_A * der_cos * dr2[2] / ln1;
-			
-			surfacer_g[3*a2+0] += der_A * der_cos * (-dr2[0]) / ln1;
-			surfacer_g[3*a2+1] += der_A * der_cos * (-dr2[1]) / ln1;
-			surfacer_g[3*a2+2] += der_A * der_cos * (-dr2[2]) / ln1;
-			
-			surfacer_g[3*a2+0] += der_A * der_cos * (-dr1[0]) / ln2;
-			surfacer_g[3*a2+1] += der_A * der_cos * (-dr1[1]) / ln2;
-			surfacer_g[3*a2+2] += der_A * der_cos * (-dr1[2]) / ln2;
-			
-			surfacer_g[3*a3+0] += der_A * der_cos * (dr1[0]) / ln2;
-			surfacer_g[3*a3+1] += der_A * der_cos * (dr1[1]) / ln2;
-			surfacer_g[3*a3+2] += der_A * der_cos * (dr1[2]) / ln2;
-	
-			// denominator derivative.
-			
-			double ln1_2 = ln1*ln1;
-			double ln2_2 = ln2*ln2;
-	
-			surfacer_g[3*a1+0] += -der_A * der_cos * dp * dr1[0] / ln1;
-			surfacer_g[3*a1+1] += -der_A * der_cos * dp * dr1[1] / ln1;
-			surfacer_g[3*a1+2] += -der_A * der_cos * dp * dr1[2] / ln1;
-			
-			surfacer_g[3*a2+0] += der_A * der_cos * dp * dr1[0] / ln1;
-			surfacer_g[3*a2+1] += der_A * der_cos * dp * dr1[1] / ln1;
-			surfacer_g[3*a2+2] += der_A * der_cos * dp * dr1[2] / ln1;
-			
-			surfacer_g[3*a2+0] += der_A * der_cos * dp * dr2[0] / ln2;
-			surfacer_g[3*a2+1] += der_A * der_cos * dp * dr2[1] / ln2;
-			surfacer_g[3*a2+2] += der_A * der_cos * dp * dr2[2] / ln2;
-			
-			surfacer_g[3*a3+0] += -der_A * der_cos * dp * dr2[0] / ln2;
-			surfacer_g[3*a3+1] += -der_A * der_cos * dp * dr2[1] / ln2;
-			surfacer_g[3*a3+2] += -der_A * der_cos * dp * dr2[2] / ln2;
-		}
-	
-	}
-
-	for( int m = 0; m < nmer_saved; m++ )
-	{
-		int s0 = m*nattach_per_nmer;
-		int a0 = nattach + m*aq_sites_per_nmer;
-
-		int dihedrals[2][4] = { {s0,a0,a0+1,a0+2}, {a0,a0+1,a0+2,s0+1} };
-		double phi0[2] = { (M_PI/180.0)*dynamin_dihe, (M_PI/180.0)*dynamin_dihe };
-		 
-		for( int d = 0; d < 2; d++ )
-		{
-			double l_dihe_k = dihe_k;
-			double dihedral_target = phi0[d];
-
-			int a1 = dihedrals[d][0];
-			int a2 = dihedrals[d][1];
-			int a3 = dihedrals[d][2];
-			int a4 = dihedrals[d][3];
-			
-			double dr1A[3] = { r[3*a1+0] - r[3*a2+0],
-					 r[3*a1+1] - r[3*a2+1],
-					 r[3*a1+2] - r[3*a2+2] };
-			double dr1B[3] = { r[3*a3+0] - r[3*a2+0],
-					 r[3*a3+1] - r[3*a2+1],
-					 r[3*a3+2] - r[3*a2+2] };
-			
-			double dr2A[3] = { r[3*a2+0] - r[3*a3+0],
-					 r[3*a2+1] - r[3*a3+1],
-					 r[3*a2+2] - r[3*a3+2] };
-			double dr2B[3] = { r[3*a4+0] - r[3*a3+0],
-					 r[3*a4+1] - r[3*a3+1],
-					 r[3*a4+2] - r[3*a3+2] };
-	
-			double n1[3], n2[3];
-	
-			cross( dr1A,dr1B,n1);
-			cross( dr2A,dr2B,n2);
-			normalize(n1);
-			normalize(n2);
-			double dp = n1[0]*n2[0]+n1[1]*n2[1]+n1[2]*n2[2];
-			double theta = acos(dp);
-	
-			pot += 0.5 * l_dihe_k * (theta - dihedral_target ) * (theta - dihedral_target );
-
-
-			// derivative of nrm wrt the three vectors.
-			// slow: cartesian component of the normal
-			// mid: which vector (r1,r2,r3)
-			// fast: cartesian component of that vector
-			double dnrm1[27];
-			double dnrm2[27];
-	
-			// order here is mixed up, sorry.
-			normal_cp_der( r+3*a2, r+3*a1, r+3*a3, dnrm1 );
-			normal_cp_der( r+3*a3, r+3*a2, r+3*a4, dnrm2 );
-	
-			// everything prior to d(dp)/dr1
-			double base_der = l_dihe_k * (theta - dihedral_target) * (-1 / sqrt(1e-10 + 1-dp*dp));
-		
-			// everything else is d(dp)/dx_i, etc.
-			for( int pc = 0; pc < 3; pc++ )
-			for( int nc = 0; nc < 3; nc++ )
-			{
-				surfacer_g[3*a1+pc] += base_der * n2[nc] * dnrm1[nc*9+1*3+pc];
-				surfacer_g[3*a2+pc] += base_der * n2[nc] * dnrm1[nc*9+0*3+pc];
-				surfacer_g[3*a3+pc] += base_der * n2[nc] * dnrm1[nc*9+2*3+pc];
-				
-				surfacer_g[3*a2+pc] += base_der * n1[nc] * dnrm2[nc*9+1*3+pc];
-				surfacer_g[3*a3+pc] += base_der * n1[nc] * dnrm2[nc*9+0*3+pc];
-				surfacer_g[3*a4+pc] += base_der * n1[nc] * dnrm2[nc*9+2*3+pc];
-			}
-		
-		}
-	}
-#endif
 
 	double check = V( theSimulation );
 
@@ -2308,6 +2123,15 @@ void dynamin::move_outside( void )
 	pcomplex::move_outside();
 }
 
+void dynamin::getDirName( char name[256] )
+{
+	sprintf(name,"dynamin");
+}
+void sdynamin::getDirName( char name[256] )
+{
+	sprintf(name,"sdynamin");
+}
+
 
 void dynamin::writeStructure( Simulation *theSimulation, surface_mask *upperSurfaceMask, surface_mask *lowerSurfaceMask, struct atom_rec **at_out, int *nat_out, char ***sequence_array, int *nseq_out, int **seq_at_array, char ***patches, struct ion_add **ions, int *nions, 
 	aa_build_data *buildData, int *build_type )
@@ -2316,9 +2140,13 @@ void dynamin::writeStructure( Simulation *theSimulation, surface_mask *upperSurf
 
 	int nsegments = nmer_saved;
 
+	char dirName[256];
+
+	getDirName( dirName );
+
 	struct atom_rec *at_fetch;
 	int nat;
-	int pool_code = pdbFetch( &at_fetch, &nat, "dynamin", "dynamin_martini", addToPool );
+	int pool_code = pdbFetch( &at_fetch, &nat, dirName, "dynamin_martini", addToPool );
 	
 	const char *segment_names[] = { "PROA", "PROB" };
 
@@ -2334,7 +2162,7 @@ void dynamin::writeStructure( Simulation *theSimulation, surface_mask *upperSurf
 	for( int m = 0; m < nmer_saved; m++ )
 	for( int seg = 0; seg < 2; seg++,tadd++ )
 	{
-		patchFetch( (*patches)+tadd, "dynamin", segment_names[seg] );
+		patchFetch( (*patches)+tadd, dirName, segment_names[seg] );
 
 		a_markers[tadd] = *nat_out;
 
@@ -2821,5 +2649,432 @@ char dynamin::getSiteCode( int p )
 
 }
 
+/*int inter_bonds_per_nmer = aq_sites_per_nmer-1;
+int attach_per_nmer = 2;
+*/
+int sdynamin::getNBonds( void )
+{
+	
+	int nsites_per_nmer = attach_per_nmer + aq_sites_per_nmer;
+	
+	int bonds_per_nmer = (aq_sites_per_nmer + attach_per_nmer - 1) + inter_bonds_per_nmer;
+
+	int nbonds = bonds_per_nmer * nmer_saved - inter_bonds_per_nmer;
+
+	return nbonds;
+}
+
+/*
+int nangles_intra = attach_per_nmer + aq_sites_per_nmer - 2
+#ifdef SUPP_DIHE
++ 2
+#endif
+;
+int nangles_inter = inter_bonds_per_nmer; // one per bond 
+*/
+int sdynamin::getNAngles( void )
+{
+	int nangles = nangles_intra *nmer_saved + nangles_inter * (nmer_saved-1);
 
 
+	return nangles;
+}
+
+
+void sdynamin::putAngles( int *ang_list, double *angle_theta, double *angle_k )
+{
+	double use_angle_k = angle_force;
+
+
+	int nangles = nangles_intra *nmer_saved + nangles_inter * (nmer_saved-1);
+
+	// intra angles.
+	
+	int cnt = 0;
+	for( int m = 0; m < nmer_saved; m++ )
+	{
+		int a0 = nattach + m * aq_sites_per_nmer;
+		int s0 = attach_per_nmer * m;
+// ang 1
+		ang_list[3*cnt+0] = s0; 
+		ang_list[3*cnt+1] = a0; 
+		ang_list[3*cnt+2] = a0+1; 
+
+		angle_theta[cnt] = 122.378814;
+		angle_k[cnt] = use_angle_k;
+	
+		cnt++;
+// ang 2	
+		ang_list[3*cnt+0] = a0; 
+		ang_list[3*cnt+1] = a0+1; 
+		ang_list[3*cnt+2] = a0+2; 
+
+		angle_theta[cnt] = 106.707580;
+		angle_k[cnt] = use_angle_k;
+
+		cnt++;
+// ang 3	
+		ang_list[3*cnt+0] = a0+1; 
+		ang_list[3*cnt+1] = a0+2; 
+		ang_list[3*cnt+2] = a0+3; 
+
+		angle_theta[cnt] = 157.978543;
+		angle_k[cnt] = use_angle_k;
+
+		cnt++;
+// ang 4	
+		ang_list[3*cnt+0] = a0+2; 
+		ang_list[3*cnt+1] = a0+3; 
+		ang_list[3*cnt+2] = a0+4; 
+
+		angle_theta[cnt] = 102.544231;
+		angle_k[cnt] = use_angle_k;
+		
+		cnt++;
+// ang 5
+		ang_list[3*cnt+0] = a0+3; 
+		ang_list[3*cnt+1] = a0+4; 
+		ang_list[3*cnt+2] = s0+1; 
+
+		angle_theta[cnt] = 108.416539;
+		angle_k[cnt] = use_angle_k;
+		
+		cnt++;
+#ifdef SUPP_DIHE
+// ang S1
+		ang_list[3*cnt+0] = a0; 
+		ang_list[3*cnt+1] = a0+1; 
+		ang_list[3*cnt+2] = a0+3; 
+
+		angle_theta[cnt] = 100.0;
+		angle_k[cnt] = use_angle_k;
+		
+		cnt++;
+
+// ang S2
+		ang_list[3*cnt+0] = a0+1; 
+		ang_list[3*cnt+1] = a0+3; 
+		ang_list[3*cnt+2] = a0+4; 
+
+		angle_theta[cnt] = 100.0;
+		angle_k[cnt] = use_angle_k;
+		
+		cnt++;
+
+
+#endif
+
+
+	}
+	
+	// inter angles.
+	
+	for( int m = 0; m < nmer_saved-1; m++ )
+	{
+		int a0 = nattach + m * aq_sites_per_nmer;
+		int s0 = attach_per_nmer * m;
+		
+		int a1 = nattach + (m+1) * aq_sites_per_nmer;
+		int s1 = attach_per_nmer * (m+1);
+// ang 1
+		ang_list[3*cnt+0] = a0+1; 
+		ang_list[3*cnt+1] = a1; 
+		ang_list[3*cnt+2] = a1+1; 
+
+		angle_theta[cnt] = 66.595828;
+		angle_k[cnt] = use_angle_k;
+	
+		cnt++;
+// ang 2	
+		ang_list[3*cnt+0] = a0+2; 
+		ang_list[3*cnt+1] = a1+1; 
+		ang_list[3*cnt+2] = a1+2; 
+
+		angle_theta[cnt] = 68.575376;
+		angle_k[cnt] = use_angle_k;
+
+		cnt++;
+// ang 3	
+		ang_list[3*cnt+0] = a0+3; 
+		ang_list[3*cnt+1] = a1+2; 
+		ang_list[3*cnt+2] = a1+3; 
+
+		angle_theta[cnt] = 54.117237; 
+		angle_k[cnt] = use_angle_k;
+
+		cnt++;
+// ang 4	
+		ang_list[3*cnt+0] = a0+4; 
+		ang_list[3*cnt+1] = a1+3; 
+		ang_list[3*cnt+2] = a1+4; 
+
+		angle_theta[cnt] = 60.885045;
+		angle_k[cnt] = use_angle_k;
+		
+		cnt++;
+	}
+
+	// convert to rads
+	
+	for( int a = 0; a < cnt; a++ )
+		angle_theta[a] *= (M_PI/180.0);
+}
+
+/*
+
+int ndihe_inter = 4;
+
+int ndihe_intra = 
+2 + 
+
+#ifdef MID_DIHE
+2 +
+#endif
+
+#ifdef SUPP_DIHE
+1
+#else
+0
+#endif
+;
+*/
+
+int sdynamin::getNDihe( void )
+{
+	int ndihe = ndihe_intra * nmer_saved + ndihe_inter * (nmer_saved-1);
+
+	return ndihe;
+}
+
+void sdynamin::putDihe( int *dihe_list, double *dihe_theta, double *dihe_k )
+{
+	double use_dihe_k = dihedral_force;
+
+	int ndihe = getNDihe();
+
+	// intra dihe.
+	
+	int cnt = 0;
+	for( int m = 0; m < nmer_saved; m++ )
+	{
+		int a0 = nattach + m * aq_sites_per_nmer;
+		int s0 = attach_per_nmer * m;
+// dihe 1
+		dihe_list[4*cnt+0] = s0; 
+		dihe_list[4*cnt+1] = a0; 
+		dihe_list[4*cnt+2] = a0+1; 
+		dihe_list[4*cnt+3] = a0+2; 
+
+		dihe_theta[cnt] = 33.294000*(M_PI/180.0);
+		dihe_k[cnt] = use_dihe_k;
+
+	
+		cnt++;
+
+#ifdef MID_DIHE
+// dihe 2
+		dihe_list[4*cnt+0] = a0; 
+		dihe_list[4*cnt+1] = a0+1; 
+		dihe_list[4*cnt+2] = a0+2; 
+		dihe_list[4*cnt+3] = a0+3; 
+
+		dihe_theta[cnt] = 5.590809*(M_PI/180.0);
+		dihe_k[cnt] = use_dihe_k;
+	
+		cnt++;
+// dihe 3
+		dihe_list[4*cnt+0] = a0+1; 
+		dihe_list[4*cnt+1] = a0+2; 
+		dihe_list[4*cnt+2] = a0+3; 
+		dihe_list[4*cnt+3] = a0+4; 
+
+		dihe_theta[cnt] = 22.913731*(M_PI/180.0);
+		dihe_k[cnt] = use_dihe_k;
+	
+		cnt++;
+#endif
+
+#ifdef SUPP_DIHE
+		dihe_theta[cnt] = 22.913731 * (M_PI/180.0);
+		dihe_list[4*cnt+0] = a0; 
+		dihe_list[4*cnt+1] = a0+1; 
+
+		dihe_list[4*cnt+2] = a0+3; 
+		dihe_list[4*cnt+3] = a0+4; 
+		dihe_k[cnt] = use_dihe_k;
+
+		cnt++;
+#endif
+// dihe 4
+		dihe_list[4*cnt+0] = a0+2; 
+		dihe_list[4*cnt+1] = a0+3; 
+		dihe_list[4*cnt+2] = a0+4; 
+		dihe_list[4*cnt+3] = s0+1; 
+
+		dihe_theta[cnt] = 7.612105*(M_PI/180.0);
+		dihe_k[cnt] = use_dihe_k;
+	
+		cnt++;
+
+	}
+	
+	// inter dihe.
+	
+	for( int m = 0; m < nmer_saved-1; m++ )
+	{
+		int a0 = nattach + m * aq_sites_per_nmer;
+		int s0 = attach_per_nmer * m;
+		
+		int a1 = nattach + (m+1) * aq_sites_per_nmer;
+		int s1 = attach_per_nmer * (m+1);
+// dihe 1		
+		dihe_list[4*cnt+0] = a0; 
+		dihe_list[4*cnt+1] = a0+1; 
+		dihe_list[4*cnt+2] = a1; 
+		dihe_list[4*cnt+3] = a1+1; 
+
+		dihe_theta[cnt] = 168.493706*(M_PI/180.0);
+		dihe_k[cnt] = use_dihe_k;
+	
+		cnt++;
+
+// dihe 2
+		dihe_list[4*cnt+0] = a0+1;
+		dihe_list[4*cnt+1] = a0+2; 
+		dihe_list[4*cnt+2] = a1+1; 
+		dihe_list[4*cnt+3] = a1+2; 
+
+		dihe_theta[cnt] = 171.819312*(M_PI/180.0);
+		dihe_k[cnt] = use_dihe_k;
+	
+		cnt++;
+
+// dihe 3
+		dihe_list[4*cnt+0] = a0+2;
+		dihe_list[4*cnt+1] = a0+3; 
+		dihe_list[4*cnt+2] = a1+2; 
+		dihe_list[4*cnt+3] = a1+3; 
+
+		dihe_theta[cnt] = 148.662895*(M_PI/180.0);
+		dihe_k[cnt] = use_dihe_k;
+	
+		cnt++;
+
+// dihe 3
+		dihe_list[4*cnt+0] = a0+3;
+		dihe_list[4*cnt+1] = a0+4; 
+		dihe_list[4*cnt+2] = a1+3; 
+		dihe_list[4*cnt+3] = a1+4; 
+
+		dihe_theta[cnt] = 151.237723*(M_PI/180.0);
+		dihe_k[cnt] = use_dihe_k;
+	
+		cnt++;
+	}
+
+	// convert to rads
+	
+//	for( int a = 0; a < cnt; a++ )
+//		dihe_theta[a] *= (M_PI/180.0);
+}
+
+void sdynamin::putBonds( int *bond_list, double *bond_r, double *bond_k_in)
+{
+	double bond_k = bond_force;
+	int attach_per_nmer = 2;
+	int nsites_per_nmer = attach_per_nmer + aq_sites_per_nmer;
+	
+	int bonds_per_nmer = (aq_sites_per_nmer + attach_per_nmer - 1) + aq_sites_per_nmer-1;
+
+/*
+double elbow_1_to_membrane = 45.0;
+double elbow_angle	 = 120.0;
+double elbow_to_elbow    = 70.0;
+double plane_angle       = 21.094992;
+double el_el_G_angle     = 70.596031;
+double elbow_to_G	 = 84.113721;
+double el_G_el_angle  = (161.273414);
+double final_dihe	 = 11.862716;
+*/
+	for( int m = 0; m < nmer_saved; m++ )
+	{
+		// internal bonds.
+		int a0 = nattach + m * aq_sites_per_nmer;
+		int s0 = attach_per_nmer * m;
+		int nb = 0;
+
+		bond_list[(m*bonds_per_nmer)*2+nb*2+0] = s0;
+		bond_list[(m*bonds_per_nmer)*2+nb*2+1] = a0;
+		if( bond_r ) bond_r[m*bonds_per_nmer+nb] = elbow_1_to_membrane;
+		if( bond_k_in ) bond_k_in[m*bonds_per_nmer+nb] = bond_k;
+		nb++;
+		
+		bond_list[(m*bonds_per_nmer)*2+nb*2+0] = a0+aq_sites_per_nmer-1;
+		bond_list[(m*bonds_per_nmer)*2+nb*2+1] = s0+1;
+		if( bond_r ) bond_r[m*bonds_per_nmer+nb] = elbow_1_to_membrane;
+		if( bond_k_in ) bond_k_in[m*bonds_per_nmer+nb] = bond_k;
+		nb++;
+
+		for( int aq = 0; aq < aq_sites_per_nmer-1; aq++ )
+		{
+			bond_list[(m*bonds_per_nmer)*2+nb*2+0] = a0+aq;
+			bond_list[(m*bonds_per_nmer)*2+nb*2+1] = a0+aq+1;
+
+			
+			if( bond_r )  {
+				switch( aq )
+				{
+					case 0:
+					case 3: 
+						bond_r[m*bonds_per_nmer+nb] = elbow_to_elbow;
+						break;
+					case 1:
+					case 2: 
+						bond_r[m*bonds_per_nmer+nb] = elbow_to_G;
+						break;
+					
+				}
+			}
+			if( bond_k_in ) bond_k_in[m*bonds_per_nmer+nb] = bond_k;
+
+			nb++;
+		}
+
+		// inter bonds.
+		
+		if( m < nmer_saved-1 )
+		{
+			int a0 = nattach + m * aq_sites_per_nmer;
+			int a1 = nattach + (m+1) * aq_sites_per_nmer;
+
+			for( int aq = 0; aq < aq_sites_per_nmer-1; aq++ )
+			{
+				bond_list[(m*bonds_per_nmer)*2+2*nb+0] = a0+aq+1;
+				bond_list[(m*bonds_per_nmer)*2+2*nb+1] = a1+aq;
+				if( bond_r )
+				{
+					switch( aq )
+					{
+						case 0:
+							bond_r[m*bonds_per_nmer+nb] = 51.656586;
+							break;
+						case 1:
+							bond_r[m*bonds_per_nmer+nb] = 50.143111;
+							break;
+						case 2:
+							bond_r[m*bonds_per_nmer+nb] = 38.694115;
+							break;
+						case 3:
+							bond_r[m*bonds_per_nmer+nb] = 40.963655;
+							break;
+					}
+				}
+
+				if( bond_k_in ) bond_k_in[m*bonds_per_nmer+nb] = bond_k;
+
+				nb++;
+			}
+		}
+	}
+
+}

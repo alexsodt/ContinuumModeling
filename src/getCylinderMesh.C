@@ -43,7 +43,17 @@ void getAltCylinderMesh( double **rvals, int **edges, int **nedges, int *nv, int
 
 	n_special_points = 0;
 
+	double R_in = R;
+
 	R = LA / (2*M_PI);
+
+	printf("Using R=%lf\n", R );
+
+	double del = (R-R_in)/R_in;
+
+	if( fabs(del) > 0.15 )
+		printf("WARNING: R we're using (%lf) differs significantly from R requested (%lf).\n",
+			R, R_in ); 
 
 	for( int iy = 0; iy < ny_int; iy++ )
 	{ // y is the axial direction.

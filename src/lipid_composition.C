@@ -19,23 +19,35 @@ const fixed_lipid library_fixed[] =
 {
 	// Chen/Rand 1997
 	// PO values copied from DO.
-	{ "ZERO",         0, 68.3,  "C21" },
-	{ "POPC", -1.0/87.3, 68.3,  "C21" },
-	{ "DOPE", -1.0/29.4, 63.4,  "C21" },
-	{ "POPE", -1.0/29.4, 58.8,  "C21" },
-	{ "DOPC", -1.0/87.3, 69.7,  "C21" }, 
-	{ "CHOL", -1.0/27.2, 31.0,  "C21" }, 
-	{ "CHL1", -1.0/27.2, 31.0,  "O3" }, 
-	{ "DOG",  -1.0/11.5, 59.0,  "C21" },
-	{ "DOPS",  1.0/144.0, 71.6, "C21" }, // Fuller 2003, area from charmm f.f.
-	{ "CER180",	  0, 59.0,  "C1F" },
-	{ "SAPC",	  0, 59.0,  "C22" },
-	{ "SAPE",	  0, 59.0,  "C22" },
-	{ "SAPS",	  0, 59.0,  "C22" },
-	{ "PAPC",	  0, 59.0,  "C22" },
-	{ "PLPC",	  0, 59.0,  "C22" },
-	{ "SSM",  	0,   59.0,  "C1F" },
-	{ "PSM",  	0,   59.0,  "C1F" },
+	{ "ZERO",         0, 68.3,  "C21", "C1A" },
+	{ "POPC", -1.0/87.3, 68.3,  "C21", "C1A" },
+	{ "DOPE", -1.0/29.4, 63.4,  "C21", "C1A" },
+	{ "POPE", -1.0/29.4, 58.8,  "C21", "C1A" },
+	{ "POPS", -1.0/87.3, 65.0,  "C21", "C1A" },
+	{ "POPI", -1.0/87.3, 65.0,  "C21", "C1A" },
+	{ "DOPC", -1.0/87.3, 69.7,  "C21", "C1A" }, 
+	{ "CHOL", -1.0/27.2, 31.0,  "C21", "ROH" }, 
+	{ "CHL1", -1.0/27.2, 31.0,  "O3", "ROH" }, 
+	{ "DHC7", -1.0/27.2, 31.0,  "O3", "ROH" }, 
+	{ "DOG",  -1.0/11.5, 59.0,  "C21", "C1A" },
+	{ "DOPS",  1.0/144.0, 71.6, "C21", "C1A" }, // Fuller 2003, area from charmm f.f.
+	{ "CER180",	  0, 59.0,  "C1F", "C1A" },
+	{ "SAPC",	  0, 59.0,  "C22", "C1A" },
+	{ "SAPE",	  0, 59.0,  "C22", "C1A" },
+	{ "SAPS",	  0, 59.0,  "C22", "C1A" },
+	{ "PAPC",	  0, 59.0,  "C22", "C1A" },
+	{ "PLPC",	  0, 59.0,  "C22", "C1A" },
+	{ "SSM",  	0,   59.0,  "C1F", "C1A" },
+	{ "PSM",  	0,   59.0,  "C1F", "C1A" },
+	
+	{ "LSM",  	0,   59.0,  "C1F", "C1A" },
+	{ "NSM",  	0,   59.0,  "C1F", "C1A" },
+	{ "ODPEE", -1.0/29.4, 63.4,  "C21", "C1A" },
+	{ "OAPE", -1.0/29.4, 63.4,  "C21", "C1A" },
+	{ "PDOPE", -1.0/29.4, 63.4,  "C21", "C1A" },
+	{ "SAPI24", -1.0/30.0, 65.0, "C21", "C1A" },
+	{ "SAPI25", -1.0/30.0, 65.0, "C21", "C1A" },
+	{ "PAPS", -1.0/87.3, 65.0,  "C21", "C1A" },
 };
 
 void dumpLibrary( void )
@@ -62,6 +74,8 @@ void surface::readLipidComposition( FILE *inputFile )
 		strcpy( lipidLibrary[i].name, library_fixed[i].name );
 		lipidLibrary[i].ns_atom = (char *)malloc( sizeof(char)* (1+strlen(library_fixed[i].ns_atom)) );
 		strcpy( lipidLibrary[i].ns_atom, library_fixed[i].ns_atom );
+		lipidLibrary[i].ns_atom_M = (char *)malloc( sizeof(char)* (1+strlen(library_fixed[i].ns_atom_M)) );
+		strcpy( lipidLibrary[i].ns_atom_M, library_fixed[i].ns_atom_M );
 	}
 	nlipids = nlipid_space;
 
@@ -192,12 +206,16 @@ void surface::readLipidComposition( FILE *inputFile )
 								lipidLibrary[nlipids].c0 = c0;
 								lipidLibrary[nlipids].APL = APL;
 								lipidLibrary[nlipids].ns_atom = NULL;
+								lipidLibrary[nlipids].ns_atom_M = NULL;
 								found = nlipids;
 								nlipids++;
 							}
 							else
 							{
-								printf("Replacing lipid %s with c0 %lf and area-per-lipid %lf in the library.\n", lipidName, c0, APL );
+								if( nr >= 6 )
+									printf("Replacing lipid %s with c0 %lf, area-per-lipid %lf, and neutral surface atom %s in the library.\n", lipidName, c0, APL, nsName );
+								else
+									printf("Replacing lipid %s with c0 %lf, area-per-lipid %lf [neutral surface atom unchanged, %s] in the library.\n", lipidName, c0, APL, lipidLibrary[found].ns_atom );
 								lipidLibrary[found].c0 = c0;
 								lipidLibrary[found].APL = APL;
 							}

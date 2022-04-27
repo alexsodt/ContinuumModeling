@@ -737,7 +737,9 @@ int main( int argc, char **argv )
 				r2[3*v+1] += com_path1[1] - com_path2[1];
 				r2[3*v+2] += com_path1[2] - com_path2[2];
 			}
-	
+			printf("r2 shift: %lf %lf %lf\n", com_path1[0] - com_path2[0],
+							  com_path1[1] - com_path2[1],	
+							  com_path1[2] - com_path2[2] );	
 			for( int strt = 0; strt < pathLen2; strt++ )
 			{
 				double chi2 = 0;

@@ -1,4 +1,3 @@
-#include <stdio.h>
 #include <stdlib.h>
 #include <math.h>
 #include <string.h>
@@ -94,9 +93,12 @@ int main( int argc, char **argv )
 		}
 		fclose(theFile);
 	}
-		
+	
+	int bin_range = 20.0 / (Lc/nz);
+	
 	rho_xy = (double *)malloc( sizeof(double) * nx * ny );
 	rho_z = (double *)malloc( sizeof(double) * nz );
+	double *rho_z_av = (double *)malloc( sizeof(double) * nz );
 
 	for( int ix = 0; ix < nx; ix++ )
 	for( int iy = 0; iy < ny; iy++ )
@@ -111,8 +113,26 @@ int main( int argc, char **argv )
 		for( int ix = 0; ix < nx; ix++ )
 		for( int iy = 0; iy < ny; iy++ )
 			rho_z[iz] += rho[ix*ny*nz+iy*nz+iz];
-//		printf("%d %lf\n", iz, rho_z[iz] );
+#ifdef DEBUG_PRINT
+		printf("%d %lf\n", iz, rho_z[iz] );
+#endif
 	}
+	for( int iz = 0; iz < nz; iz++ )
+	{
+		for( int dz = -bin_range; dz <= bin_range; dz++ )
+		{
+			int z = iz + dz;
+
+			while( z < 0 ) z += nz;
+			while( z >= nz ) z -= nz;
+
+			rho_z_av[iz] += rho_z[z];
+		}
+//		printf("%d %lf\n", iz, rho_z_av[iz] );
+	}
+
+//	memcpy( rho_z, rho_z_av, sizeof(double) * nz );
+
 	int i_max_z = 0;
 	double max_z = rho_z[0];
 	int i_min_z = 0;
@@ -131,48 +151,144 @@ int main( int argc, char **argv )
 		}
 	}
 
-//	printf("max z: %lf\n", max_z );
+
+	int leaflet_mode = 0;
 
 	int trigger = 0;
 	int i_leaflets[4] = {-1,-1,-1,-1};
 	double leaflets[4]={-1,-1,-1,-1};
 	double trigger_value = 0;
 	int ileaflet = 0;
-
-	for( int iz = 0; iz < nz; iz++ )
+	double midplane_thresh = 0.5;
+	int ntries= 0;
+	while( ileaflet != 4 && ntries < 10 )
 	{
-		int use_z = iz + i_min_z;
-		if( use_z >= nz )
-			use_z -= nz;	
-		// if we find a big peak count it until it comes down again.
-		if( !trigger && rho_z[use_z] > 0.5 * max_z ) 
+		ileaflet=0;
+		for( int iz = 0; iz < nz; iz++ )
 		{
-			trigger = 1;
-			trigger_value = rho_z[use_z];
-			leaflets[ileaflet] = use_z;
-			i_leaflets[ileaflet] = use_z;
-		}
-
-		if( trigger && rho_z[use_z] > trigger_value )
-		{
-			trigger_value = rho_z[use_z];
-			leaflets[ileaflet] = use_z;
-			i_leaflets[ileaflet] = use_z;
-		}
-
-		if( trigger && rho_z[use_z] < 0.8 * trigger_value )
-		{
-			trigger = 0;
-			ileaflet++;
-		}
+			int use_z = iz + i_min_z;
+			if( use_z >= nz )
+				use_z -= nz;	
+			// if we find a big peak count it until it comes down again.
+			if( !trigger && rho_z[use_z] > midplane_thresh * max_z ) 
+			{
+				trigger = 1;
+				trigger_value = rho_z[use_z];
+				leaflets[ileaflet] = use_z;
+				i_leaflets[ileaflet] = use_z;
+			}
 	
-		if( ileaflet == 4 ) break;
+			if( trigger && rho_z[use_z] > trigger_value )
+			{
+				trigger_value = rho_z[use_z];
+				leaflets[ileaflet] = use_z;
+				i_leaflets[ileaflet] = use_z;
+			}
+	
+			if( trigger && rho_z[use_z] < midplane_thresh * trigger_value )
+			{
+				trigger = 0;
+				ileaflet++;
+			}
+		
+			if( ileaflet == 4 ) break;
+		}
+#ifdef DEBUG_PRINT
+		printf("Midplane_thresh: %lf ileaflets: %d %d %d %d\n", midplane_thresh, i_leaflets[0], i_leaflets[1], i_leaflets[2], i_leaflets[3] );
+#endif
+		midplane_thresh += 0.025;
+		ntries++;
 	}
 
 	if( ileaflet != 4 )
 	{
-		printf("Couldn't find four leaflet indicators.\n");
-		exit(1);
+		ileaflet = 0;
+		leaflet_mode = 1;
+
+		// look for two indicators.
+
+		trigger = 0;
+		for( int iz = 0; iz < nz; iz++ )
+		{
+			int use_z = iz + i_min_z;
+			if( use_z >= nz )
+			use_z -= nz;	
+			// if we find a big peak count it until it comes down again.
+			if( !trigger && rho_z[use_z] > 0.5 * max_z ) 
+			{
+				trigger = 1;
+				trigger_value = rho_z[use_z];
+				leaflets[ileaflet] = use_z;
+				i_leaflets[ileaflet] = use_z;
+			}
+	
+			if( trigger && rho_z[use_z] > trigger_value )
+			{
+				trigger_value = rho_z[use_z];
+				leaflets[ileaflet] = use_z;
+				i_leaflets[ileaflet] = use_z;
+			}
+	
+			if( trigger && (rho_z[use_z] < 0.5 * trigger_value || use_z - leaflets[ileaflet] > 2*bin_range) )
+			{
+				trigger = 0;
+				ileaflet++;
+			}
+		
+			if( ileaflet == 4 ) break;
+		}
+
+		int leaflet_1 = i_leaflets[0];
+		int leaflet_2 = i_leaflets[1];
+
+		int dbin = nz * 15.0 / Lc; 
+
+		i_leaflets[0] = leaflet_1 - dbin;
+		while( i_leaflets[0] < 0 ) i_leaflets[0] += nz;
+		i_leaflets[1] = leaflet_1 + dbin;
+		while( i_leaflets[1] >= nz ) i_leaflets[1] -= nz;
+		
+		i_leaflets[2] = leaflet_2 - dbin;
+		while( i_leaflets[2] < 0 ) i_leaflets[2] += nz;
+		i_leaflets[3] = leaflet_2 + dbin;
+		while( i_leaflets[3] >= nz ) i_leaflets[3] -= nz;
+		
+		leaflets[0] = i_leaflets[0];	
+		leaflets[1] = i_leaflets[1];	
+		leaflets[2] = i_leaflets[2];	
+		leaflets[3] = i_leaflets[3];	
+	}
+
+#ifdef DEBUG_PRINT
+	printf("i_leaflets %d %d ; %d %d\n", i_leaflets[0], i_leaflets[1], i_leaflets[2], i_leaflets[3] );
+#endif
+	int swap_upper_lower = 0; // we may have picked the wrong assignment of bilayers (need the pore between them).
+
+
+	int midp1 = ((leaflets[0]+leaflets[1]) + (leaflets[2]+leaflets[3]))/4;
+	int midp2 = ((leaflets[0]+leaflets[1]+nz+nz) + (leaflets[2]+leaflets[3]))/4;
+
+	while( midp1 < 0 ) midp1 += nz;
+	while( midp1 >= nz) midp1 -= nz;
+	
+	while( midp2 < 0 ) midp2 += nz;
+	while( midp2 >= nz) midp2 -= nz;
+
+//	printf("midp1: %d midp2: %d rhozm1: %le rhozm2: %le\n", midp1, midp2, rho_z[midp1], rho_z[midp2] );
+
+	if( rho_z[midp1] < rho_z[midp2] && leaflets[0] < leaflets[2] )
+		swap_upper_lower =1;
+	else if( rho_z[midp1] > rho_z[midp2] && leaflets[0] > leaflets[2] )
+		swap_upper_lower = 1;
+
+	if( swap_upper_lower )
+	{
+//		printf("Swapping.\n");
+		int t[2] = { leaflets[2], leaflets[3] };
+		leaflets[2] = leaflets[0];
+		leaflets[3] = leaflets[1];
+		leaflets[0] = t[0];
+		leaflets[1] = t[1];
 	}
 
 	double lz[4] =
@@ -182,6 +298,12 @@ int main( int argc, char **argv )
 		Lc * (leaflets[2]+0.5) / nz,
 		Lc * (leaflets[3]+0.5) / nz
 	};
+
+	if( lz[2] < lz[0] )
+	{
+		lz[2] += Lc;
+		lz[3] += Lc;
+	}
 
 	
 	//printf("leaflets: %lf %lf %lf %lf\n", leaflets[0], leaflets[1], leaflets[2], leaflets[3] );
@@ -220,6 +342,8 @@ int main( int argc, char **argv )
 	{
 		lz[3] -= Lc;
 	}
+
+/*
 	// wrap such that we put water outside.
 
 	// loop "down".
@@ -255,23 +379,131 @@ int main( int argc, char **argv )
 			use_lz -= nz;
 		sum_up += rho_z[lz];
 	}
+*/
 
-	if( sum_down < sum_up )
+	double sum_up=0,sum_down=0;
+
+	int loop_high = i_leaflets[0];
+	int loop_low  = i_leaflets[3];
+	
+	while( loop_high > loop_low )
+		loop_high -= nz; // reset
+	while( loop_high < loop_low )
+		loop_high += nz; // exactly one PBC
+	
+	for( int ilx = loop_high; ilx >= loop_low; ilx-- )
 	{
-		if( lz[2] < lz[1] )
+		int il = ilx;
+
+		while( il < 0 ) il += nz;
+		while( il >= nz ) il -= nz;
+
+		sum_up += rho_z[il];
+	}
+	loop_low = i_leaflets[1];
+	loop_high = i_leaflets[2];
+	
+	while( loop_high > loop_low )
+		loop_high -= nz; // reset
+	while( loop_high < loop_low )
+		loop_high += nz; // exactly one PBC
+	
+	for( int ilx = loop_low; ilx <= loop_high; ilx++ )
+	{
+		int il = ilx;
+
+		while( il < 0 ) il += nz;
+		while( il >= nz ) il -= nz;
+
+		sum_down += rho_z[il];
+	}
+//	printf("sum_up: %lf sum_down: %lf\n", sum_up, sum_down );
+
+	// 2/3 is the upper
+	// 0/1 is the lower, it's z value must be below.
+
+//	printf("leaflets: %lf %lf, %lf %lf\n", leaflets[0], leaflets[1], leaflets[2], leaflets[3] );
+	while( leaflets[1] < leaflets[0] )
+		leaflets[1] += nz; 
+	while( leaflets[3] < leaflets[2] )
+		leaflets[3] += nz; 
+
+	
+	while( leaflets[2] < leaflets[1] )
+	{
+		leaflets[2] += nz;
+		leaflets[3] += nz;
+	}
+	while( leaflets[2] - leaflets[1] >= nz )
+	{
+		leaflets[2] -= nz;
+		leaflets[3] -= nz;
+	}
+
+	while( leaflets[0] >= nz )
+	{
+		leaflets[0] -= nz;
+		leaflets[1] -= nz;
+		leaflets[2] -= nz;
+		leaflets[3] -= nz;
+	}
+
+
+	lz[0] = leaflets[0] * Lc / nz; 
+	lz[1] = leaflets[1] * Lc / nz; 
+	lz[2] = leaflets[2] * Lc / nz; 
+	lz[3] = leaflets[3] * Lc / nz; 
+
+//	printf("LZ: lower: %lf %lf upper: %lf %lf\n", lz[0], lz[1], lz[2], lz[3] );
+
+	midp1 = ((leaflets[0]+leaflets[1]) + (leaflets[2]+leaflets[3]))/4;
+	midp2 = ((leaflets[0]+leaflets[1]+nz+nz) + (leaflets[2]+leaflets[3]))/4;
+
+
+	while( midp1 < 0 ) midp1 += nz;
+	while( midp1 >= nz) midp1 -= nz;
+	
+	while( midp2 < 0 ) midp2 += nz;
+	while( midp2 >= nz) midp2 -= nz;
+	
+//	printf("midp1: %d val %lf\n", midp1, rho_z[midp1] ); 
+//	printf("midp2: %d val %lf\n", midp2, rho_z[midp2] ); 
+
+	if( rho_z[midp1] < rho_z[midp2] )
+	{
+		double t[2] = {lz[2],lz[3]};
+		lz[2] = lz[0];
+		lz[3] = lz[1];
+		lz[0] = t[0];
+		lz[1] = t[1];
+	}
+
+		while( lz[2] < lz[1] )
 		{
-			lz[2] += nz;
-			lz[3] += nz;
+			lz[2] += Lc;
+			lz[3] += Lc;
 		}
-		while( lz[2] - lz[1] >= nz )
+		while( lz[2] - lz[1] >= Lc )
 		{
-			lz[2] -= nz;
-			lz[3] -= nz;
+			lz[2] -= Lc;
+			lz[3] -= Lc;
 		}
-	} 
+
+
+
+//	printf("Upper: %lf Lower %lf\n", lz[2], lz[0] );
 
 #endif
 //	printf("lz2: %le %le %le %le\n", lz[0], lz[1], lz[2], lz[3] );
+
+	if( lz[3] < lz[1] )
+	{
+		while( lz[3] < lz[1] )
+		{
+			lz[3] += nz;
+			lz[2] += nz;
+		}
+	}
 
 	double thickness = fabs((lz[1]+lz[0])/2-(lz[3]+lz[2])/2);
 	
@@ -312,6 +544,10 @@ int main( int argc, char **argv )
 
 #endif
 
+	while( wrapto < 0 )
+		wrapto += Lc;
+	while( wrapto >= Lc )
+		wrapto -= Lc;
 //	printf("wrapto: %lf\n",wrapto );
 	
 	double com[3] = {0,0,0};

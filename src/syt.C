@@ -13,6 +13,7 @@
 #include "M_matrix.h"
 #include "lapack_we_use.h"
 #include "gather.h"
+#include "io_mol_read.h"
 
 #define SQRT_SAFETY (1e-7)
 
@@ -1189,6 +1190,7 @@ void syt7::get(
 	surface_record *sRec = theSimulation->fetch(sid[0]);
 
 	int flip_sign = sRec->gather_flip;
+	double Ls[3] = {-1,-1,-1};
 
 	// how do we define the sites? we can tweak the definition here.
 	
@@ -1404,6 +1406,8 @@ void syt7::get(
 	double dpB = rvecB[0]*nrm3[0] + rvecB[1] * nrm3[1] + rvecB[2] * nrm3[2];
 	
 
+	for( int c = 0; c < 3; c++ )
+		Ls[c] = theSimulation->PBC_vec[c][c];
 	// nrm points away from syt
 	printf("SYT %d C2A_DP: %lf C2B_DP: %lf c_A: %le %le c_B: %le %le\n", my_id, dpA, dpB, c_val1_A, c_val2_A, c_val1_B, c_val2_B );
 	
@@ -1514,12 +1518,30 @@ void syt7::get(
 	for( int r = 0; r < 500; r++)
 		depth[r] = -1;
 
+	int resv[2][2] = { {-1,-1},{-1,-1} };
+
+	for( int a2 = syt7_start; a2 < syt7_stop ; a2++ )
+	{
+		if( !strcasecmp( at[a2].resname, "ASP") && !strcasecmp( at[a2].atname, "CA" ) )
+		{
+			if( at[a2].res == 303 )
+				resv[1][1] = a2;
+			else if( at[a2].res == 365 )
+				resv[1][0] = a2;
+			else if( at[a2].res == 233 )
+				resv[0][1] = a2;
+			else if( at[a2].res == 172 )
+				resv[0][0] = a2;
+		}
+	}
+
+
 	for( int a2 = 0; a2 < nat_tot; a2++ )
 	{
 		if( strncasecmp( at[a2].resname, "SAPI", 4) && strncasecmp( at[a2].resname, "PAPS", 4 ) )
 			continue;
 	
-		if( at[a2].atname[0] != 'O') continue; // look for charge-bearing oxygens.
+		if( at[a2].atname[0] != 'O' && at[a2].atname[0] != 'P' && strcasecmp( at[a2].atname, "C13") ) continue; // look for charge-bearing oxygens.
 	
 		if( nat2 == nat2_space )
 		{
@@ -1603,43 +1625,49 @@ void syt7::get(
 	
 					if( lr < 6.0 )
 					{
-						res_is_interacting[at[a].res] = -1;
+//						res_is_interacting[at[a].res] = -1;
 						nbound_ca[domain] += 1;
 					}
 				} 
 					
 			}
 
-
-			if( !strcasecmp( at[a].resname, "ARG" ) && (strncasecmp( at[a].atname, "NH", 2) && strncasecmp(at[a].atname, "NE", 2) ) )
-				continue; 
-			if( !strcasecmp( at[a].resname, "LYS" ) && (strncasecmp( at[a].atname, "NZ", 2) ) )
-				continue; 
-
-			for( int a2x = 0; a2x < nat2; a2x++ )
+			if( !strcasecmp( at[a].resname, "ARG") || !strcasecmp( at[a].resname, "LYS") ) 
 			{
-				int a2 = a2_loop[a2x];
-				if( strncasecmp( at[a2].resname, "SAPI", 4) && strncasecmp( at[a2].resname, "PAPS", 4 ) )
-					continue;
+				int arg_check = !strcasecmp( at[a].resname, "ARG" ) && ( !strcasecmp(at[a].atname, "CZ") );
+				int lys_check = !strcasecmp( at[a].resname, "LYS" ) && (!strcasecmp( at[a].atname, "NZ") );
 
-				if( at[a2].atname[0] != 'O') continue; // look for charge-bearing oxygens.
-
-				double dr[3] = { at[a].x - at[a2].x, at[a].y - at[a2].y, at[a].z - at[a2].z }; 
-
-				theSimulation->wrapPBC(dr,alphas);
-
-				double lr = normalize(dr);
-
-				if( lr < 5.0 )
+				if( lys_check || arg_check )
 				{
-					if( checkit )
+					for( int a2x = 0; a2x < nat2; a2x++ )
 					{
-						nbound[domain] += 1;
-						C2_in_position[domain] = 1; 
+						int a2 = a2_loop[a2x];
+						if( strncasecmp( at[a2].resname, "SAPI", 4) && strncasecmp( at[a2].resname, "PAPS", 4 ) )
+							continue;
+		
+						if( at[a2].atname[0] != 'P' && (strcasecmp(at[a2].resname, "PAPS") || strcasecmp(at[a2].atname,"C13") )) continue; // look for charge-bearing phosphos, or carboxyls (PAPS).
+		
+						double dr[3] = { at[a].x - at[a2].x, at[a].y - at[a2].y, at[a].z - at[a2].z }; 
+		
+						theSimulation->wrapPBC(dr,alphas);
+		
+						double lr = normalize(dr);
+		
+						if( lr < 4.5 )
+						{
+							if( checkit )
+							{
+								nbound[domain] += 1;
+								C2_in_position[domain] = 1; 
+							}
+		
+							nbound_all[domain] += 1;	
+							if( !strcasecmp(at[a2].resname, "PAPS") )
+								res_is_interacting[at[a].res] = res_is_interacting[at[a].res] | (1<<0);
+							if( !strncasecmp(at[a2].resname, "SAPI",4) )
+								res_is_interacting[at[a].res] = res_is_interacting[at[a].res] | (1<<1);
+						}
 					}
-
-					nbound_all[domain] += 1;	
-					res_is_interacting[at[a].res] = 1;
 				}
 			} 
 		}
@@ -1755,10 +1783,32 @@ void syt7::get(
 	double fp_thresh = 20.0;
 
 
-	if( getFusionPoreData( fp_center, &fp_r, &fp_h ) )
+	double p_CBL_1[3] = {  (at[resv[0][1]].x + at[resv[0][0]].x)/2,
+			       (at[resv[0][1]].y + at[resv[0][0]].y)/2,
+			       (at[resv[0][1]].z + at[resv[0][0]].z)/2 };
+	double p_CBL_2[3] = {  (at[resv[1][1]].x + at[resv[1][0]].x)/2,
+			       (at[resv[1][1]].y + at[resv[1][0]].y)/2,
+			       (at[resv[1][1]].z + at[resv[1][0]].z)/2 };
+
+	double dr_CBL_1[3] = { at[resv[0][1]].x - at[resv[0][0]].x,
+			       at[resv[0][1]].y - at[resv[0][0]].y,
+			       at[resv[0][1]].z - at[resv[0][0]].z };
+	double dr_CBL_2[3] = { at[resv[1][1]].x - at[resv[1][0]].x,
+			       at[resv[1][1]].y - at[resv[1][0]].y,
+			       at[resv[1][1]].z - at[resv[1][0]].z };
+
+	for( int c = 0; c < 3; c++ )
 	{
+		while( dr_CBL_1[c] < -Ls[c]/2 ) dr_CBL_1[c] += Ls[c]; 
+		while( dr_CBL_1[c] >  Ls[c]/2 ) dr_CBL_1[c] -= Ls[c]; 
+		while( dr_CBL_2[c] < -Ls[c]/2 ) dr_CBL_2[c] += Ls[c]; 
+		while( dr_CBL_2[c] >  Ls[c]/2 ) dr_CBL_2[c] -= Ls[c]; 
+	}
 
+		
 
+	if( theSimulation->getFusionPoreData( fp_center, &fp_r, &fp_h ) )
+	{
 		printf("FP cen: %lf %lf %lf\n", fp_center[0], fp_center[1], fp_center[2] );
 		printf("FP r: %lf\n", fp_r );
 		printf("FP h: %lf\n", fp_h );		
@@ -1831,9 +1881,88 @@ void syt7::get(
 		for( int r = 1; r <= max; r++ )
 			printf(" %lf", depth[r] );
 		printf("\n");
+		
+		printf("ARGLYS %d C2A: r: %lf c: %lf %lf C2B: r: %lf c: %lf %lf res_depths:", my_id, r_A, c_val_A1, c_val_A2, r_B, c_val_B1, c_val_B2 );
+		
+		for( int r = 1; r <= max; r++ )
+			printf(" %d", res_is_interacting[r] );
+		printf("\n");
+
+
+		{
+			double at_c_1,at_c_2;
+
+			double dist;
+			int f;
+			double col_u, col_v;
+
+			double c_vec_1A[2], c_vec_1B[2];		
+			double c_vec_2A[2], c_vec_2B[2];		
+			double c_val_1A, c_val_1B;
+			double c_val_2A, c_val_2B;
+			double k;
+			theSurface->nearPointOnBoxedSurface( p_CBL_1, &f, &col_u, &col_v, M, mlow, mhigh, &dist );		
+			theSurface->c( f, col_u, col_v, rsurf, &k, c_vec_1A, c_vec_1B, &c_val_1A, &c_val_1B ); 
+
+			double dr_u[3];
+			theSurface->ru( f, col_u, col_v, rsurf, dr_u );
+//			double drdu = normalize(dr_u);
+			double dr_v[3];
+			theSurface->rv( f, col_u, col_v, rsurf, dr_v );
+//			double drdv = normalize(dr_v);
+
+			double RSP_CV_1A[3] = { 
+				dr_u[0] * c_vec_1A[0] + dr_v[0] * c_vec_1A[1],
+				dr_u[1] * c_vec_1A[0] + dr_v[1] * c_vec_1A[1],
+				dr_u[2] * c_vec_1A[0] + dr_v[2] * c_vec_1A[1] };
+			double RSP_CV_1B[3] = { 
+				dr_u[0] * c_vec_1B[0] + dr_v[0] * c_vec_1B[1],
+				dr_u[1] * c_vec_1B[0] + dr_v[1] * c_vec_1B[1],
+				dr_u[2] * c_vec_1B[0] + dr_v[2] * c_vec_1B[1] };
+					
+			theSurface->nearPointOnBoxedSurface( p_CBL_2, &f, &col_u, &col_v, M, mlow, mhigh, &dist );		
+			theSurface->ru( f, col_u, col_v, rsurf, dr_u );
+			theSurface->rv( f, col_u, col_v, rsurf, dr_v );
+//			drdu = normalize(dr_u);
+//			drdv = normalize(dr_v);
+			theSurface->c( f, col_u, col_v, rsurf, &k, c_vec_2A, c_vec_2B, &c_val_2A, &c_val_2B ); 
+
+			double RSP_CV_2A[3] = { 
+				dr_u[0] * c_vec_2A[0] + dr_v[0] * c_vec_2A[1],
+				dr_u[1] * c_vec_2A[0] + dr_v[1] * c_vec_2A[1],
+				dr_u[2] * c_vec_2A[0] + dr_v[2] * c_vec_2A[1] };
+			double RSP_CV_2B[3] = { 
+				dr_u[0] * c_vec_2B[0] + dr_v[0] * c_vec_2B[1],
+				dr_u[1] * c_vec_2B[0] + dr_v[1] * c_vec_2B[1],
+				dr_u[2] * c_vec_2B[0] + dr_v[2] * c_vec_2B[1] };
+
+			normalize(RSP_CV_1A);
+			normalize(RSP_CV_1B);
+			normalize(RSP_CV_2A);
+			normalize(RSP_CV_2B);
+
+			// CBL
+			printf("CBLs %d r1: %lf %lf %lf r2: %lf %lf %lf dr1: %lf %lf %lf dr2: %lf %lf %lf cvec1A: %lf %lf %lf cvec1B: %lf %lf %lf c1A: %lf c1B: %lf cvec2A: %lf %lf %lf cvec2B: %lf %lf %lf c2A: %lf c2B: %lf\n",
+				my_id,
+				p_CBL_1[0], p_CBL_1[1], p_CBL_1[2],
+				p_CBL_2[0], p_CBL_2[1], p_CBL_2[2],
+				dr_CBL_1[0], dr_CBL_1[1], dr_CBL_1[2],
+				dr_CBL_2[0], dr_CBL_2[1], dr_CBL_2[2],
+				RSP_CV_1A[0], RSP_CV_1A[1], RSP_CV_1A[2],
+				RSP_CV_1B[0], RSP_CV_1B[1], RSP_CV_1B[2],
+				c_val_1A, c_val_1B,
+				RSP_CV_2A[0], RSP_CV_2A[1], RSP_CV_2A[2],
+				RSP_CV_2B[0], RSP_CV_2B[1], RSP_CV_2B[2],
+				c_val_2A, c_val_2B );
+		}
 
 	}	
 
+	// angle data for creating a histogram.
+	
+
+	getLocalLipidComposition( theSimulation, at, syt7_start, syt7_stop, nat_tot );
+	
 
 	// CLASSIFICATION
 
@@ -1859,6 +1988,518 @@ char syt7::getSiteCode( int p )
 			return 'O';
 	}
 }
+
+
+
+void syt7::getLocalLipidComposition( 
+		Simulation *theSimulation, // this is the surface/PBC
+		struct atom_rec *at,
+		int syt7_start, int syt7_stop, int nat_tot )
+{
+	
+
+	// for near pointing
+	double **M;
+	int mlow,mhigh;
+
+	getM( &M, &mlow, &mhigh );
+	int nsegments = 2;
+	
+	surface *theSurface;
+	double *rsurf;
+	theSimulation->fetch(sid[0],&theSurface,&rsurf);
+	surface_record *sRec = theSimulation->fetch(sid[0]);
+
+	int flip_sign = sRec->gather_flip;
+	double Ls[3] = {-1,-1,-1};
+
+	/*
+ *		For each ``face'' of the protein that we're interested in, get the distance from the membrane and establish a local coordinate system based on our orientation. Then, output lipid centers-of-mass in the lipid coordinate system.
+ *
+ * 	the distance will be defined by a point-of-contact, and the orientation by the vector from the point-of-contact to the center of mass of the domain.
+ *
+ * 	*/
+
+	// STEP 1: get domain COMs	
+	
+	double alphas[3] = {1,1,1};
+	double domain_com[2][3] = { {0,0,0},
+				    {0,0,0} };
+	double ndom[2] = {0,0};
+
+        int domain_start[2] = { 1, 255 };
+        int domain_stop[2] = { 256, 500 }; // arbitrary end.
+	
+	for( int domain = 0; domain < 2; domain++ )
+	{
+		for( int a = syt7_start; a < syt7_stop ; a++ )
+		{
+			if( at[a].res >= domain_start[domain] && at[a].res <= domain_stop[domain] )
+			{
+				double cur_com[3] = {0,0,0};
+		
+				if( ndom[domain] > 0 )
+				{
+					cur_com[0] = domain_com[domain][0] / ndom[domain];
+					cur_com[1] = domain_com[domain][1] / ndom[domain];
+					cur_com[2] = domain_com[domain][2] / ndom[domain];
+				}
+		
+				
+				double dr[3] = { at[a].x - cur_com[0],
+						 at[a].y - cur_com[1],
+						 at[a].z - cur_com[2] };
+					
+				theSimulation->wrapPBC( dr, alphas );
+				
+				domain_com[domain][0] += cur_com[0] + dr[0];
+				domain_com[domain][1] += cur_com[1] + dr[1];
+				domain_com[domain][2] += cur_com[2] + dr[2];
+				ndom[domain] += 1;	
+			}
+		}
+	}
+	
+	domain_com[0][0] /= ndom[0];
+	domain_com[0][1] /= ndom[0];
+	domain_com[0][2] /= ndom[0];
+	
+	domain_com[1][0] /= ndom[1];
+	domain_com[1][1] /= ndom[1];
+	domain_com[1][2] /= ndom[1];
+
+
+
+	// STEP 2: get all lipid COMs.
+
+	// neutral surface atoms.
+
+	int ns = io_nNSAtoms();
+	struct atom_rec *at_lipid = io_getCurrentFrame();
+
+	double *lcom = (double *)malloc( sizeof(double) * 3 * ns );
+	for( int ax = 0; ax < ns; ax ++ )
+	{
+		int a = io_getNSAtom(ax);
+			
+		int astart=-1;
+		int astop=-1;
+		io_getNSAtomStartStop(ax,&astart,&astop); 
+
+		lcom[3*ax+0]=0;
+		lcom[3*ax+1]=0;
+		lcom[3*ax+2]=0;
+			
+		for( int x = 0; x < astop-astart; x++ )
+		{
+			lcom[3*ax+0] += at[astart+x].x;
+			lcom[3*ax+1] += at[astart+x].y;
+			lcom[3*ax+2] += at[astart+x].z;
+		}
+
+		lcom[3*ax+0]/=(astop-astart);
+		lcom[3*ax+1]/=(astop-astart);
+		lcom[3*ax+2]/=(astop-astart);
+	}
+	
+	// STEP 3: get points-of-contact.
+
+	// number of points-of-contact:
+	int nPofCon[2] = { 2, 3};
+	// # of residues in PofCon:
+	int nRes[2][3] = {
+		{ 5, 3, 0}, // CBL, PBR_A
+		{ 5, 5, 2}, /// CBL, PBR_B1, PBR_B2
+	};
+
+	int pocRes[2][3][6] =
+	{
+		{	// C2A
+			{ 166, 172, 225, 227, 233 }, // Calcium-binding loop.
+			{ 183, 184, 186 }, // PBR
+		},
+
+		{	// C2B
+			{ 297, 303, 357, 359, 365 }, // calcium-binding loop.
+			{ 313, 315, 316, 320, 321 }, // PBR1
+			{ 390, 392 }, // PBR2
+		}
+	};
+	
+	int nfaces = 0;
+	for( int domain = 0; domain < 2; domain++ )
+		nfaces += nPofCon[domain];
+
+	double pcom[2][3][3];	
+	int f_ind_for_d[2][3];
+	int domain_for_face[nfaces];
+	int face_index[nfaces];
+	double orientation[nfaces*3];
+	double poc[nfaces*3];
+	double near_point[nfaces*3];
+	double tangent_plane[nfaces*9];		
+	double dist[nfaces];
+
+	int f_ind = 0;
+	for( int domain = 0; domain < 2; domain++ )
+	{
+		for( int poc = 0; poc < nPofCon[domain]; poc++ )
+		{
+			domain_for_face[f_ind] = domain;
+			face_index[f_ind] = poc;
+			
+
+			pcom[domain][poc][0] = 0;
+			pcom[domain][poc][1] = 0;
+			pcom[domain][poc][2] = 0;
+			
+			f_ind_for_d[domain][poc] = f_ind;
+	
+			f_ind++;
+		}
+	}
+
+	for( int a = syt7_start; a < syt7_stop ; a++ )
+	{
+		int f_ind = 0;
+		for( int domain = 0; domain < 2; domain++ )
+		{
+			for( int poc = 0; poc < nPofCon[domain]; poc++ )
+			{
+				for( int r = 0; r < nRes[domain][poc]; r++ )
+				{
+					if( at[a].res == pocRes[domain][poc][r] && !strcasecmp(at[a].atname, "CA") )
+					{
+						pcom[domain][poc][0] += at[a].x;
+						pcom[domain][poc][1] += at[a].y;
+						pcom[domain][poc][2] += at[a].z;
+					} 
+				}
+				f_ind++;
+			}
+		}
+	}
+
+	f_ind=0;	
+	for( int domain = 0; domain < 2; domain++ )
+	{
+		for( int tpoc = 0; tpoc < nPofCon[domain]; tpoc++ )
+		{
+			pcom[domain][tpoc][0] /= nRes[domain][tpoc];
+			pcom[domain][tpoc][1] /= nRes[domain][tpoc];
+			pcom[domain][tpoc][2] /= nRes[domain][tpoc];
+
+			poc[f_ind*3+0] = pcom[domain][tpoc][0];	
+			poc[f_ind*3+1] = pcom[domain][tpoc][1];	
+			poc[f_ind*3+2] = pcom[domain][tpoc][2];	
+
+			f_ind++;
+		}
+	}
+
+	// Step 4: get each face's orientation and tangent plane coordinate system.
+	
+	int f_ref_CBL[2][3][2] =
+	{
+		{	{1,0}, {0,0} }, 	// domain 1 CBL, domain 0 CBL
+		{	{0,0}, {1,0}, {1,0} }	// domain 0 CBL, domain 1 CBL, domain 1 CBL
+	};
+	
+	f_ind=0;	
+	for( int domain = 0; domain < 2; domain++ )
+	{
+		for( int tpoc = 0; tpoc < nPofCon[domain]; tpoc++ )
+		{
+			// pof - domain com
+			orientation[f_ind*3+0] = poc[f_ind*3+0] - domain_com[domain][0]; 
+			orientation[f_ind*3+1] = poc[f_ind*3+1] - domain_com[domain][1]; 
+			orientation[f_ind*3+2] = poc[f_ind*3+2] - domain_com[domain][2]; 
+
+			// normalized.
+			normalize(orientation+f_ind*3);
+
+			// near point on surface:
+	
+			// find near points for the attachment sites.
+			double the_dist;
+			int f;
+			double col_u, col_v;
+			double pt[3] = { poc[3*f_ind+0], poc[3*f_ind+1], poc[3*f_ind+2] };
+			theSurface->nearPointOnBoxedSurface( pt, &f, &col_u, &col_v, M, mlow, mhigh, &the_dist );					
+			double rpt[3], npt[3];
+			theSurface->evaluateRNRM( f, col_u, col_v, rpt, npt, rsurf );
+
+			double dr[3] = { 
+				rpt[0] - poc[3*f_ind+0],
+				rpt[1] - poc[3*f_ind+1],
+				rpt[2] - poc[3*f_ind+2] };
+
+			theSimulation->wrapPBC(dr,alphas);
+
+			// near point , wrapped.
+			near_point[3*f_ind+0] = poc[3*f_ind+0] + dr[0];
+			near_point[3*f_ind+1] = poc[3*f_ind+1] + dr[1];
+			near_point[3*f_ind+2] = poc[3*f_ind+2] + dr[2];
+
+#define CBL_ORIENTATION
+
+#ifdef CBL_ORIENTATION 
+			int np_f = f_ind_for_d[f_ref_CBL[domain][tpoc][0]][f_ref_CBL[domain][tpoc][1]];
+			double xvec[3] = { poc[3*f_ind+0] - poc[3*np_f+0],
+					   poc[3*f_ind+1] - poc[3*np_f+1],
+					   poc[3*f_ind+2] - poc[3*np_f+2] };
+#else
+
+			double xvec[3] = { orientation[f_ind*3+0], orientation[f_ind*3+1], orientation[3*f_ind+2] };
+#endif
+			double dp = dot( xvec, npt );
+
+			xvec[0] -= dp * npt[0];
+			xvec[1] -= dp * npt[1];
+			xvec[2] -= dp * npt[2];
+
+			normalize(xvec);
+
+			double yvec[3];
+			cross( xvec, npt, yvec );
+
+			normalize(yvec );
+
+			double check[3];
+
+			cross( xvec, yvec, check );
+
+			dp = dot( check, dr );
+	
+			// dr is near point - poc (points toward surface away from protein )
+			// if x cross y dotted into dr is positive, the orientation is wrong (y points "down" if x to the right is positive.)
+
+			if( dp > 0 )
+			{
+				yvec[0] *= -1;
+				yvec[1] *= -1;
+				yvec[2] *= -1;
+			
+			} 
+
+			dp = dot( dr, npt );
+
+			if( dp > 0 )
+			{
+				// make normal point to the protein.
+				//
+				npt[0] *= -1;
+				npt[1] *= -1;
+				npt[1] *= -1;
+			}
+
+			normalize(xvec);
+			normalize(yvec);
+
+			tangent_plane[9*f_ind+0] = xvec[0];
+			tangent_plane[9*f_ind+1] = xvec[1];
+			tangent_plane[9*f_ind+2] = xvec[2];
+
+			tangent_plane[9*f_ind+3] = yvec[0];
+			tangent_plane[9*f_ind+4] = yvec[1];
+			tangent_plane[9*f_ind+5] = yvec[2];
+
+			tangent_plane[9*f_ind+6] = npt[0];
+			tangent_plane[9*f_ind+7] = npt[1];
+			tangent_plane[9*f_ind+8] = npt[2];
+
+			// orientation is POC-Domain_COM, 
+			// dr is          pt-poc  
+			double dp_dist_check = dot( orientation + 3*f_ind, dr );
+	
+			if( dp_dist_check < 0 )
+				dist[f_ind] = -the_dist; 
+			else
+				dist[f_ind] = the_dist; 
+
+			f_ind++;
+		}
+	}
+	
+	double max_d = 30.0; // 2*max_d by 2*max_d grid
+	double max_dx = 60.0; // 2*max_d by 2*max_d grid
+
+	// Step 5: print the positions of nearby lipids in the tangent-plane coordinate system.
+
+	for( int f1 = 0; f1 < nfaces; f1++ )
+	{
+		int d1 = domain_for_face[f1];
+		int p1 = face_index[f1];
+
+		for( int f2 = 0; f2 < nfaces; f2++ )
+		{
+			int d2 = domain_for_face[f2];
+			int p2 = face_index[f2];
+			
+			double dr[3] = { near_point[f2*3+0] - near_point[3*f1+0],
+					 near_point[f2*3+1] - near_point[3*f1+1],
+					 near_point[f2*3+2] - near_point[3*f1+2] };
+			theSimulation->wrapPBC(dr,alphas);	
+			
+			double x_tangent_plane = dot( dr, tangent_plane+9*f1 );
+			double y_tangent_plane = dot( dr, tangent_plane+9*f1 + 3 );
+			double z_tangent_plane = dot( dr, tangent_plane+9*f1 + 6 ); 
+
+			if( z_tangent_plane < 0 )
+			{
+				// opposite leaflet..
+				continue;
+			}
+					
+			if( z_tangent_plane > 30 )
+			{
+				// probably on the other side of the protein?
+				continue;
+			}
+
+			if( fabs(x_tangent_plane) > max_dx ) continue;	
+			if( fabs(y_tangent_plane) > max_d ) continue;	
+
+
+			double dist_to_CBL1, dist_to_CBL2;
+
+			int f_CBL1 = f_ind_for_d[0][0]; 
+			int f_CBL2 = f_ind_for_d[1][0]; 
+			double dr_check[3] = {  near_point[3*f1+0] - near_point[3*f_CBL1+0],
+					        near_point[3*f1+1] - near_point[3*f_CBL1+1],
+						near_point[3*f1+2] - near_point[3*f_CBL1+2] };
+			theSimulation->wrapPBC( dr_check, alphas );
+			
+			double r_check1 = normalize(dr_check);
+			dr_check[0] = near_point[3*f1+0] - near_point[3*f_CBL2+0];
+			dr_check[1] = near_point[3*f1+1] - near_point[3*f_CBL2+1];
+			dr_check[2] = near_point[3*f1+2] - near_point[3*f_CBL2+2];
+			theSimulation->wrapPBC( dr_check, alphas );
+			double r_check2 = normalize(dr_check);
+
+			printf("SYT-SYT %d domain %d POC %d dist %lf domain2 %d POC %d dist2 %lf x %lf y %lf z %lf NP: %lf %lf %lf rCBL1: %lf rCBL2: %lf\n", my_id, d1, p1, dist[f1], d2, p2, dist[f2], x_tangent_plane, y_tangent_plane, z_tangent_plane, near_point[3*f1+0], near_point[3*f1+1], near_point[3*f1+2], r_check1, r_check2  ); 
+		}
+	}
+
+
+	for( int l = 0; l < ns; l++ )
+	{
+		int a = io_getNSAtom(l);
+				
+		// find near points for the attachment sites.
+		double the_dist;
+		int l_f;
+		double col_u, col_v;
+		double l_pt[3] = { lcom[3*l+0], lcom[3*l+1], lcom[3*l+2] };
+		theSurface->nearPointOnBoxedSurface( l_pt, &l_f, &col_u, &col_v, M, mlow, mhigh, &the_dist );					
+		double l_rpt[3], l_npt[3];
+		theSurface->evaluateRNRM( l_f, col_u, col_v, l_rpt, l_npt, rsurf );
+			
+		double c_vec_1[3];
+		double c_vec_2[3];
+		double c_val1, c_val2;
+	
+		if( 1 ) // ALEX CONTINUE CODING HERE
+		{
+			double k;
+			theSurface->c( l_f, col_u, col_v, rsurf, &k, c_vec_1, c_vec_2, &c_val1, &c_val2 ); 
+
+			if( flip_sign )
+			{
+				c_val1 *= -1;
+				c_val2 *= -1;
+			}
+	
+			double dr_u[3];
+			theSurface->ru( l_f, col_u, col_v, rsurf, dr_u );
+			double drdu = normalize(dr_u);
+			double dr_v[3];
+			theSurface->rv( l_f, col_u, col_v, rsurf, dr_v );
+			double drdv = normalize(dr_v);
+
+			double tvec1[3]={0,0,0};
+
+			tvec1[0] = c_vec_1[0] * dr_u[0] + c_vec_1[1] * dr_v[0];
+			tvec1[0] = c_vec_1[0] * dr_u[1] + c_vec_1[1] * dr_v[1];
+			tvec1[0] = c_vec_1[0] * dr_u[2] + c_vec_1[1] * dr_v[2];
+			
+			double tvec2[3]={0,0,0};
+
+			tvec2[0] = c_vec_2[0] * dr_u[0] + c_vec_2[1] * dr_v[0];
+			tvec2[0] = c_vec_2[0] * dr_u[1] + c_vec_2[1] * dr_v[1];
+			tvec2[0] = c_vec_2[0] * dr_u[2] + c_vec_2[1] * dr_v[2];
+
+			memcpy( c_vec_1, tvec1, sizeof(double)*3);
+			memcpy( c_vec_2, tvec2, sizeof(double)*3);
+		}
+
+		for( int f = 0; f < nfaces; f++ )
+		{
+			int domain = domain_for_face[f];
+			int p = face_index[f];
+			// lipid minus near point.
+			double dr_l[3] = { lcom[3*l+0] - near_point[3*f+0],
+					   lcom[3*l+1] - near_point[3*f+1],
+					   lcom[3*l+2] - near_point[3*f+2] };
+			theSimulation->wrapPBC(dr_l,alphas);	
+
+			double x_tangent_plane = dot( dr_l, tangent_plane+9*f );
+			double y_tangent_plane = dot( dr_l, tangent_plane+9*f + 3 );
+			double z_tangent_plane = dot( dr_l, tangent_plane+9*f + 6 ); 
+
+			double local_c1_x = dot( c_vec_1, tangent_plane+9*f );
+			double local_c1_y = dot( c_vec_1, tangent_plane+9*f + 3 );
+			double local_c1_z = dot( c_vec_1, tangent_plane+9*f + 6 );
+			
+			double local_c2_x = dot( c_vec_2, tangent_plane+9*f );
+			double local_c2_y = dot( c_vec_2, tangent_plane+9*f + 3 );
+			double local_c2_z = dot( c_vec_2, tangent_plane+9*f + 6 );
+
+			if( z_tangent_plane < 0 )
+			{
+				// opposite leaflet..
+				continue;
+			}
+					
+			if( z_tangent_plane > 30 )
+			{
+				// probably on the other side of the protein?
+				continue;
+			}
+
+			if( fabs(x_tangent_plane) > max_dx ) continue;	
+			if( fabs(y_tangent_plane) > max_d ) continue;	
+
+
+			double dist_to_CBL1, dist_to_CBL2;
+
+			int f_CBL1 = f_ind_for_d[0][0]; 
+			int f_CBL2 = f_ind_for_d[1][0]; 
+			double dr_check[3] = {  near_point[3*f+0] - near_point[3*f_CBL1+0],
+					        near_point[3*f+1] - near_point[3*f_CBL1+1],
+						near_point[3*f+2] - near_point[3*f_CBL1+2] };
+			theSimulation->wrapPBC( dr_check, alphas );
+			
+			double r_check1 = normalize(dr_check);
+			dr_check[0] = near_point[3*f+0] - near_point[3*f_CBL2+0];
+			dr_check[1] = near_point[3*f+1] - near_point[3*f_CBL2+1];
+			dr_check[2] = near_point[3*f+2] - near_point[3*f_CBL2+2];
+			theSimulation->wrapPBC( dr_check, alphas );
+			double r_check2 = normalize(dr_check);
+
+			
+
+			printf("SYT7 %d domain %d POC %d dist %lf lipid %s segid %s res %d x %lf y %lf z %lf NP: %lf %lf %lf rCBL1: %lf rCBL2: %lf c1: %lf %lf %lf val %lf c2: %lf %lf %lf val %lf \n", my_id, domain, p, dist[f], at[a].resname, at[a].segid, at[a].res, x_tangent_plane, y_tangent_plane, z_tangent_plane, near_point[3*f+0], near_point[3*f+1], near_point[3*f+2], r_check1, r_check2,
+		local_c1_x, local_c1_y, local_c1_z, c_val1, local_c2_x, local_c2_y, local_c2_z, c_val2 ); 
+				 
+		}
+	}
+
+	// Last: clean up.
+	
+	free(lcom);
+}
+
 
 
 

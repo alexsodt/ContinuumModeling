@@ -39,8 +39,11 @@ class parameterBlock
 	char *lipid_lib;
 	char *rxnDiffusionInfoName;
 	char *track_lipid_rho;
+	char *flipFile;
 	double rho;
 	int shiftRho;
+
+	int special_force_plot;
 
 	// special options related to clathrin-cage fitting
 	char *clathrinStructure;

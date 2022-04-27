@@ -13,6 +13,7 @@ int io_getNSAtom( int index );
 void io_align( void );
 void io_initialize_read( char *fileName );
 void io_getNSAtomStartStop( int index, int *start, int *stop );
+void io_get_PBC( double *Lx, double *Ly, double *Lz );
 
 // the structure for how lipids are stored and extracted to build an all-atom sim.
 
