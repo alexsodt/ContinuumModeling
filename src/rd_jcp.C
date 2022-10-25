@@ -2280,7 +2280,7 @@ int main( int argc, const char **argv )
 				pcomplex **temp_complexes = (pcomplex **)malloc( sizeof(pcomplex *) * aqueous_np );	
 				for( int i = 0; i < aqueous_np; i++ )
 				{
-					temp_complexes[i] = loadComplex( "simpleLipid" );
+					temp_complexes[i] = loadComplex( "simpleLipid", NULL );
 					temp_complexes[i]->loadParams(&block);
 					if( (aqueous_status[i] & STATE_MASK) == STATE_IN_COMPLEX )
 					{
