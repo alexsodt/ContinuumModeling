@@ -1,0 +1,19 @@
+# after building the executables (configure and make in the HD directory)
+
+# make the continuum mesh:
+
+cd make_mesh
+# (setupPore.csh requires a number of executables be built in HD/optimized or HD/debug)
+csh setupPore.csh
+cd ..
+
+# then build the all-atom structure:
+
+cd make_all_atom
+hd.opt create.inp > create.out
+# (hd.opt is built in HD/optimized)
+charmm < create_pore_charmm.inp > create_pore_charmm.out
+
+# where here charmm is a charmm executable (publically available).
+
+# this will generate system.psf and system.crd with periodic boundary conditions defined by the mesh ( 190 x 190 x 200 )
