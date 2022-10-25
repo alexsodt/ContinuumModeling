@@ -292,10 +292,21 @@ void ifitm3::writeStructure( Simulation *theSimulation,
 	double *rsurf;
 	theSimulation->fetch(sid[0],&theSurface,&rsurf);
 
-	const char *domain_names[] = { "ifitm3_helix" };
+	int use_index = getIFITM3Index();
+
+	const char *domain_names[5][1] =
+	{
+		{ "ifitm3_helix" },
+		{ "P2" },
+		{"P2_w60a" },
+		{"P2_f63q" },
+		{ "P2_f67q" }
+	};
+
+
 	const char *segment_names[] = { "PROA" };
 	int segment_surface_sites[] = { 0 };
-	int segment_residues[][3] = { {9, 17,-1} };
+	int segment_residues[][3] = { {4, 11,-1} };
 	int a_start = *nat_out;
 	
 	for( int seg = 0; seg < 1; seg++ )
@@ -303,7 +314,7 @@ void ifitm3::writeStructure( Simulation *theSimulation,
 		struct atom_rec *at;
 		int nat;
 
-		int pool_code = pdbFetch( &at, &nat, "ifitm3_helix", domain_names[seg], addToPool );
+		int pool_code = pdbFetch( &at, &nat, domain_names[use_index][seg], domain_names[use_index][seg], addToPool );
 
 		addCurvatureOrientedPeripheralProteinHelper( theSimulation, upperSurfaceMask, lowerSurfaceMask,
 			at_out, nat_out,

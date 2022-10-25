@@ -14,6 +14,7 @@ struct complex_record
 	int positive; // move to maximize local positive curvature
 	int negative; // move to maximize local negative curvature
 	int place_near; // move to the place nearest here.
+	char *pmod_string;
 	double r_near[3];
 	int nmer;
 	double coverage;

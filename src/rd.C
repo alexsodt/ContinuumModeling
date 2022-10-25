@@ -352,7 +352,7 @@ void RD::do_rd( Simulation *theSimulation )
 
 //#define DISABLE_REACTION
 #ifndef DISABLE_REACTION	
-				pcomplex *product = loadComplex( allReactions[rxn].productName );
+				pcomplex *product = loadComplex( allReactions[rxn].productName, NULL );
 				product->loadParams(params);			
 				struct surface_record *sRec = theSimulation->fetch( theSimulation->allComplexes[p]->sid[s] );
 				product->init( theSimulation, sRec->theSurface, sRec->r, theSimulation->allComplexes[p]->fs[s], theSimulation->allComplexes[p]->puv[2*s+0], theSimulation->allComplexes[p]->puv[2*s+1] );
@@ -427,9 +427,9 @@ void RD::do_rd( Simulation *theSimulation )
 				// possible outcomes are to add to a previous complex (likely case with Actin polymerization) or create a new one.	
 				// for now: create new complex.
 	
-				pcomplex *reactant1 = loadComplex( allReactions[r].pcomplex_name1 );
+				pcomplex *reactant1 = loadComplex( allReactions[r].pcomplex_name1, NULL );
 				reactant1->loadParams(params);			
-				pcomplex *reactant2 = loadComplex( allReactions[r].pcomplex_name2 );
+				pcomplex *reactant2 = loadComplex( allReactions[r].pcomplex_name2, NULL );
 				reactant2->loadParams(params);			
 	
 				struct surface_record *sRec = theSimulation->fetch( theSimulation->allComplexes[p]->sid[s] );

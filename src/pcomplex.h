@@ -425,6 +425,12 @@ struct sdynamin : dynamin
 
 };
 
+#define IFITM3_BASE_AH	0
+#define	IFITM3_P2	1
+#define IFITM3_P2_W60A  2
+#define IFITM3_P2_F63Q  3
+#define IFITM3_P2_F67Q  4
+
 struct ifitm3 : pcomplex
 {
 
@@ -444,7 +450,30 @@ struct ifitm3 : pcomplex
 	void writeStructure( Simulation *theSimulation, surface_mask *upperSurfaceMask, surface_mask *lowerSurfaceMask, struct atom_rec **at, int *nat, char ***seq, int *nseq, int **seq_at_array,  char ***patches, ion_add **ions, int *nions, struct aa_build_data *buildData, int *build_type );
 	void move_inside(void);
 	void move_outside(void);	
+	virtual int getIFITM3Index() { return IFITM3_BASE_AH; };
 };
+
+struct P2 : ifitm3
+{
+	virtual int getIFITM3Index() { return IFITM3_P2; };
+};
+
+struct P2_w60a : P2
+{
+	virtual int getIFITM3Index() { return IFITM3_P2_W60A; };
+};
+
+struct P2_f63q : P2
+{
+
+	virtual int getIFITM3Index() { return IFITM3_P2_F63Q; };
+};
+
+struct P2_f67q : P2
+{
+	virtual int getIFITM3Index() { return IFITM3_P2_F67Q; };
+};
+
 
 struct dimer : pcomplex
 {
@@ -501,6 +530,6 @@ struct elasticCrowder : pcomplex
 };
 
 void propagateSolutionParticles( Simulation *theSimulation, double dt );
-pcomplex *loadComplex( const char *name );
+pcomplex *loadComplex( const char *name, const char *mod );
 
 #endif

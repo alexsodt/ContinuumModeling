@@ -1533,7 +1533,7 @@ void pcomplex::refresh( Simulation *theSimulation )
 	memcpy( last_pos, rall, sizeof(double) * nsites*3);
 }
 
-pcomplex *loadComplex( const char *name )
+pcomplex *loadComplex( const char *name, const char *pmod )
 {
 	pcomplex *the_complex = NULL;
 
@@ -1548,7 +1548,23 @@ pcomplex *loadComplex( const char *name )
 	else if( !strcasecmp( name, "sdynamin" ) )
 		the_complex = new sdynamin;
 	else if( !strcasecmp( name, "ifitm3" ) )
-		the_complex = new ifitm3;
+	{
+		if( !pmod )
+			the_complex = new ifitm3;
+		else if( !strcasecmp( pmod, "P2" ) )
+			the_complex = new P2;
+		else if( !strcasecmp( pmod, "P2_w60a" ) )
+			the_complex = new P2_w60a;
+		else if( !strcasecmp( pmod, "P2_f63q" ) )
+			the_complex = new P2_f63q;
+		else if( !strcasecmp( pmod, "P2_f67q" ) )
+			the_complex = new P2_f67q;
+		else
+		{
+			printf("Unknown pmod option for IFITM3.\n");
+			exit(1);
+		}
+	}
 	else if( !strcasecmp( name, "dimer" ) )
 		the_complex = new dimer;
 	else if( !strcasecmp( name, "MAB" ) )
@@ -1714,7 +1730,7 @@ void Simulation::loadComplexes( parameterBlock *block )
 					io_check = 1; 
 			}
 
-			pcomplex *prot = loadComplex( rec->name );
+			pcomplex *prot = loadComplex( rec->name, rec->pmod_string );
 			prot->loadParams(block);
 			if( !strcasecmp( rec->name, "dynamin" ) )
 				((dynamin *)prot)->init(tp, rec->nmer ); 				 
@@ -1763,7 +1779,7 @@ void Simulation::loadComplexes( parameterBlock *block )
 			}
 
 
-			pcomplex *prot = loadComplex( rec->name );
+			pcomplex *prot = loadComplex( rec->name, rec->pmod_string );
 
 			prot->loadParams(block);
 			if( p < num_inside_surf || (p > num_inside_surf + num_outside_surf && rand() % 2 == 0) )

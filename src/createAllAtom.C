@@ -477,7 +477,7 @@ void surface::createAllAtom( Simulation *theSimulation, parameterBlock *block, p
 					if( !activate_martini )
 					{
 						// For the C-terminal COO-
-						pcharge -= 1;
+						//pcharge -= 1;
 					}
 	
 					char fileName[256];
@@ -515,7 +515,7 @@ void surface::createAllAtom( Simulation *theSimulation, parameterBlock *block, p
 							    "generate %s setup warn\n", use_segid );	
 					else
 					fprintf(charmmFile, "read sequence PDB SEQRES unit 10\n"
-							    "generate %s setup warn ACE last CTER\n", use_segid );	
+							    "generate %s setup warn first NTER last CTER\n", use_segid );	
 	
 					if( pcomplex_atoms[pcomp_start].res != 1 )
 					{

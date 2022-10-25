@@ -460,10 +460,16 @@ int addStructureToPool( const char *fileNameStruct, const char *fileNamePSF )
 
 	pool->has_pbc = !PBCD( &Lx, &Ly, &Lz, &a, &b, &g );
 
-	pool->Lx = Lx;
-	pool->Ly = Ly;
-	pool->Lz = Lz;
-
+	if( Lx < 0 || Ly < 0 || Lz < 0 )
+	{
+		pool->has_pbc = 0;
+	}
+	else
+	{
+		pool->Lx = Lx;
+		pool->Ly = Ly;
+		pool->Lz = Lz;
+	}
 	int *bond_offsets = NULL;
 	int *nbonds = NULL;
 	int *bond_list = NULL; 	

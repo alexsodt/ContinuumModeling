@@ -1983,7 +1983,7 @@ int getInput( const char **argv, int argc, parameterBlock *block)
 			if( nf < 2 )
 			{
 				printf("Syntax error in ``add'' command.\n");
-				printf("add COMPLEX nbound|nsolution|coverage|concentration value [inside|outside] [mod] [nmer]\n");
+				printf("add COMPLEX nbound|nsolution|coverage|concentration value [inside|outside] [mod] [nmer] [pmod]\n");
 					exit(1);
 			}
 
@@ -2070,6 +2070,18 @@ int getInput( const char **argv, int argc, parameterBlock *block)
 		
 			if( nf > woff )
 				rec->nmer = atoi(words[woff]);
+			
+			woff += 1; // location
+
+
+			rec->pmod_string = NULL;
+
+			if( nf > woff )
+			{
+				// read in protein modifications
+				rec->pmod_string = (char *)malloc( sizeof(char) * (1+strlen(words[woff]) ) );
+				strcpy( rec->pmod_string, words[woff] ); 
+			}
 
 			if( fabs( value -uvalue) > 1e-10 )
 			{
@@ -2079,6 +2091,7 @@ int getInput( const char **argv, int argc, parameterBlock *block)
 
 			for( int f = 0; f < nf; f++ )
 				free(words[f]);
+
 			free(words);
 		}
 		else

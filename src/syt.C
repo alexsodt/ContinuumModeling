@@ -1209,13 +1209,13 @@ void syt7::get(
 	memset( p, 0, sizeof(double) * 3 * npts );
 	int nav[npts];
 	memset( nav, 0, sizeof(int) * npts );
-	// these are the residues we'll average over.
+	// these are the residues we'll average over for determining specific protein points, like the CBL.
 	int res_av[6][9] = {
-		{166, 172, 225, 227, 233, -1},
-		{217, 213, -1 },
+		{166, 172, 225, 227, 233, -1}, // CBL on C2A
+		{217, 213, -1 },  // Arg/Lys pair on C2A
 		
-		{ 297, 303, 359, 365, -1 },
-		{ 347, 390, 392, -1 },
+		{ 297, 303, 359, 365, -1 }, // CBL on C2B
+		{ 347, 390, 392, -1 },  // ARg/Lys triplet on C2B          
 		
 		{138,159,197,255,174,221,238,190},
 		{399,270,289,332,320,307,353,369}
@@ -1393,23 +1393,9 @@ void syt7::get(
 	rall[5*3+1] = p[16];		
 	rall[5*3+2] = p[17];		
 
-	double rvecA[3] = { rall[4*3+0] - p[0],
-			    rall[4*3+1] - p[1],
-			    rall[4*3+2] - p[2] };
-	double rvecB[3] = { rall[5*3+0] - p[6],
-			    rall[5*3+1] - p[7],
-			    rall[5*3+2] - p[8] };
-	normalize(rvecA);
-	normalize(rvecB);
-
-	double dpA = rvecA[0]*nrm1[0] + rvecA[1] * nrm1[1] + rvecA[2] * nrm1[2];
-	double dpB = rvecB[0]*nrm3[0] + rvecB[1] * nrm3[1] + rvecB[2] * nrm3[2];
-	
 
 	for( int c = 0; c < 3; c++ )
 		Ls[c] = theSimulation->PBC_vec[c][c];
-	// nrm points away from syt
-	printf("SYT %d C2A_DP: %lf C2B_DP: %lf c_A: %le %le c_B: %le %le\n", my_id, dpA, dpB, c_val1_A, c_val2_A, c_val1_B, c_val2_B );
 	
 	int do_track = 1;
 
@@ -1474,7 +1460,9 @@ void syt7::get(
 		normalize(vec1);
 		normalize(vec2);
 		double dp = vec1[0]*vec2[0]+vec1[1]*vec2[1]+vec1[2]*vec2[2];
+#if 0 // disabling printing other stuff for now -- 06/03/2022
 		printf("DEL %d dist %le dp: %le\n", my_id, dist, dp );
+#endif
 	}
 
 	// Orientation of the special binding domains.
@@ -1672,6 +1660,7 @@ void syt7::get(
 			} 
 		}
 	}
+	
 
 	for( int domain = 0; domain < 2; domain++ )
 	{
@@ -1761,8 +1750,9 @@ void syt7::get(
 			if( res_is_interacting[r] == -1 )
 				n_interacting_ca += 1;	
 		}
+#if 0 // disabling printing other stuff for now -- 06/03/2022
 		printf("strand P%d C2%c distance: %lf nbound %d c1: %le c2: %le vec1: %lf %lf %lf vec2: %lf %lf %lf orientation: %lf %lf %lf phi: %lf ninteracting: %d interacting_ca: %d\n", my_id, (domain == 0 ? 'A' : 'B'), del, nbound[domain], c_val1, c_val2, c_vec_1_3[0], c_vec_1_3[1], c_vec_1_3[2], c_vec_2_3[0], c_vec_2_3[1], c_vec_2_3[2], proj[0], proj[1], proj[2], (180.0/M_PI) * acos(fabs(dp)), n_interacting, n_interacting_ca  );
-			
+#endif			
 		
 	}
 	
@@ -1779,6 +1769,28 @@ void syt7::get(
 	domain_com[1][0] /= ndom[1];
 	domain_com[1][1] /= ndom[1];
 	domain_com[1][2] /= ndom[1];
+	
+
+	double rvecA[3] = { domain_com[0][0] - p[0],
+			    domain_com[0][1] - p[1],
+			    domain_com[0][2] - p[2] };
+	double rvecB[3] = { domain_com[1][0] - p[6],
+			    domain_com[1][1] - p[7],
+			    domain_com[1][2] - p[8] };
+				
+	theSimulation->wrapPBC( rvecA, alphas );
+	theSimulation->wrapPBC( rvecB, alphas );
+
+	normalize(rvecA);
+	normalize(rvecB);
+
+	
+	double dpA = rvecA[0]*nrm1[0] + rvecA[1] * nrm1[1] + rvecA[2] * nrm1[2];
+	double dpB = rvecB[0]*nrm3[0] + rvecB[1] * nrm3[1] + rvecB[2] * nrm3[2];
+	double dpAB = rvecA[0] * rvecB[0] + rvecA[1] * rvecB[1] + rvecA[2] * rvecB[2];
+	
+	// nrm points away from syt
+	printf("SYT %d C2A_DP: %lf C2B_DP: %lf AB: %lf c_A: %le %le c_B: %le %le\n", my_id, dpA, dpB, dpAB, c_val1_A, c_val2_A, c_val1_B, c_val2_B );
 
 	double fp_thresh = 20.0;
 
@@ -1849,7 +1861,9 @@ void syt7::get(
 		if( r_B < fp_r + fp_thresh )
 			is_FP[1] = 1;
 
+#if 0 // disabling printing other stuff for now -- 06/03/2022
 		printf("CONTACTS %d C2A: r: %lf c: %lf %lf C2B: r: %lf c: %lf %lf res_depths:", my_id, r_A, c_val_A1, c_val_A2, r_B, c_val_B1, c_val_B2 );
+#endif
 		int max = -1;		
 		for( int a = syt7_start; a < syt7_stop ; a++ )
 		{
@@ -1878,6 +1892,8 @@ void syt7::get(
 			}		
 		}
 
+#if 0 // disabling printing other stuff for now -- 06/03/2022
+
 		for( int r = 1; r <= max; r++ )
 			printf(" %lf", depth[r] );
 		printf("\n");
@@ -1887,7 +1903,7 @@ void syt7::get(
 		for( int r = 1; r <= max; r++ )
 			printf(" %d", res_is_interacting[r] );
 		printf("\n");
-
+#endif
 
 		{
 			double at_c_1,at_c_2;
@@ -1941,6 +1957,7 @@ void syt7::get(
 			normalize(RSP_CV_2A);
 			normalize(RSP_CV_2B);
 
+#if 0 // disabling printing other stuff for now -- 06/03/2022
 			// CBL
 			printf("CBLs %d r1: %lf %lf %lf r2: %lf %lf %lf dr1: %lf %lf %lf dr2: %lf %lf %lf cvec1A: %lf %lf %lf cvec1B: %lf %lf %lf c1A: %lf c1B: %lf cvec2A: %lf %lf %lf cvec2B: %lf %lf %lf c2A: %lf c2B: %lf\n",
 				my_id,
@@ -1954,25 +1971,16 @@ void syt7::get(
 				RSP_CV_2A[0], RSP_CV_2A[1], RSP_CV_2A[2],
 				RSP_CV_2B[0], RSP_CV_2B[1], RSP_CV_2B[2],
 				c_val_2A, c_val_2B );
+#endif
 		}
 
 	}	
 
 	// angle data for creating a histogram.
 	
-
+#if 0 // DISABLING PRINTING OTHER STUFF FOR NOW --6/03/2022
 	getLocalLipidComposition( theSimulation, at, syt7_start, syt7_stop, nat_tot );
-	
-
-	// CLASSIFICATION
-
-	// * C2A near fusion pore
-	
-	// * C2B near fusion pore
-
-	// * Both near fusion pore
-	
-	// Both in bulk region
+#endif
 }
 
 
@@ -2377,7 +2385,7 @@ void syt7::getLocalLipidComposition(
 			theSimulation->wrapPBC( dr_check, alphas );
 			double r_check2 = normalize(dr_check);
 
-			printf("SYT-SYT %d domain %d POC %d dist %lf domain2 %d POC %d dist2 %lf x %lf y %lf z %lf NP: %lf %lf %lf rCBL1: %lf rCBL2: %lf\n", my_id, d1, p1, dist[f1], d2, p2, dist[f2], x_tangent_plane, y_tangent_plane, z_tangent_plane, near_point[3*f1+0], near_point[3*f1+1], near_point[3*f1+2], r_check1, r_check2  ); 
+			//printf("SYT-SYT %d domain %d POC %d dist %lf domain2 %d POC %d dist2 %lf x %lf y %lf z %lf NP: %lf %lf %lf rCBL1: %lf rCBL2: %lf\n", my_id, d1, p1, dist[f1], d2, p2, dist[f2], x_tangent_plane, y_tangent_plane, z_tangent_plane, near_point[3*f1+0], near_point[3*f1+1], near_point[3*f1+2], r_check1, r_check2  ); 
 		}
 	}
 
@@ -2489,8 +2497,8 @@ void syt7::getLocalLipidComposition(
 
 			
 
-			printf("SYT7 %d domain %d POC %d dist %lf lipid %s segid %s res %d x %lf y %lf z %lf NP: %lf %lf %lf rCBL1: %lf rCBL2: %lf c1: %lf %lf %lf val %lf c2: %lf %lf %lf val %lf \n", my_id, domain, p, dist[f], at[a].resname, at[a].segid, at[a].res, x_tangent_plane, y_tangent_plane, z_tangent_plane, near_point[3*f+0], near_point[3*f+1], near_point[3*f+2], r_check1, r_check2,
-		local_c1_x, local_c1_y, local_c1_z, c_val1, local_c2_x, local_c2_y, local_c2_z, c_val2 ); 
+//			printf("SYT7 %d domain %d POC %d dist %lf lipid %s segid %s res %d x %lf y %lf z %lf NP: %lf %lf %lf rCBL1: %lf rCBL2: %lf c1: %lf %lf %lf val %lf c2: %lf %lf %lf val %lf \n", my_id, domain, p, dist[f], at[a].resname, at[a].segid, at[a].res, x_tangent_plane, y_tangent_plane, z_tangent_plane, near_point[3*f+0], near_point[3*f+1], near_point[3*f+2], r_check1, r_check2,
+//		local_c1_x, local_c1_y, local_c1_z, c_val1, local_c2_x, local_c2_y, local_c2_z, c_val2 ); 
 				 
 		}
 	}
